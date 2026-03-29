@@ -17,6 +17,7 @@ const cardRoutes = require('./routes/cardRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const supportRoutes = require('./routes/supportRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -62,6 +63,7 @@ app.use('/cards', cardRoutes);
 app.use('/chats', chatRoutes);
 app.use('/support', supportRoutes);
 app.use('/ai', aiRoutes);
+app.use('/admin', adminRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found.' });
