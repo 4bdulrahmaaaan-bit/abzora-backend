@@ -1,4 +1,5 @@
 const { normalizeRole, serializeUser } = require('../middleware/authMiddleware');
+const User = require('../models/User');
 
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
 const SELF_ASSIGNABLE_ROLES = new Set(['user', 'customer', 'vendor', 'rider']);
@@ -54,6 +55,45 @@ function debugAuth(req, res) {
       },
     },
   });
+}
+
+function normalizePhone(value) {
+  return value == null ? '' : value.toString().trim();
+}
+
+async function upsertTestUser(req, res, next) {
+  try {
+    const phone = normalizePhone(req.body?.phone);
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'phone is required.',
+      });
+    }
+
+    let user = await User.findOne({ phone });
+    if (!user) {
+      const syntheticUid = `phone:${phone}`;
+      user = await User.create({
+        firebaseUid: syntheticUid,
+        uid: syntheticUid,
+        phone,
+        role: 'customer',
+        roles: { customer: true },
+        name: 'ABZORA Member',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: serializeUserResponse(user),
+    });
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    return next(error);
+  }
 }
 
 async function syncProfile(req, res, next) {
@@ -124,5 +164,6 @@ async function syncProfile(req, res, next) {
 module.exports = {
   me,
   debugAuth,
+  upsertTestUser,
   syncProfile,
 };
