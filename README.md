@@ -58,6 +58,10 @@ npm start
 ```
 
 4. Add all environment variables from `.env.example`
+5. On Render, Firebase Admin should use env vars instead of a local JSON file:
+   - `FIREBASE_PROJECT_ID`
+   - `FIREBASE_CLIENT_EMAIL`
+   - `FIREBASE_PRIVATE_KEY`
 
 ### MongoDB Atlas
 
