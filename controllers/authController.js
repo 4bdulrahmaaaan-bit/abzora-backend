@@ -34,7 +34,7 @@ function serializeUserResponse(user) {
 function me(req, res) {
   return res.status(200).json({
     success: true,
-    data: serializeUserResponse(req.user),
+    data: serializeUserResponse(req.dbUser || req.user),
   });
 }
 

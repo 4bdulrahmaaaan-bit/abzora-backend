@@ -2,10 +2,16 @@ const mongoose = require('mongoose');
 
 const userSchema = new mongoose.Schema(
   {
-    uid: {
+    firebaseUid: {
       type: String,
       required: true,
       unique: true,
+      index: true,
+      trim: true,
+    },
+    uid: {
+      type: String,
+      required: true,
       index: true,
       trim: true,
     },
@@ -64,7 +70,7 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       enum: ['user', 'customer', 'vendor', 'rider', 'admin', 'super_admin'],
-      default: 'user',
+      default: 'customer',
     },
     isActive: {
       type: Boolean,
@@ -113,5 +119,17 @@ const userSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+userSchema.pre('validate', function syncFirebaseUid(next) {
+  if (!this.firebaseUid && this.uid) {
+    this.firebaseUid = this.uid;
+  }
+  if (!this.uid && this.firebaseUid) {
+    this.uid = this.firebaseUid;
+  }
+  next();
+});
+
+userSchema.index({ uid: 1 }, { unique: true });
 
 module.exports = mongoose.model('User', userSchema);
