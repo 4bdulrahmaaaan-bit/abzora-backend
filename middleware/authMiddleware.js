@@ -57,6 +57,7 @@ function serializeUser(user) {
 
 async function upsertFirebaseUser(decoded) {
   const decodedEmail = decoded.email || '';
+  const decodedPhone = decoded.phone_number || '';
   const shouldPromoteAdmin = isAllowedAdminEmail(decodedEmail);
 
   let user = await User.findOne({
@@ -64,6 +65,7 @@ async function upsertFirebaseUser(decoded) {
       { firebaseUid: decoded.uid },
       { uid: decoded.uid },
       ...(decodedEmail ? [{ email: decodedEmail }] : []),
+      ...(decodedPhone ? [{ phone: decodedPhone }] : []),
     ],
   });
 
@@ -72,7 +74,7 @@ async function upsertFirebaseUser(decoded) {
       firebaseUid: decoded.uid,
       uid: decoded.uid,
       email: decodedEmail,
-      phone: decoded.phone_number || '',
+      phone: decodedPhone,
       name: decoded.name || 'ABZORA Member',
       role: shouldPromoteAdmin ? 'admin' : normalizeRole(decoded.role, 'customer'),
       roles: decoded.roles && Object.keys(decoded.roles || {}).length
@@ -87,7 +89,7 @@ async function upsertFirebaseUser(decoded) {
   user.firebaseUid = decoded.uid;
   user.uid = decoded.uid;
   user.email = decodedEmail || user.email;
-  user.phone = decoded.phone_number || user.phone;
+  user.phone = decodedPhone || user.phone;
   user.name = decoded.name || user.name;
   user.role = shouldPromoteAdmin ? 'admin' : normalizeRole(user.role, 'customer');
   if (!user.roles || Object.keys(user.roles instanceof Map ? Object.fromEntries(user.roles.entries()) : user.roles).length == 0) {
