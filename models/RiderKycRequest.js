@@ -13,6 +13,9 @@ const kycActionEntrySchema = new mongoose.Schema(
 
 const kycDocumentsSchema = new mongoose.Schema(
   {
+    ownerPhotoUrl: { type: String, trim: true, default: '' },
+    storeImageUrl: { type: String, trim: true, default: '' },
+    profilePhotoUrl: { type: String, trim: true, default: '' },
     aadhaarUrl: { type: String, trim: true, default: '' },
     panUrl: { type: String, trim: true, default: '' },
     selfieUrl: { type: String, trim: true, default: '' },
