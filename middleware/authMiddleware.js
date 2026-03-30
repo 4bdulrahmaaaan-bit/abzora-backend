@@ -2,6 +2,19 @@ const initializeFirebase = require('../config/firebase');
 const User = require('../models/User');
 
 const VALID_ROLES = new Set(['user', 'customer', 'vendor', 'rider', 'admin', 'super_admin']);
+const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
+
+function allowedAdminEmails() {
+  return (process.env.ALLOWED_ADMIN_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isAllowedAdminEmail(email) {
+  const normalized = email?.toString().trim().toLowerCase() || '';
+  return normalized ? allowedAdminEmails().includes(normalized) : false;
+}
 
 function normalizeRole(role, fallback = 'customer') {
   const normalized = role?.toString().trim().toLowerCase();
@@ -43,33 +56,51 @@ function serializeUser(user) {
 }
 
 async function upsertFirebaseUser(decoded) {
+  const decodedEmail = decoded.email || '';
+  const shouldPromoteAdmin = isAllowedAdminEmail(decodedEmail);
+
   let user = await User.findOne({
-    $or: [{ firebaseUid: decoded.uid }, { uid: decoded.uid }],
+    $or: [
+      { firebaseUid: decoded.uid },
+      { uid: decoded.uid },
+      ...(decodedEmail ? [{ email: decodedEmail }] : []),
+    ],
   });
 
   if (!user) {
     user = await User.create({
       firebaseUid: decoded.uid,
       uid: decoded.uid,
-      email: decoded.email || '',
+      email: decodedEmail,
       phone: decoded.phone_number || '',
       name: decoded.name || 'ABZORA Member',
-      role: normalizeRole(decoded.role, 'customer'),
+      role: shouldPromoteAdmin ? 'admin' : normalizeRole(decoded.role, 'customer'),
       roles: decoded.roles && Object.keys(decoded.roles || {}).length
         ? decoded.roles
-        : { customer: true },
+        : shouldPromoteAdmin
+          ? { admin: true }
+          : { customer: true },
     });
     return user;
   }
 
   user.firebaseUid = decoded.uid;
   user.uid = decoded.uid;
-  user.email = decoded.email || user.email;
+  user.email = decodedEmail || user.email;
   user.phone = decoded.phone_number || user.phone;
   user.name = decoded.name || user.name;
-  user.role = normalizeRole(user.role, 'customer');
+  user.role = shouldPromoteAdmin ? 'admin' : normalizeRole(user.role, 'customer');
   if (!user.roles || Object.keys(user.roles instanceof Map ? Object.fromEntries(user.roles.entries()) : user.roles).length == 0) {
-    user.roles = { customer: true };
+    user.roles = shouldPromoteAdmin ? { admin: true } : { customer: true };
+  } else if (shouldPromoteAdmin) {
+    const nextRoles = user.roles instanceof Map
+      ? Object.fromEntries(user.roles.entries())
+      : { ...user.roles };
+    nextRoles.admin = true;
+    user.roles = nextRoles;
+  }
+  if (shouldPromoteAdmin && !PRIVILEGED_ROLES.has(user.role)) {
+    user.role = 'admin';
   }
   user.lastLoginAt = new Date();
   await user.save();
