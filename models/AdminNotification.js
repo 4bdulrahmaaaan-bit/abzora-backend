@@ -1,0 +1,18 @@
+const mongoose = require('mongoose');
+
+const adminNotificationSchema = new mongoose.Schema(
+  {
+    notificationId: { type: String, required: true, unique: true, trim: true },
+    title: { type: String, required: true, trim: true },
+    body: { type: String, required: true, trim: true },
+    type: { type: String, default: 'general', trim: true },
+    isRead: { type: Boolean, default: false },
+    timestamp: { type: String, required: true, trim: true },
+    audienceRole: { type: String, default: 'user', trim: true },
+    userId: { type: String, default: '', trim: true },
+    storeId: { type: String, default: '', trim: true },
+  },
+  { timestamps: true }
+);
+
+module.exports = mongoose.model('AdminNotification', adminNotificationSchema);

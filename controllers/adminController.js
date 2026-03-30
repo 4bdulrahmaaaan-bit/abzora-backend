@@ -5,6 +5,11 @@ const Order = require('../models/Order');
 const SupportChat = require('../models/SupportChat');
 const VendorKycRequest = require('../models/VendorKycRequest');
 const RiderKycRequest = require('../models/RiderKycRequest');
+const AdminPlatformSettings = require('../models/AdminPlatformSettings');
+const AdminNotification = require('../models/AdminNotification');
+const AdminPayout = require('../models/AdminPayout');
+const AdminDispute = require('../models/AdminDispute');
+const AdminActivityLog = require('../models/AdminActivityLog');
 const { isAllowedAdminEmail } = require('./authController');
 
 function ensureAdmin(req, res) {
@@ -106,6 +111,8 @@ function serializeStore(item) {
     isActive: item.isActive !== false,
     createdAt: item.createdAt?.toISOString?.() || '',
     updatedAt: item.updatedAt?.toISOString?.() || '',
+    commissionRate: Number(item.commissionRate || 0.12),
+    walletBalance: Number(item.walletBalance || 0),
   };
 }
 
@@ -163,6 +170,92 @@ function serializeOrder(item) {
     createdAt: item.createdAt?.toISOString?.() || '',
     updatedAt: item.updatedAt?.toISOString?.() || '',
   };
+}
+
+function serializeSettings(item) {
+  const cities = item?.cities instanceof Map ? Object.fromEntries(item.cities.entries()) : (item?.cities || {});
+  const regions = item?.regionVendorAvailability instanceof Map
+    ? Object.fromEntries(item.regionVendorAvailability.entries())
+    : (item?.regionVendorAvailability || {});
+  return {
+    customTailoringEnabled: item?.customTailoringEnabled ?? true,
+    reelsEnabled: item?.reelsEnabled ?? true,
+    offersEnabled: item?.offersEnabled ?? true,
+    checkoutEnabled: item?.checkoutEnabled ?? true,
+    marketplaceEnabled: item?.marketplaceEnabled ?? true,
+    riderDispatchEnabled: item?.riderDispatchEnabled ?? true,
+    cities,
+    regionVendorAvailability: regions,
+    allowedAdminDevices: item?.allowedAdminDevices || ['web-chrome', 'windows-desktop'],
+    adminIdleTimeoutMinutes: Number(item?.adminIdleTimeoutMinutes || 10),
+    adminPinEnabled: item?.adminPinEnabled ?? false,
+    adminPin: item?.adminPin || '1234',
+    aiDailyCostAlertThreshold: Number(item?.aiDailyCostAlertThreshold || 1.0),
+    aiDailyCostLimit: Number(item?.aiDailyCostLimit || 500),
+    aiAssistantEnabled: item?.aiAssistantEnabled ?? true,
+  };
+}
+
+function serializeNotification(item) {
+  return {
+    id: item.notificationId,
+    title: item.title || '',
+    body: item.body || '',
+    type: item.type || 'general',
+    isRead: item.isRead === true,
+    timestamp: item.timestamp || toIsoNow(),
+    audienceRole: item.audienceRole || 'user',
+    userId: item.userId || null,
+    storeId: item.storeId || null,
+  };
+}
+
+function serializePayout(item) {
+  return {
+    id: item.payoutId,
+    storeId: item.storeId || '',
+    processedBy: item.processedBy || '',
+    amount: Number(item.amount || 0),
+    periodLabel: item.periodLabel || '',
+    createdAt: item.createdAtIso || item.createdAt?.toISOString?.() || '',
+    orderIds: item.orderIds || [],
+    status: item.status || 'Processed',
+  };
+}
+
+function serializeDispute(item) {
+  return {
+    id: item.disputeId,
+    orderId: item.orderId || '',
+    userId: item.userId || '',
+    storeId: item.storeId || '',
+    type: item.type || 'Dispute',
+    status: item.status || 'Open',
+    amount: Number(item.amount || 0),
+    reason: item.reason || '',
+    createdAt: item.createdAtIso || item.createdAt?.toISOString?.() || '',
+  };
+}
+
+function serializeActivityLog(item) {
+  return {
+    id: item.logId,
+    actorId: item.actorId || '',
+    actorRole: item.actorRole || '',
+    action: item.action || '',
+    targetType: item.targetType || '',
+    targetId: item.targetId || '',
+    message: item.message || '',
+    timestamp: item.timestampIso || item.createdAt?.toISOString?.() || '',
+  };
+}
+
+async function getOrCreateSettings() {
+  let settings = await AdminPlatformSettings.findOne({ key: 'platform-settings' });
+  if (!settings) {
+    settings = await AdminPlatformSettings.create({ key: 'platform-settings' });
+  }
+  return settings;
 }
 
 async function getDashboardSummary(req, res, next) {
@@ -336,6 +429,222 @@ async function listRiderKycRequests(req, res, next) {
   }
 }
 
+async function getPlatformSettings(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const settings = await getOrCreateSettings();
+    return res.status(200).json({ success: true, data: serializeSettings(settings) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function savePlatformSettings(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const settings = await getOrCreateSettings();
+    Object.assign(settings, {
+      customTailoringEnabled: req.body?.customTailoringEnabled ?? settings.customTailoringEnabled,
+      reelsEnabled: req.body?.reelsEnabled ?? settings.reelsEnabled,
+      offersEnabled: req.body?.offersEnabled ?? settings.offersEnabled,
+      checkoutEnabled: req.body?.checkoutEnabled ?? settings.checkoutEnabled,
+      marketplaceEnabled: req.body?.marketplaceEnabled ?? settings.marketplaceEnabled,
+      riderDispatchEnabled: req.body?.riderDispatchEnabled ?? settings.riderDispatchEnabled,
+      cities: req.body?.cities || settings.cities,
+      regionVendorAvailability: req.body?.regionVendorAvailability || settings.regionVendorAvailability,
+      allowedAdminDevices: req.body?.allowedAdminDevices || settings.allowedAdminDevices,
+      adminIdleTimeoutMinutes: Number(req.body?.adminIdleTimeoutMinutes ?? settings.adminIdleTimeoutMinutes),
+      adminPinEnabled: req.body?.adminPinEnabled ?? settings.adminPinEnabled,
+      adminPin: req.body?.adminPin ?? settings.adminPin,
+      aiDailyCostAlertThreshold: Number(req.body?.aiDailyCostAlertThreshold ?? settings.aiDailyCostAlertThreshold),
+      aiDailyCostLimit: Number(req.body?.aiDailyCostLimit ?? settings.aiDailyCostLimit),
+      aiAssistantEnabled: req.body?.aiAssistantEnabled ?? settings.aiAssistantEnabled,
+    });
+    await settings.save();
+    return res.status(200).json({ success: true, data: serializeSettings(settings) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listNotifications(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const items = await AdminNotification.find({
+      audienceRole: { $in: ['admin', 'all'] },
+    }).sort({ createdAt: -1, _id: -1 }).limit(200);
+    return res.status(200).json({ success: true, data: items.map(serializeNotification) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createNotification(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const notificationId = String(req.body?.id || `notif-${Date.now()}`).trim();
+    const item = await AdminNotification.findOneAndUpdate(
+      { notificationId },
+      {
+        notificationId,
+        title: String(req.body?.title || '').trim(),
+        body: String(req.body?.body || '').trim(),
+        type: String(req.body?.type || 'general').trim(),
+        isRead: Boolean(req.body?.isRead),
+        timestamp: String(req.body?.timestamp || toIsoNow()).trim(),
+        audienceRole: String(req.body?.audienceRole || 'user').trim(),
+        userId: String(req.body?.userId || '').trim(),
+        storeId: String(req.body?.storeId || '').trim(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return res.status(200).json({ success: true, data: serializeNotification(item) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listPayouts(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const items = await AdminPayout.find({}).sort({ createdAt: -1, _id: -1 }).limit(200);
+    return res.status(200).json({ success: true, data: items.map(serializePayout) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function processPayout(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const storeId = String(req.body?.storeId || '').trim();
+    const periodLabel = String(req.body?.periodLabel || 'Manual payout').trim();
+    if (!storeId) {
+      return res.status(400).json({ success: false, message: 'storeId is required.' });
+    }
+
+    const priorPayouts = await AdminPayout.find({ storeId });
+    const paidOrderIds = new Set(priorPayouts.flatMap((item) => item.orderIds || []));
+    const readyOrders = await Order.find({
+      storeId,
+      paymentStatus: 'paid',
+      orderStatus: 'delivered',
+    });
+    const eligibleOrders = readyOrders.filter((order) => !paidOrderIds.has(order._id.toString()));
+    if (eligibleOrders.length === 0) {
+      return res.status(200).json({ success: true, data: null });
+    }
+
+    const amount = eligibleOrders.reduce((sum, order) => sum + Number(order.totalAmount || 0) * 0.88, 0);
+    const payoutId = `payout-${Date.now()}`;
+    const payout = await AdminPayout.create({
+      payoutId,
+      storeId,
+      processedBy: req.user.uid,
+      amount,
+      periodLabel,
+      createdAtIso: toIsoNow(),
+      orderIds: eligibleOrders.map((order) => order._id.toString()),
+      status: 'Processed',
+    });
+    return res.status(200).json({ success: true, data: serializePayout(payout) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listDisputes(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const items = await AdminDispute.find({}).sort({ createdAt: -1, _id: -1 }).limit(200);
+    return res.status(200).json({ success: true, data: items.map(serializeDispute) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function updateDispute(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const disputeId = String(req.params.id || req.body?.id || '').trim();
+    if (!disputeId) {
+      return res.status(400).json({ success: false, message: 'Dispute id is required.' });
+    }
+    const item = await AdminDispute.findOneAndUpdate(
+      { disputeId },
+      {
+        disputeId,
+        orderId: String(req.body?.orderId || '').trim(),
+        userId: String(req.body?.userId || '').trim(),
+        storeId: String(req.body?.storeId || '').trim(),
+        type: String(req.body?.type || 'Dispute').trim(),
+        status: String(req.body?.status || 'Open').trim(),
+        amount: Number(req.body?.amount || 0),
+        reason: String(req.body?.reason || '').trim(),
+        createdAtIso: String(req.body?.createdAt || toIsoNow()).trim(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return res.status(200).json({ success: true, data: serializeDispute(item) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listActivityLogs(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const items = await AdminActivityLog.find({}).sort({ createdAt: -1, _id: -1 }).limit(300);
+    return res.status(200).json({ success: true, data: items.map(serializeActivityLog) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createActivityLog(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const logId = String(req.body?.id || `log-${Date.now()}`).trim();
+    const item = await AdminActivityLog.findOneAndUpdate(
+      { logId },
+      {
+        logId,
+        actorId: String(req.body?.actorId || req.user.uid || '').trim(),
+        actorRole: String(req.body?.actorRole || req.user.role || 'admin').trim(),
+        action: String(req.body?.action || '').trim(),
+        targetType: String(req.body?.targetType || '').trim(),
+        targetId: String(req.body?.targetId || '').trim(),
+        message: String(req.body?.message || '').trim(),
+        timestampIso: String(req.body?.timestamp || toIsoNow()).trim(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return res.status(200).json({ success: true, data: serializeActivityLog(item) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function reviewVendorKycRequest(req, res, next) {
   try {
     if (!ensureAdmin(req, res)) {
@@ -459,6 +768,16 @@ module.exports = {
   listStores,
   listProducts,
   listOrders,
+  getPlatformSettings,
+  savePlatformSettings,
+  listNotifications,
+  createNotification,
+  listPayouts,
+  processPayout,
+  listDisputes,
+  updateDispute,
+  listActivityLogs,
+  createActivityLog,
   listVendorKycRequests,
   listRiderKycRequests,
   reviewVendorKycRequest,
