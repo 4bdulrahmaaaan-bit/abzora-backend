@@ -5,6 +5,21 @@ const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
 const SELF_ASSIGNABLE_ROLES = new Set(['user', 'customer', 'vendor', 'rider']);
 const APPROVAL_STATUSES = new Set(['pending', 'approved', 'rejected', 'suspended']);
 
+function allowedAdminEmails() {
+  return (process.env.ALLOWED_ADMIN_EMAILS || '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isAllowedAdminEmail(email) {
+  const normalized = toSafeTrimmedString(email).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return allowedAdminEmails().includes(normalized);
+}
+
 function toSafeTrimmedString(value) {
   return value == null ? '' : value.toString().trim();
 }
@@ -32,11 +47,35 @@ function serializeUserResponse(user) {
   };
 }
 
-function me(req, res) {
+async function me(req, res, next) {
+  try {
+    const user = req.dbUser;
+    if (user && isAllowedAdminEmail(req.user?.email || user.email)) {
+      if (!PRIVILEGED_ROLES.has(user.role)) {
+        user.role = 'admin';
+      }
+      const nextRoles =
+        user.roles instanceof Map
+          ? Object.fromEntries(user.roles.entries())
+          : { ...(user.roles || {}) };
+      nextRoles.admin = true;
+      user.roles = nextRoles;
+      user.email = toSafeTrimmedString(req.user?.email) || user.email;
+      await user.save();
+      req.user = {
+        ...req.user,
+        ...serializeUser(user),
+        _id: user._id,
+      };
+    }
+
   return res.status(200).json({
     success: true,
-    data: serializeUserResponse(req.dbUser || req.user),
+    data: serializeUserResponse(user || req.user),
   });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 function debugAuth(req, res) {
@@ -166,4 +205,5 @@ module.exports = {
   debugAuth,
   upsertTestUser,
   syncProfile,
+  isAllowedAdminEmail,
 };

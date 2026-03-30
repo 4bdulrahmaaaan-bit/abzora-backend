@@ -5,9 +5,12 @@ const Order = require('../models/Order');
 const SupportChat = require('../models/SupportChat');
 const VendorKycRequest = require('../models/VendorKycRequest');
 const RiderKycRequest = require('../models/RiderKycRequest');
+const { isAllowedAdminEmail } = require('./authController');
 
 function ensureAdmin(req, res) {
-  if (req.user?.role !== 'admin' && req.user?.role !== 'super_admin') {
+  const hasPrivilegedRole = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
+  if (!hasPrivilegedRole || !emailAllowed) {
     res.status(403).json({ success: false, message: 'Admin access required.' });
     return false;
   }
