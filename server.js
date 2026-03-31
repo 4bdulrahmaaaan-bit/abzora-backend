@@ -21,6 +21,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const kycRoutes = require('./routes/kycRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const bookingRoutes = require('./routes/bookingRoutes');
+const bannerRoutes = require('./routes/bannerRoutes');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -70,6 +71,7 @@ app.use('/admin', adminRoutes);
 app.use('/kyc', kycRoutes);
 app.use('/reviews', reviewRoutes);
 app.use('/bookings', bookingRoutes);
+app.use('/banners', bannerRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found.' });
