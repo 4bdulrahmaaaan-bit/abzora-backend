@@ -10,6 +10,7 @@ function serializeStore(store) {
   const source = typeof store.toObject === 'function' ? store.toObject() : store;
   return {
     id: source._id?.toString() || source.id || '',
+    vendorId: source.vendorId?._id?.toString?.() || source.vendorId?.toString?.() || '',
     name: source.name || '',
     description: source.description || '',
     rating: Number(source.rating || 0),
@@ -17,6 +18,8 @@ function serializeStore(store) {
     logoUrl: source.logoUrl || '',
     ownerId: source.ownerId || '',
     isActive: Boolean(source.isActive),
+    commissionRate: Number(source.commissionRate || 0.12),
+    walletBalance: Number(source.walletBalance || 0),
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,
   };
@@ -89,7 +92,15 @@ async function getOwnStore(req, res, next) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
 
-    const store = await Store.findOne({ ownerId: req.user.uid }).sort({ createdAt: -1 });
+    const store = await Store.findOne({
+      $or: [
+        { ownerId: req.user.uid },
+        ...(req.dbUser?._id ? [{ vendorId: req.dbUser._id }] : []),
+        ...(req.dbUser?.storeId && mongoose.Types.ObjectId.isValid(req.dbUser.storeId)
+          ? [{ _id: req.dbUser.storeId }]
+          : []),
+      ],
+    }).sort({ createdAt: -1 });
     if (!store) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
