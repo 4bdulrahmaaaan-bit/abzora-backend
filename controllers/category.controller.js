@@ -110,10 +110,19 @@ async function createCategory(req, res, next) {
 
 async function getCategories(req, res, next) {
   try {
-    const categories = await Category.find({ isActive: true }).sort({ order: 1, createdAt: 1 });
+    const isPrivilegedRequest =
+      (req.user?.role === 'admin' || req.user?.role === 'super_admin') &&
+      isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
+
+    const categories = await Category.find(isPrivilegedRequest ? {} : { isActive: true }).sort({
+      order: 1,
+      createdAt: 1,
+    });
     return res.status(200).json({
       success: true,
-      data: categories.map((item) => serializeCategory(item, { activeOnly: true })),
+      data: categories.map((item) =>
+        serializeCategory(item, { activeOnly: !isPrivilegedRequest }),
+      ),
     });
   } catch (error) {
     return next(error);

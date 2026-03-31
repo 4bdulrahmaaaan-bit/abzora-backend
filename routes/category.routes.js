@@ -14,7 +14,15 @@ const {
 
 const router = express.Router();
 
-router.get('/', getCategories);
+function optionalAuth(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+  return authMiddleware(req, res, next);
+}
+
+router.get('/', optionalAuth, getCategories);
 router.post('/', authMiddleware, createCategory);
 router.put('/:id', authMiddleware, updateCategory);
 router.patch('/:id/status', authMiddleware, toggleCategoryStatus);
