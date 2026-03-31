@@ -19,6 +19,11 @@ const storeSchema = new mongoose.Schema(
       min: 0,
       max: 5,
     },
+    reviewCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     description: {
       type: String,
       trim: true,

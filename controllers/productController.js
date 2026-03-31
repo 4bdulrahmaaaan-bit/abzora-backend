@@ -34,6 +34,8 @@ function serializeProduct(product, options = {}) {
     stock: Number(source.stock || 0),
     category: source.category || '',
     images: Array.isArray(source.images) ? source.images : [],
+    rating: Number(source.rating || 0),
+    reviewCount: Number(source.reviewCount || 0),
     storeId: populatedStore ? populatedStore._id?.toString() || populatedStore.id || '' : source.storeId?.toString() || '',
     store: populatedStore ? serializeStoreSummary(populatedStore) : null,
     isActive: Boolean(source.isActive),

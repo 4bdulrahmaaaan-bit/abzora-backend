@@ -13,6 +13,7 @@ function serializeStore(store) {
     name: source.name || '',
     description: source.description || '',
     rating: Number(source.rating || 0),
+    reviewCount: Number(source.reviewCount || 0),
     logoUrl: source.logoUrl || '',
     ownerId: source.ownerId || '',
     isActive: Boolean(source.isActive),
