@@ -2,6 +2,14 @@ const mongoose = require('mongoose');
 
 const storeSchema = new mongoose.Schema(
   {
+    vendorId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      unique: true,
+      sparse: true,
+      index: true,
+      default: null,
+    },
     name: {
       type: String,
       required: true,
