@@ -1,8 +1,10 @@
+const mongoose = require('mongoose');
 const { normalizeRole, serializeUser } = require('../middleware/authMiddleware');
 const Store = require('../models/Store');
 const User = require('../models/User');
 const UserAddress = require('../models/UserAddress');
 const UserMemory = require('../models/UserMemory');
+const VendorKycRequest = require('../models/VendorKycRequest');
 
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
 const SELF_ASSIGNABLE_ROLES = new Set(['user', 'customer', 'vendor', 'rider']);
@@ -83,25 +85,96 @@ function serializeUserMemory(memory, userId) {
   };
 }
 
+async function findApprovedVendorKyc(user) {
+  if (!user) {
+    return null;
+  }
+
+  return VendorKycRequest.findOne({
+    status: 'approved',
+    $or: [
+      ...(user.firebaseUid ? [{ userId: user.firebaseUid }] : []),
+      ...(user.uid ? [{ userId: user.uid }] : []),
+      ...(user.phone ? [{ phone: user.phone }] : []),
+    ],
+  }).sort({ updatedAt: -1, _id: -1 });
+}
+
 async function ensureLinkedStoreId(user) {
-  if (!user || user.role !== 'vendor' || (user.storeId || '').trim().length > 0) {
+  if (!user) {
     return user;
   }
 
-  const linkedStore = await Store.findOne({
+  const approvedVendorKyc = await findApprovedVendorKyc(user);
+  const shouldPromoteVendor =
+    user.role === 'vendor' ||
+    Boolean(approvedVendorKyc);
+
+  if (!shouldPromoteVendor) {
+    return user;
+  }
+
+  const currentRoles =
+    user.roles instanceof Map
+      ? Object.fromEntries(user.roles.entries())
+      : { ...(user.roles || {}) };
+
+  let needsSave = false;
+  if (user.role !== 'vendor') {
+    user.role = 'vendor';
+    needsSave = true;
+  }
+  if (!user.isActive) {
+    user.isActive = true;
+    needsSave = true;
+  }
+  if (!currentRoles.vendor) {
+    currentRoles.vendor = true;
+    user.roles = currentRoles;
+    needsSave = true;
+  }
+
+  let linkedStore = await Store.findOne({
     $or: [
       ...(user._id ? [{ vendorId: user._id }] : []),
       ...(user.firebaseUid ? [{ ownerId: user.firebaseUid }] : []),
       ...(user.uid ? [{ ownerId: user.uid }] : []),
+      ...((user.storeId || '').trim().length > 0 && mongoose.Types.ObjectId.isValid(user.storeId)
+        ? [{ _id: user.storeId }]
+        : []),
     ],
   }).sort({ createdAt: -1 });
 
-  if (!linkedStore) {
-    return user;
+  if (!linkedStore && approvedVendorKyc) {
+    linkedStore = await Store.create({
+      vendorId: user._id,
+      ownerId: user.firebaseUid || user.uid || user._id.toString(),
+      name:
+        toSafeTrimmedString(approvedVendorKyc.storeName) ||
+        toSafeTrimmedString(approvedVendorKyc.ownerName) ||
+        toSafeTrimmedString(user.name) ||
+        'My Store',
+      description: toSafeTrimmedString(approvedVendorKyc.address),
+      isActive: true,
+    });
+    needsSave = true;
   }
 
-  user.storeId = linkedStore._id.toString();
-  await user.save();
+  if (linkedStore) {
+    if (!linkedStore.vendorId && user._id) {
+      linkedStore.vendorId = user._id;
+      await linkedStore.save();
+    }
+    if ((user.storeId || '').trim() !== linkedStore._id.toString()) {
+      user.storeId = linkedStore._id.toString();
+      needsSave = true;
+    }
+  }
+
+  if (needsSave) {
+    await user.save();
+  }
+
   return user;
 }
 

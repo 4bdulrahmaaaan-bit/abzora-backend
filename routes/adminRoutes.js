@@ -20,6 +20,7 @@ const {
   listVendorKycRequests,
   listRiderKycRequests,
   approveVendor,
+  fixVendorStore,
   reviewVendorKycRequest,
   reviewRiderKycRequest,
 } = require('../controllers/adminController');
@@ -46,6 +47,7 @@ router.post('/activity-logs', createActivityLog);
 router.get('/kyc/vendors', listVendorKycRequests);
 router.get('/kyc/riders', listRiderKycRequests);
 router.post('/approve-vendor', approveVendor);
+router.post('/fix-vendor-store', fixVendorStore);
 router.patch('/kyc/vendors/:id/review', reviewVendorKycRequest);
 router.patch('/kyc/riders/:id/review', reviewRiderKycRequest);
 

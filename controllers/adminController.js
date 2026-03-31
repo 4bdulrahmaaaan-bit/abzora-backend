@@ -257,6 +257,7 @@ async function findVendorUserByPublicId(publicUserId) {
       { _id: publicUserId },
       { firebaseUid: publicUserId },
       { uid: publicUserId },
+      { phone: publicUserId },
     ],
   });
 }
@@ -835,6 +836,92 @@ async function approveVendor(req, res, next) {
   }
 }
 
+async function fixVendorStore(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+
+    const publicUserId = String(req.body?.userId || req.body?.phone || '').trim();
+    if (!publicUserId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId or phone is required.',
+      });
+    }
+
+    const user = await findVendorUserByPublicId(publicUserId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Vendor user not found.' });
+    }
+
+    const vendorKycRequest = await VendorKycRequest.findOne({
+      $or: [
+        { userId: user.firebaseUid },
+        { userId: user.uid },
+        { phone: user.phone || '' },
+        { userId: publicUserId },
+      ],
+    }).sort({ updatedAt: -1, _id: -1 });
+
+    user.role = 'vendor';
+    user.isActive = true;
+    user.roles = {
+      ...(user.roles instanceof Map ? Object.fromEntries(user.roles.entries()) : (user.roles || {})),
+      vendor: true,
+    };
+
+    if (vendorKycRequest) {
+      vendorKycRequest.status = 'approved';
+      vendorKycRequest.rejectionReason = '';
+      vendorKycRequest.reviewedBy = req.user.uid;
+      vendorKycRequest.reviewedByName = req.user.name || 'Admin';
+      vendorKycRequest.reviewedAt = toIsoNow();
+      vendorKycRequest.actionHistory = [
+        ...(vendorKycRequest.actionHistory || []),
+        {
+          actorId: req.user.uid,
+          actorName: req.user.name || 'Admin',
+          action: 'repair_store_link',
+          note: 'Repaired missing vendor store link.',
+          timestamp: vendorKycRequest.reviewedAt,
+        },
+      ];
+      await vendorKycRequest.save();
+    }
+
+    await user.save();
+
+    const store = await ensureVendorStoreForUser(user, {
+      storeName:
+        vendorKycRequest?.storeName ||
+        vendorKycRequest?.ownerName ||
+        user.name ||
+        'My Store',
+      description:
+        vendorKycRequest?.address ||
+        '',
+    });
+
+    if (!store.description && vendorKycRequest?.address) {
+      store.description = vendorKycRequest.address;
+      await store.save();
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Vendor store repaired successfully.',
+      data: {
+        user: serializeUser(user),
+        store: serializeStore(store),
+        kyc: vendorKycRequest ? serializeVendorKyc(vendorKycRequest) : null,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function reviewRiderKycRequest(req, res, next) {
   try {
     if (!ensureAdmin(req, res)) {
@@ -918,6 +1005,7 @@ module.exports = {
   listVendorKycRequests,
   listRiderKycRequests,
   approveVendor,
+  fixVendorStore,
   reviewVendorKycRequest,
   reviewRiderKycRequest,
 };
