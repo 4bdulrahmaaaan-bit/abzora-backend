@@ -1,4 +1,5 @@
 const { normalizeRole, serializeUser } = require('../middleware/authMiddleware');
+const Store = require('../models/Store');
 const User = require('../models/User');
 const UserAddress = require('../models/UserAddress');
 const UserMemory = require('../models/UserMemory');
@@ -82,9 +83,31 @@ function serializeUserMemory(memory, userId) {
   };
 }
 
+async function ensureLinkedStoreId(user) {
+  if (!user || user.role !== 'vendor' || (user.storeId || '').trim().length > 0) {
+    return user;
+  }
+
+  const linkedStore = await Store.findOne({
+    $or: [
+      ...(user._id ? [{ vendorId: user._id }] : []),
+      ...(user.firebaseUid ? [{ ownerId: user.firebaseUid }] : []),
+      ...(user.uid ? [{ ownerId: user.uid }] : []),
+    ],
+  }).sort({ createdAt: -1 });
+
+  if (!linkedStore) {
+    return user;
+  }
+
+  user.storeId = linkedStore._id.toString();
+  await user.save();
+  return user;
+}
+
 async function me(req, res, next) {
   try {
-    const user = req.dbUser;
+    let user = req.dbUser;
     if (user && isAllowedAdminEmail(req.user?.email || user.email)) {
       if (!PRIVILEGED_ROLES.has(user.role)) {
         user.role = 'admin';
@@ -97,6 +120,15 @@ async function me(req, res, next) {
       user.roles = nextRoles;
       user.email = toSafeTrimmedString(req.user?.email) || user.email;
       await user.save();
+      req.user = {
+        ...req.user,
+        ...serializeUser(user),
+        _id: user._id,
+      };
+    }
+
+    user = await ensureLinkedStoreId(user);
+    if (user) {
       req.user = {
         ...req.user,
         ...serializeUser(user),
@@ -203,7 +235,8 @@ async function syncProfile(req, res, next) {
     req.dbUser.isActive = req.body?.isActive ?? req.dbUser.isActive;
     req.dbUser.role = requestedRole;
     req.dbUser.roles = sanitizeRoles(req.body?.roles, requestedRole);
-    req.dbUser.storeId = toSafeTrimmedString(req.body?.storeId) || '';
+    const requestedStoreId = toSafeTrimmedString(req.body?.storeId);
+    req.dbUser.storeId = requestedStoreId || req.dbUser.storeId || '';
     req.dbUser.walletBalance = req.body?.walletBalance == null
       ? req.dbUser.walletBalance || 0
       : Number(req.body.walletBalance);
@@ -216,6 +249,7 @@ async function syncProfile(req, res, next) {
     req.dbUser.lastLoginAt = new Date();
 
     await req.dbUser.save();
+    await ensureLinkedStoreId(req.dbUser);
 
     req.user = {
       ...req.user,
