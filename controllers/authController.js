@@ -78,6 +78,12 @@ function serializeUserMemory(memory, userId) {
     name: memory?.name || '',
     preferredStyle: memory?.preferredStyle || '',
     size: memory?.size || '',
+    heightCm: memory?.heightCm ?? null,
+    weightKg: memory?.weightKg ?? null,
+    bodyType: memory?.bodyType || '',
+    recommendedSize: memory?.recommendedSize || memory?.size || '',
+    pantSize: memory?.pantSize || '',
+    confidence: memory?.confidence ?? null,
     pastIssues: Array.isArray(memory?.pastIssues) ? memory.pastIssues : [],
     lastOrderId: memory?.lastOrderId || '',
     lastConversationSummary: memory?.lastConversationSummary || '',
@@ -433,6 +439,14 @@ async function saveMemory(req, res, next) {
         name: toSafeTrimmedString(req.body?.name),
         preferredStyle: toSafeTrimmedString(req.body?.preferredStyle),
         size: toSafeTrimmedString(req.body?.size),
+        heightCm: req.body?.heightCm == null ? null : Number(req.body.heightCm),
+        weightKg: req.body?.weightKg == null ? null : Number(req.body.weightKg),
+        bodyType: toSafeTrimmedString(req.body?.bodyType),
+        recommendedSize:
+          toSafeTrimmedString(req.body?.recommendedSize) ||
+          toSafeTrimmedString(req.body?.size),
+        pantSize: toSafeTrimmedString(req.body?.pantSize),
+        confidence: req.body?.confidence == null ? null : Number(req.body.confidence),
         pastIssues: Array.isArray(req.body?.pastIssues)
           ? req.body.pastIssues.map((item) => item?.toString?.().trim?.() || '').filter(Boolean)
           : [],

@@ -22,6 +22,86 @@ function ensureAdmin(req, res) {
   return true;
 }
 
+const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+
+function normalizeFit(value) {
+  const normalized = (value || '').toString().trim().toLowerCase();
+  if (normalized === 'slim' || normalized === 'regular' || normalized === 'oversized') {
+    return normalized;
+  }
+  return 'regular';
+}
+
+function clampSizeIndex(index) {
+  return Math.max(0, Math.min(SIZE_ORDER.length - 1, index));
+}
+
+function confidenceLabel(score) {
+  if (score >= 0.86) return 'high';
+  if (score >= 0.72) return 'medium';
+  return 'low';
+}
+
+function parseNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function buildSizeRecommendation({ height, weight, bodyType, productFit }) {
+  let index = 1; // S
+  if (weight >= 60 && weight <= 75) {
+    index = 2; // M
+  } else if (weight > 75) {
+    index = 3; // L
+  }
+
+  const reasons = ['Base size from weight'];
+
+  if (height > 180) {
+    index += 1;
+    reasons.push('Increased for taller height');
+  } else if (height < 165) {
+    index -= 1;
+    reasons.push('Reduced for shorter height');
+  }
+
+  if (bodyType === 'slim') {
+    index -= 1;
+    reasons.push('Adjusted down for slim body type');
+  } else if (bodyType === 'heavy') {
+    index += 1;
+    reasons.push('Adjusted up for heavy body type');
+  }
+
+  if (productFit === 'slim') {
+    index += 1;
+    reasons.push('Adjusted up for slim-fit product');
+  } else if (productFit === 'oversized') {
+    index -= 1;
+    reasons.push('Adjusted down for oversized product');
+  }
+
+  index = clampSizeIndex(index);
+  const normalizedConfidence = confidenceLabel(
+    Math.max(
+      0.62,
+      Math.min(
+        0.94,
+        0.82 -
+          ((height < 150 || height > 195) ? 0.06 : 0) -
+          ((weight < 45 || weight > 110) ? 0.05 : 0),
+      ),
+    ),
+  );
+
+  return {
+    recommendedSize: SIZE_ORDER[index],
+    confidence: normalizedConfidence,
+    message: 'Best fit based on your body profile',
+    reasoning: reasons.join(', '),
+  };
+}
+
 async function runAiGateway(req, res, next) {
   try {
     const result = await handleAIRequest(req.body?.input, {
@@ -40,6 +120,36 @@ async function runAiGateway(req, res, next) {
     }
 
     return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function recommendSize(req, res, next) {
+  try {
+    const height = parseNumber(req.body?.height ?? req.body?.heightCm);
+    const weight = parseNumber(req.body?.weight ?? req.body?.weightKg);
+    const bodyType = (req.body?.bodyType || 'regular').toString().trim().toLowerCase();
+    const productFit = normalizeFit(req.body?.productFit);
+
+    if (height == null || weight == null) {
+      return res.status(400).json({
+        success: false,
+        message: 'height and weight are required.',
+      });
+    }
+
+    const recommendation = buildSizeRecommendation({
+      height,
+      weight,
+      bodyType,
+      productFit,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: recommendation,
+    });
   } catch (error) {
     return next(error);
   }
@@ -352,6 +462,7 @@ async function logAiEvent(req, res, next) {
 
 module.exports = {
   runAiGateway,
+  recommendSize,
   getChatHistory,
   appendChatHistoryEntry,
   clearUserMemory,

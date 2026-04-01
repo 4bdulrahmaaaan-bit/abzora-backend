@@ -24,6 +24,33 @@ const userMemorySchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    heightCm: {
+      type: Number,
+      default: null,
+    },
+    weightKg: {
+      type: Number,
+      default: null,
+    },
+    bodyType: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    recommendedSize: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    pantSize: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    confidence: {
+      type: Number,
+      default: null,
+    },
     pastIssues: {
       type: [String],
       default: [],
