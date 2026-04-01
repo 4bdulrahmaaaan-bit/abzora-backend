@@ -4,6 +4,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 const {
   runAiGateway,
   recommendSize,
+  stylistChat,
   getChatHistory,
   appendChatHistoryEntry,
   clearUserMemory,
@@ -23,6 +24,7 @@ const router = express.Router();
 router.use(authMiddleware);
 router.post('/gateway', runAiGateway);
 router.post('/recommend-size', recommendSize);
+router.post('/stylist-chat', stylistChat);
 router.get('/history/:chatId', getChatHistory);
 router.post('/history/:chatId', appendChatHistoryEntry);
 router.delete('/history', clearUserMemory);

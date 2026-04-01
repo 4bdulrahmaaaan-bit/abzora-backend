@@ -4,11 +4,16 @@ const AiUsageLog = require('../models/AiUsageLog');
 const AiDailyStat = require('../models/AiDailyStat');
 const UserAiUsageStat = require('../models/UserAiUsageStat');
 const AiEventLog = require('../models/AiEventLog');
+const Product = require('../models/Product');
 
 const memoryService = require('../services/ai/memoryService');
 const cacheService = require('../services/ai/cacheService');
 const costControlService = require('../services/ai/costControlService');
 const { handleAIRequest } = require('../services/ai/aiGateway');
+const {
+  generateOutfitRecommendations,
+  resolveUserIdentity,
+} = require('../services/outfitEngine');
 
 function isAdmin(req) {
   return req.user?.role === 'admin' || req.user?.role === 'super_admin';
@@ -45,6 +50,361 @@ function confidenceLabel(score) {
 function parseNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function normalizeText(value) {
+  return (value || '')
+    .toString()
+    .trim()
+    .toLowerCase();
+}
+
+function tokenizePrompt(value) {
+  return normalizeText(value)
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2);
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.map((item) => (item || '').toString().trim()).filter(Boolean))];
+}
+
+function detectOccasion(prompt) {
+  const text = normalizeText(prompt);
+  if (/(wedding|bridal|lehenga|sherwani|festive|reception)/.test(text)) {
+    return 'wedding';
+  }
+  if (/(party|night|club|glam|date night)/.test(text)) {
+    return 'party';
+  }
+  if (/(office|formal|work|meeting|blazer)/.test(text)) {
+    return 'office';
+  }
+  if (/(casual|daily|everyday|weekend|college|relaxed)/.test(text)) {
+    return 'casual';
+  }
+  return '';
+}
+
+function detectStyle(prompt) {
+  const text = normalizeText(prompt);
+  if (/(minimal|clean|classic|simple|essential)/.test(text)) {
+    return 'minimal';
+  }
+  if (/(streetwear|oversized|cargo|graphic|hoodie)/.test(text)) {
+    return 'streetwear';
+  }
+  if (/(formal|tailored|office|blazer|smart)/.test(text)) {
+    return 'formal';
+  }
+  if (/(ethnic|kurta|lehenga|saree|festive|wedding)/.test(text)) {
+    return 'ethnic';
+  }
+  if (/(party|glam|night|shine)/.test(text)) {
+    return 'party';
+  }
+  return '';
+}
+
+function detectBudget(prompt) {
+  const text = normalizeText(prompt);
+  if (/(999|under 1000|budget)/.test(text)) {
+    return 'under_999';
+  }
+  if (/(1999|under 2000)/.test(text)) {
+    return 'under_1999';
+  }
+  if (/(2999|under 3000)/.test(text)) {
+    return 'under_2999';
+  }
+  return '';
+}
+
+function detectCategory(prompt) {
+  const text = normalizeText(prompt);
+  const categoryMap = [
+    { key: 'shirt', patterns: [/shirt/, /linen shirt/, /formal shirt/] },
+    { key: 't-shirt', patterns: [/t-shirt/, /tee/, /tshirt/] },
+    { key: 'kurta', patterns: [/kurta/, /kurti/] },
+    { key: 'dress', patterns: [/dress/, /gown/] },
+    { key: 'jeans', patterns: [/jeans/, /denim/] },
+    { key: 'pants', patterns: [/pants/, /trouser/, /chino/] },
+    { key: 'footwear', patterns: [/shoe/, /sneaker/, /loafer/, /sandal/, /heels?/] },
+    { key: 'accessories', patterns: [/watch/, /belt/, /bag/, /accessor/] },
+  ];
+  for (const entry of categoryMap) {
+    if (entry.patterns.some((pattern) => pattern.test(text))) {
+      return entry.key;
+    }
+  }
+  return '';
+}
+
+function detectColor(prompt) {
+  const colors = [
+    'black',
+    'white',
+    'beige',
+    'cream',
+    'brown',
+    'navy',
+    'blue',
+    'red',
+    'green',
+    'olive',
+    'yellow',
+    'gold',
+    'pink',
+    'purple',
+    'maroon',
+    'orange',
+    'teal',
+  ];
+  const text = normalizeText(prompt);
+  return colors.find((color) => text.includes(color)) || '';
+}
+
+function detectStylistIntent(prompt) {
+  const text = normalizeText(prompt);
+  if (/(size|fit|measurement|body scan)/.test(text)) {
+    return 'size_help';
+  }
+  if (/(summer|winter|monsoon|spring|color)/.test(text)) {
+    return 'color_advice';
+  }
+  if (/(wedding|casual|party|office|outfit|wear|look|style)/.test(text)) {
+    return 'outfit';
+  }
+  if (/(find|show|recommend|shirt|kurta|dress|jeans|pants|shoe|product)/.test(text)) {
+    return 'products';
+  }
+  return 'style';
+}
+
+function serializeStylistProduct(product) {
+  return {
+    id: product._id?.toString() || product.id || '',
+    productId: product._id?.toString() || product.id || '',
+    storeId: product.storeId?.toString() || '',
+    name: product.name || '',
+    brand: product.brand || '',
+    description: product.description || '',
+    price: Number(product.price || 0),
+    basePrice: product.basePrice == null ? null : Number(product.basePrice),
+    dynamicPrice: product.dynamicPrice == null ? null : Number(product.dynamicPrice),
+    originalPrice: product.originalPrice == null ? null : Number(product.originalPrice),
+    demandScore: Number(product.demandScore || 0),
+    viewCount: Number(product.viewCount || 0),
+    cartCount: Number(product.cartCount || 0),
+    purchaseCount: Number(product.purchaseCount || 0),
+    images: Array.isArray(product.images) ? product.images : [],
+    image: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : '',
+    sizes: Array.isArray(product.sizes) && product.sizes.length > 0 ? product.sizes : ['S', 'M', 'L'],
+    stock: Number(product.stock || 0),
+    category: product.category || '',
+    isActive: Boolean(product.isActive),
+    createdAt: product.createdAt || null,
+    rating: Number(product.rating || 0),
+    reviewCount: Number(product.reviewCount || 0),
+    outfitType: product.outfitType || '',
+    fabric: product.fabric || '',
+    customizations: product.customizations || {},
+    measurements: product.measurements || {},
+    addons: Array.isArray(product.addons) ? product.addons : [],
+  };
+}
+
+function productText(product) {
+  return [
+    product.name,
+    product.brand,
+    product.category,
+    product.description,
+    product.outfitType,
+    product.fabric,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+}
+
+function bodyFitScore(bodyType, product) {
+  const normalizedBodyType = normalizeText(bodyType);
+  const text = productText(product);
+  if (!normalizedBodyType) {
+    return 0.02;
+  }
+  if ((normalizedBodyType === 'slim' || normalizedBodyType === 'athletic') && /(structured|tailored|slim|fitted)/.test(text)) {
+    return 0.12;
+  }
+  if (normalizedBodyType === 'heavy' && /(relaxed|oversized|regular|comfort)/.test(text)) {
+    return 0.12;
+  }
+  if (normalizedBodyType === 'regular' && /(regular|classic|clean)/.test(text)) {
+    return 0.08;
+  }
+  return 0;
+}
+
+function sizeAvailabilityScore(size, product) {
+  const desiredSize = normalizeText(size).toUpperCase();
+  if (!desiredSize) {
+    return 0.02;
+  }
+  const sizes = Array.isArray(product.sizes)
+    ? product.sizes.map((item) => item.toString().trim().toUpperCase())
+    : [];
+  return sizes.includes(desiredSize) ? 0.12 : -0.08;
+}
+
+function priceRangeScore(profile, product) {
+  const min = Number(profile?.priceRange?.min || 0);
+  const max = Number(profile?.priceRange?.max || 0);
+  if (max <= 0) {
+    return 0.03;
+  }
+  const price = Number(product.price || 0);
+  if (price >= Math.max(0, min * 0.7) && price <= max * 1.2) {
+    return 0.1;
+  }
+  return -0.06;
+}
+
+function keywordScore(tokens, product) {
+  if (tokens.length === 0) {
+    return 0.03;
+  }
+  const haystack = productText(product);
+  return tokens.reduce((total, token) => total + (haystack.includes(token) ? 0.08 : 0), 0);
+}
+
+function buildReason(product, filters) {
+  const notes = [];
+  if (filters.occasion) {
+    notes.push(`${filters.occasion} friendly`);
+  }
+  if (filters.style) {
+    notes.push(`${filters.style} styling`);
+  }
+  if (filters.color) {
+    notes.push(`${filters.color} tone`);
+  }
+  if (!notes.length) {
+    notes.push('picked from your style profile');
+  }
+  return notes.join(' • ');
+}
+
+function quickRepliesForStylist(intent, filters) {
+  if (intent === 'size_help') {
+    return ['Scan your body', 'Suggest casual outfits', 'Show matching products'];
+  }
+  if (filters.occasion === 'wedding') {
+    return ['Show festive colors', 'Suggest matching footwear', 'Find my size'];
+  }
+  if (filters.occasion === 'casual') {
+    return ['Build a budget look', 'Best colors for summer', 'Find my size'];
+  }
+  if (intent === 'color_advice') {
+    return ['Suggest casual outfits', 'Show matching products', 'What should I wear for wedding?'];
+  }
+  return ['Suggest casual outfits', 'What should I wear for wedding?', 'Find my size'];
+}
+
+function buildStylistMessage({
+  intent,
+  filters,
+  size,
+  bodyType,
+  products,
+}) {
+  const intro = (() => {
+    if (intent === 'size_help') {
+      return size
+        ? `Based on your saved fit profile, size ${size} should feel the most reliable starting point. I picked styles that stay available in your size and suit your body profile.`
+        : 'I can guide your fit better if you use the size system, but I still picked styles that are easier to wear across flexible fits.';
+    }
+    if (filters.occasion === 'wedding') {
+      return 'For a wedding-ready look, I leaned into polished statement pieces with cleaner layering and occasion-friendly textures.';
+    }
+    if (filters.occasion === 'casual') {
+      return 'For an elevated casual look, I picked relaxed, easy-to-style pieces that still feel sharp enough for everyday dressing.';
+    }
+    if (intent === 'color_advice') {
+      return filters.color
+        ? `A ${filters.color} accent works best when it is balanced with lighter neutrals or grounded darker pieces. Here are products that fit that direction.`
+        : 'For seasonal color advice, I usually balance one stronger tone with clean neutrals so the outfit feels premium instead of busy.';
+    }
+    return 'I pulled together a smart styling direction from your profile, current fit data, and product availability so you can shop the look directly.';
+  })();
+
+  const outro = products.length > 0
+    ? 'These are real ABZORA products you can open and shop right away.'
+    : 'I could not find a tight product match yet, so I am giving you style guidance first.';
+
+  const bodyNote = bodyType ? ` Your ${bodyType} body profile was also considered while ranking the picks.` : '';
+  return `${intro}${bodyNote} ${outro}`.trim();
+}
+
+async function rankDirectProducts({
+  prompt,
+  filters,
+  profile,
+  memory,
+  limit,
+  excludeIds = [],
+}) {
+  const query = {
+    isActive: true,
+    stock: { $gt: 0 },
+  };
+
+  if (filters.category) {
+    query.category = { $regex: filters.category, $options: 'i' };
+  } else if (filters.occasion === 'wedding') {
+    query.category = { $regex: 'wedding|ethnic|festive', $options: 'i' };
+  }
+
+  const products = await Product.find(query)
+    .sort({ purchaseCount: -1, rating: -1, createdAt: -1 })
+    .limit(80);
+
+  const blocked = new Set(excludeIds.map((item) => item.toString()));
+  const tokens = tokenizePrompt(prompt);
+  const preferredCategories = (profile?.preferredCategories || []).map((item) => normalizeText(item));
+  const preferredColors = (profile?.colorPreference || []).map((item) => normalizeText(item));
+  const desiredSize = (memory?.recommendedSize || memory?.size || profile?.size || '').toString().trim();
+  const bodyType = memory?.bodyType || profile?.bodyType || '';
+
+  return products
+    .filter((product) => !blocked.has(product._id.toString()))
+    .map((product) => {
+      const text = productText(product);
+      let score = 0.28;
+      score += keywordScore(tokens, product);
+      if (filters.style && text.includes(filters.style)) {
+        score += 0.12;
+      }
+      if (filters.color && text.includes(filters.color)) {
+        score += 0.14;
+      }
+      if (preferredCategories.some((category) => text.includes(category))) {
+        score += 0.14;
+      }
+      if (preferredColors.some((color) => text.includes(color))) {
+        score += 0.08;
+      }
+      score += bodyFitScore(bodyType, product);
+      score += sizeAvailabilityScore(desiredSize, product);
+      score += priceRangeScore(profile, product);
+      score += Math.min(0.12, Number(product.demandScore || 0) * 0.18);
+      score += Math.min(0.12, Number(product.purchaseCount || 0) / 40);
+      return { product, score };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map(({ product }) => product);
 }
 
 function buildSizeRecommendation({ height, weight, bodyType, productFit }) {
@@ -149,6 +509,125 @@ async function recommendSize(req, res, next) {
     return res.status(200).json({
       success: true,
       data: recommendation,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function stylistChat(req, res, next) {
+  try {
+    const prompt = req.body?.prompt?.toString().trim() || '';
+    if (!prompt) {
+      return res.status(400).json({
+        success: false,
+        message: 'prompt is required.',
+      });
+    }
+
+    const focusedProductId = req.body?.focusedProductId?.toString().trim() || '';
+    const resolved = await resolveUserIdentity(req.user?.uid || req.user?.firebaseUid || req.user?.id || '');
+    const memory = resolved.memory;
+    const styleProfile = resolved.styleProfile;
+
+    const filters = {
+      occasion: detectOccasion(prompt),
+      style: detectStyle(prompt),
+      budget: detectBudget(prompt),
+      category: detectCategory(prompt),
+      color: detectColor(prompt),
+    };
+    const intent = detectStylistIntent(prompt);
+    const size =
+      (req.body?.size || memory?.recommendedSize || memory?.size || styleProfile?.size || '')
+        .toString()
+        .trim()
+        .toUpperCase();
+    const bodyType =
+      (req.body?.bodyType || memory?.bodyType || styleProfile?.bodyType || '')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    let outfits = [];
+    if (intent !== 'size_help' || focusedProductId || filters.occasion || filters.style) {
+      outfits = await generateOutfitRecommendations({
+        userId: resolved.uid || req.user?.uid || '',
+        productId: focusedProductId,
+        occasion: filters.occasion,
+        budget: filters.budget,
+        style: filters.style,
+        limit: intent === 'size_help' ? 2 : 4,
+      });
+    }
+
+    const outfitProducts = [];
+    const seen = new Set();
+    for (const outfit of outfits) {
+      for (const item of outfit.items || []) {
+        const productId = (item.productId || item.id || '').toString();
+        if (!productId || seen.has(productId)) {
+          continue;
+        }
+        seen.add(productId);
+        outfitProducts.push(item);
+        if (outfitProducts.length >= 6) {
+          break;
+        }
+      }
+      if (outfitProducts.length >= 6) {
+        break;
+      }
+    }
+
+    const extraProducts = await rankDirectProducts({
+      prompt,
+      filters,
+      profile: styleProfile,
+      memory,
+      limit: Math.max(0, 6 - outfitProducts.length),
+      excludeIds: [...seen],
+    });
+
+    const mergedProducts = [
+      ...outfitProducts.map((item) => ({
+        product: item,
+        reason: outfitProducts.length > 1 ? 'part of a complete outfit' : buildReason(item, filters),
+      })),
+      ...extraProducts.map((product) => ({
+        product: serializeStylistProduct(product),
+        reason: buildReason(product, filters),
+      })),
+    ].slice(0, 6);
+
+    const products = mergedProducts.map((entry) => ({
+      ...entry.product,
+      reason: entry.reason,
+      recommendedSize: size || '',
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        message: buildStylistMessage({
+          intent,
+          filters,
+          size,
+          bodyType,
+          products,
+        }),
+        products,
+        quickReplies: quickRepliesForStylist(intent, filters),
+        notes: uniqueStrings([
+          filters.occasion ? `Occasion: ${filters.occasion}` : '',
+          filters.style ? `Style: ${filters.style}` : '',
+          filters.color ? `Color cue: ${filters.color}` : '',
+          size ? `Recommended size focus: ${size}` : '',
+        ]),
+        highlightedSize: size || '',
+        intent,
+        outfits,
+      },
     });
   } catch (error) {
     return next(error);
@@ -463,6 +942,7 @@ async function logAiEvent(req, res, next) {
 module.exports = {
   runAiGateway,
   recommendSize,
+  stylistChat,
   getChatHistory,
   appendChatHistoryEntry,
   clearUserMemory,
