@@ -7,6 +7,11 @@ const productSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    brand: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     price: {
       type: Number,
       required: true,
@@ -37,6 +42,10 @@ const productSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    sizes: {
+      type: [String],
+      default: ['S', 'M', 'L'],
+    },
     rating: {
       type: Number,
       default: 0,
@@ -47,6 +56,35 @@ const productSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
+    },
+    demandScore: {
+      type: Number,
+      default: 0,
+    },
+    viewCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    cartCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    purchaseCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    outfitType: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    fabric: {
+      type: String,
+      trim: true,
+      default: '',
     },
     isActive: {
       type: Boolean,

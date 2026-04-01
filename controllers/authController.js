@@ -4,6 +4,7 @@ const Store = require('../models/Store');
 const User = require('../models/User');
 const UserAddress = require('../models/UserAddress');
 const UserMemory = require('../models/UserMemory');
+const UserStyleProfile = require('../models/UserStyleProfile');
 const VendorKycRequest = require('../models/VendorKycRequest');
 
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
@@ -452,6 +453,19 @@ async function saveMemory(req, res, next) {
           : [],
         lastOrderId: toSafeTrimmedString(req.body?.lastOrderId),
         lastConversationSummary: toSafeTrimmedString(req.body?.lastConversationSummary),
+        updatedAtIso: toSafeTrimmedString(req.body?.updatedAt) || new Date().toISOString(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    await UserStyleProfile.findOneAndUpdate(
+      { userId: req.user.uid },
+      {
+        userId: req.user.uid,
+        bodyType: toSafeTrimmedString(req.body?.bodyType),
+        size:
+          toSafeTrimmedString(req.body?.recommendedSize) ||
+          toSafeTrimmedString(req.body?.size),
         updatedAtIso: toSafeTrimmedString(req.body?.updatedAt) || new Date().toISOString(),
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }

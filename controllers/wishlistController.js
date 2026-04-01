@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const Product = require('../models/Product');
 const WishlistItem = require('../models/WishlistItem');
+const { trackOutfitInteraction } = require('../services/outfitEngine');
 
 function serializeWishlistItem(item) {
   const source = typeof item.toObject === 'function' ? item.toObject() : item;
@@ -57,6 +58,20 @@ async function addWishlistItem(req, res, next) {
         setDefaultsOnInsert: true,
       }
     );
+
+    try {
+      await trackOutfitInteraction({
+        userId: req.user.uid,
+        action: 'wishlist',
+        productId,
+        itemIds: [productId],
+        metadata: {
+          source: 'wishlist_controller',
+        },
+      });
+    } catch (trackingError) {
+      console.warn('Wishlist outfit tracking failed:', trackingError.message);
+    }
 
     return res.status(201).json({ success: true, data: serializeWishlistItem(item) });
   } catch (error) {

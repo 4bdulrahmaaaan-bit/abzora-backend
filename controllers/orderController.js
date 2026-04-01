@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
+const { trackOutfitInteraction } = require('../services/outfitEngine');
 
 function serializeOrder(order) {
   if (!order) {
@@ -151,6 +152,20 @@ async function createOrder(req, res, next) {
       deliveryStatus: 'Pending',
       shippingAddress: {},
     });
+
+    try {
+      await trackOutfitInteraction({
+        userId: req.user.uid,
+        action: 'purchase',
+        itemIds: normalizedItems.map((item) => item.productId.toString()),
+        metadata: {
+          orderId: order._id.toString(),
+          source: 'order_controller',
+        },
+      });
+    } catch (trackingError) {
+      console.warn('Purchase outfit tracking failed:', trackingError.message);
+    }
 
     return res.status(201).json({ success: true, data: serializeOrder(order) });
   } catch (error) {
