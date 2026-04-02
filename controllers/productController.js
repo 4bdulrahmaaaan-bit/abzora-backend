@@ -59,7 +59,6 @@ async function createProduct(req, res, next) {
   try {
     const { name, brand, price, images, storeId, stock, category, description } = req.body || {};
     const normalizedName = name?.toString().trim() || '';
-    const normalizedBrand = brand?.toString().trim() || store.name || '';
     const normalizedCategory = category?.toString().trim() || '';
     const normalizedDescription = description?.toString().trim() || '';
     const normalizedPrice = Number(price);
@@ -95,6 +94,8 @@ async function createProduct(req, res, next) {
         message: 'You can only add products to your own store.',
       });
     }
+
+    const normalizedBrand = brand?.toString().trim() || '';
 
     const product = await Product.create({
       name: normalizedName,
@@ -186,8 +187,8 @@ async function updateProduct(req, res, next) {
     const normalizedName = name?.toString().trim() || product.name;
     const normalizedBrand =
       brand == null
-        ? (product.brand || store.name || '')
-        : (brand?.toString().trim() || store.name || '');
+        ? (product.brand || '')
+        : (brand?.toString().trim() || '');
     const normalizedCategory = category?.toString().trim() || product.category;
     const normalizedPrice = price == null ? product.price : Number(price);
     const normalizedStock = stock == null ? product.stock : Number(stock);
