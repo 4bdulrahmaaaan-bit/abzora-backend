@@ -88,8 +88,29 @@ function serializeUserMemory(memory, userId) {
     pastIssues: Array.isArray(memory?.pastIssues) ? memory.pastIssues : [],
     lastOrderId: memory?.lastOrderId || '',
     lastConversationSummary: memory?.lastConversationSummary || '',
+    cartItems: Array.isArray(memory?.cartItems) ? memory.cartItems : [],
+    cartUpdatedAt: memory?.cartUpdatedAtIso || '',
     updatedAt: memory?.updatedAtIso || memory?.updatedAt?.toISOString?.() || '',
   };
+}
+
+function normalizeCartItems(items) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items
+    .filter((item) => item && typeof item === 'object')
+    .map((item) => ({
+      ...item,
+      productId: toSafeTrimmedString(item.productId),
+      size: toSafeTrimmedString(item.size),
+      quantity: Number(item.quantity) > 0 ? Number(item.quantity) : 1,
+      product:
+        item.product && typeof item.product === 'object'
+          ? { ...item.product }
+          : {},
+    }))
+    .filter((item) => item.productId);
 }
 
 async function findApprovedVendorKyc(user) {
@@ -433,27 +454,52 @@ async function getMemory(req, res, next) {
 
 async function saveMemory(req, res, next) {
   try {
+    const existingMemory = await UserMemory.findOne({ userId: req.user.uid });
+    const has = (key) => Object.prototype.hasOwnProperty.call(req.body || {}, key);
+    const nowIso = new Date().toISOString();
     const memory = await UserMemory.findOneAndUpdate(
       { userId: req.user.uid },
       {
         userId: req.user.uid,
-        name: toSafeTrimmedString(req.body?.name),
-        preferredStyle: toSafeTrimmedString(req.body?.preferredStyle),
-        size: toSafeTrimmedString(req.body?.size),
-        heightCm: req.body?.heightCm == null ? null : Number(req.body.heightCm),
-        weightKg: req.body?.weightKg == null ? null : Number(req.body.weightKg),
-        bodyType: toSafeTrimmedString(req.body?.bodyType),
-        recommendedSize:
-          toSafeTrimmedString(req.body?.recommendedSize) ||
-          toSafeTrimmedString(req.body?.size),
-        pantSize: toSafeTrimmedString(req.body?.pantSize),
-        confidence: req.body?.confidence == null ? null : Number(req.body.confidence),
-        pastIssues: Array.isArray(req.body?.pastIssues)
-          ? req.body.pastIssues.map((item) => item?.toString?.().trim?.() || '').filter(Boolean)
-          : [],
-        lastOrderId: toSafeTrimmedString(req.body?.lastOrderId),
-        lastConversationSummary: toSafeTrimmedString(req.body?.lastConversationSummary),
-        updatedAtIso: toSafeTrimmedString(req.body?.updatedAt) || new Date().toISOString(),
+        name: has('name') ? toSafeTrimmedString(req.body?.name) : existingMemory?.name || '',
+        preferredStyle: has('preferredStyle')
+          ? toSafeTrimmedString(req.body?.preferredStyle)
+          : existingMemory?.preferredStyle || '',
+        size: has('size') ? toSafeTrimmedString(req.body?.size) : existingMemory?.size || '',
+        heightCm: has('heightCm')
+          ? (req.body?.heightCm == null ? null : Number(req.body.heightCm))
+          : existingMemory?.heightCm ?? null,
+        weightKg: has('weightKg')
+          ? (req.body?.weightKg == null ? null : Number(req.body.weightKg))
+          : existingMemory?.weightKg ?? null,
+        bodyType: has('bodyType')
+          ? toSafeTrimmedString(req.body?.bodyType)
+          : existingMemory?.bodyType || '',
+        recommendedSize: has('recommendedSize') || has('size')
+          ? (toSafeTrimmedString(req.body?.recommendedSize) || toSafeTrimmedString(req.body?.size))
+          : existingMemory?.recommendedSize || existingMemory?.size || '',
+        pantSize: has('pantSize') ? toSafeTrimmedString(req.body?.pantSize) : existingMemory?.pantSize || '',
+        confidence: has('confidence')
+          ? (req.body?.confidence == null ? null : Number(req.body.confidence))
+          : existingMemory?.confidence ?? null,
+        pastIssues: has('pastIssues')
+          ? (Array.isArray(req.body?.pastIssues)
+              ? req.body.pastIssues.map((item) => item?.toString?.().trim?.() || '').filter(Boolean)
+              : [])
+          : (Array.isArray(existingMemory?.pastIssues) ? existingMemory.pastIssues : []),
+        lastOrderId: has('lastOrderId')
+          ? toSafeTrimmedString(req.body?.lastOrderId)
+          : existingMemory?.lastOrderId || '',
+        lastConversationSummary: has('lastConversationSummary')
+          ? toSafeTrimmedString(req.body?.lastConversationSummary)
+          : existingMemory?.lastConversationSummary || '',
+        cartItems: has('cartItems')
+          ? normalizeCartItems(req.body?.cartItems)
+          : (Array.isArray(existingMemory?.cartItems) ? existingMemory.cartItems : []),
+        cartUpdatedAtIso: has('cartItems') || has('cartUpdatedAt')
+          ? (toSafeTrimmedString(req.body?.cartUpdatedAt) || nowIso)
+          : existingMemory?.cartUpdatedAtIso || '',
+        updatedAtIso: toSafeTrimmedString(req.body?.updatedAt) || nowIso,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );

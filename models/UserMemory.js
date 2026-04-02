@@ -65,6 +65,15 @@ const userMemorySchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    cartItems: {
+      type: [mongoose.Schema.Types.Mixed],
+      default: [],
+    },
+    cartUpdatedAtIso: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     updatedAtIso: {
       type: String,
       trim: true,
