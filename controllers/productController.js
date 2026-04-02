@@ -57,8 +57,9 @@ function serializeProduct(product, options = {}) {
 
 async function createProduct(req, res, next) {
   try {
-    const { name, price, images, storeId, stock, category, description } = req.body || {};
+    const { name, brand, price, images, storeId, stock, category, description } = req.body || {};
     const normalizedName = name?.toString().trim() || '';
+    const normalizedBrand = brand?.toString().trim() || '';
     const normalizedCategory = category?.toString().trim() || '';
     const normalizedDescription = description?.toString().trim() || '';
     const normalizedPrice = Number(price);
@@ -97,6 +98,7 @@ async function createProduct(req, res, next) {
 
     const product = await Product.create({
       name: normalizedName,
+      brand: normalizedBrand,
       price: normalizedPrice,
       images: Array.isArray(images)
           ? images.map((item) => item?.toString().trim()).filter(Boolean)
@@ -180,8 +182,10 @@ async function updateProduct(req, res, next) {
       return res.status(403).json({ success: false, message: 'You can only update products from your own store.' });
     }
 
-    const { name, price, images, stock, category, description, isActive } = req.body || {};
+    const { name, brand, price, images, stock, category, description, isActive } = req.body || {};
     const normalizedName = name?.toString().trim() || product.name;
+    const normalizedBrand =
+      brand == null ? product.brand : brand?.toString().trim() || '';
     const normalizedCategory = category?.toString().trim() || product.category;
     const normalizedPrice = price == null ? product.price : Number(price);
     const normalizedStock = stock == null ? product.stock : Number(stock);
@@ -200,6 +204,7 @@ async function updateProduct(req, res, next) {
     }
 
     product.name = normalizedName;
+    product.brand = normalizedBrand;
     product.price = normalizedPrice;
     product.stock = normalizedStock;
     product.category = normalizedCategory;
