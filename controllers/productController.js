@@ -29,7 +29,7 @@ function serializeProduct(product, options = {}) {
   return {
     id: source._id?.toString() || source.id || '',
     name: source.name || '',
-    brand: source.brand || '',
+    brand: source.brand || populatedStore?.name || '',
     price: Number(source.price || 0),
     basePrice: source.basePrice == null ? null : Number(source.basePrice),
     dynamicPrice: source.dynamicPrice == null ? null : Number(source.dynamicPrice),
@@ -59,7 +59,7 @@ async function createProduct(req, res, next) {
   try {
     const { name, brand, price, images, storeId, stock, category, description } = req.body || {};
     const normalizedName = name?.toString().trim() || '';
-    const normalizedBrand = brand?.toString().trim() || '';
+    const normalizedBrand = brand?.toString().trim() || store.name || '';
     const normalizedCategory = category?.toString().trim() || '';
     const normalizedDescription = description?.toString().trim() || '';
     const normalizedPrice = Number(price);
@@ -185,7 +185,9 @@ async function updateProduct(req, res, next) {
     const { name, brand, price, images, stock, category, description, isActive } = req.body || {};
     const normalizedName = name?.toString().trim() || product.name;
     const normalizedBrand =
-      brand == null ? product.brand : brand?.toString().trim() || '';
+      brand == null
+        ? (product.brand || store.name || '')
+        : (brand?.toString().trim() || store.name || '');
     const normalizedCategory = category?.toString().trim() || product.category;
     const normalizedPrice = price == null ? product.price : Number(price);
     const normalizedStock = stock == null ? product.stock : Number(stock);
