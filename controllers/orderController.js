@@ -78,7 +78,7 @@ function isOrderAvailableForRider(order) {
 
 async function createOrder(req, res, next) {
   try {
-    const { items } = req.body || {};
+    const { items, paymentMethod, shippingAddress } = req.body || {};
     if (!req.user?.uid) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
@@ -89,6 +89,16 @@ async function createOrder(req, res, next) {
     const normalizedItems = [];
     let subtotalAmount = 0;
     let resolvedStoreId = '';
+    const normalizedPaymentMethod = (paymentMethod || 'COD').toString().trim().toUpperCase() === 'COD' ? 'COD' : 'RAZORPAY';
+    const normalizedShippingAddress = {
+      name: shippingAddress?.name?.toString().trim() || '',
+      phone: shippingAddress?.phone?.toString().trim() || '',
+      addressLine1: shippingAddress?.addressLine1?.toString().trim() || '',
+      addressLine2: shippingAddress?.addressLine2?.toString().trim() || '',
+      city: shippingAddress?.city?.toString().trim() || '',
+      state: shippingAddress?.state?.toString().trim() || '',
+      pincode: shippingAddress?.pincode?.toString().trim() || '',
+    };
 
     for (const item of items) {
       if (!mongoose.Types.ObjectId.isValid(item.productId)) {
@@ -146,12 +156,20 @@ async function createOrder(req, res, next) {
       items: normalizedItems,
       subtotalAmount,
       totalAmount: subtotalAmount,
-      paymentMethod: 'RAZORPAY',
-      paymentStatus: 'pending',
-      orderStatus: 'pending',
-      deliveryStatus: 'Pending',
-      shippingAddress: {},
+      paymentMethod: normalizedPaymentMethod,
+      paymentStatus: normalizedPaymentMethod === 'COD' ? 'pending' : 'pending',
+      orderStatus: normalizedPaymentMethod === 'COD' ? 'confirmed' : 'pending',
+      deliveryStatus: normalizedPaymentMethod === 'COD' ? 'Ready for pickup' : 'Pending',
+      shippingAddress: normalizedShippingAddress,
     });
+
+    if (normalizedPaymentMethod === 'COD' && !order.inventoryDeducted) {
+      for (const item of normalizedItems) {
+        await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.quantity } });
+      }
+      order.inventoryDeducted = true;
+      await order.save();
+    }
 
     try {
       await trackOutfitInteraction({
@@ -475,9 +493,18 @@ async function createRazorpayOrder(req, res, next) {
 
 async function verifyPayment(req, res, next) {
   try {
-    const razorpayOrderId = req.body?.razorpay_order_id?.toString().trim() || '';
-    const razorpayPaymentId = req.body?.razorpay_payment_id?.toString().trim() || '';
-    const razorpaySignature = req.body?.razorpay_signature?.toString().trim() || '';
+    const razorpayOrderId =
+      req.body?.razorpay_order_id?.toString().trim() ||
+      req.body?.orderId?.toString().trim() ||
+      '';
+    const razorpayPaymentId =
+      req.body?.razorpay_payment_id?.toString().trim() ||
+      req.body?.paymentId?.toString().trim() ||
+      '';
+    const razorpaySignature =
+      req.body?.razorpay_signature?.toString().trim() ||
+      req.body?.signature?.toString().trim() ||
+      '';
     if (!req.user?.uid) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
