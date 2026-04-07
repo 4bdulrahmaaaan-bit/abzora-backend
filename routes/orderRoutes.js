@@ -20,6 +20,7 @@ const {
   rejectReturnRequest,
   markReturnPicked,
   completeReturnRequest,
+  cancelOrder,
   createRazorpayOrder,
   updateDeliveryStatus,
   updateOrderStatus,
@@ -48,6 +49,7 @@ router.get('/:id/refund-request', getRefundRequestForOrder);
 router.post('/:id/refund-request', createRefundRequest);
 router.get('/:id/return-request', getReturnRequestForOrder);
 router.post('/:id/return-request', createReturnRequest);
+router.post('/:id/cancel', cancelOrder);
 router.post('/:id/accept-delivery', acceptDelivery);
 router.post('/create-razorpay-order', createRazorpayOrder);
 router.patch('/:id/delivery-status', updateDeliveryStatus);

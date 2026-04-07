@@ -141,6 +141,4 @@ userSchema.pre('validate', function syncFirebaseUid(next) {
   next();
 });
 
-userSchema.index({ uid: 1 }, { unique: true });
-
 module.exports = mongoose.model('User', userSchema);

@@ -32,6 +32,7 @@ const outfitRoutes = require('./routes/outfitRoutes');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
+const host = process.env.HOST || '0.0.0.0';
 app.set('trust proxy', 1);
 
 app.use(cors(createCorsOptions()));
@@ -134,8 +135,8 @@ async function startServer() {
   try {
     await connectDB();
     initializeFirebase();
-    app.listen(port, () => {
-      console.log(`ABZORA backend running on port ${port}`);
+    app.listen(port, host, () => {
+      console.log(`ABZORA backend running on ${host}:${port}`);
     });
   } catch (error) {
     console.error('Failed to start backend:', error);

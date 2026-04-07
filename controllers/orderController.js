@@ -681,6 +681,52 @@ async function updateOrderStatus(req, res, next) {
   }
 }
 
+async function cancelOrder(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id.' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+    if (order.userId !== req.user.uid) {
+      return res.status(403).json({ success: false, message: 'You can only cancel your own orders.' });
+    }
+
+    const orderStatus = (order.orderStatus || '').toLowerCase();
+    const deliveryStatus = (order.deliveryStatus || '').toLowerCase();
+    const isLocked =
+      orderStatus === 'shipped' ||
+      orderStatus === 'delivered' ||
+      orderStatus === 'cancelled' ||
+      deliveryStatus === 'out for delivery' ||
+      deliveryStatus === 'delivered' ||
+      deliveryStatus === 'cancelled';
+    if (isLocked) {
+      return res.status(409).json({
+        success: false,
+        message: 'This order can no longer be cancelled.',
+      });
+    }
+
+    order.orderStatus = 'cancelled';
+    order.deliveryStatus = 'Cancelled';
+    appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
+    appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
+    await order.save();
+
+    return res.status(200).json({ success: true, data: serializeOrder(order) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function listUserOrders(req, res, next) {
   try {
     if (!req.user?.uid) {
@@ -1357,6 +1403,7 @@ module.exports = {
   createRazorpayOrder,
   updateDeliveryStatus,
   updateOrderStatus,
+  cancelOrder,
   updateRiderLocation,
   verifyPayment,
 };
