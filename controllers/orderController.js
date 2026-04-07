@@ -6,6 +6,8 @@ const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
+const RefundRequest = require('../models/RefundRequest');
+const ReturnRequest = require('../models/ReturnRequest');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
 
 function serializeOrder(order) {
@@ -33,6 +35,10 @@ function serializeOrder(order) {
     totalAmount: Number(source.totalAmount || 0),
     paymentMethod: source.paymentMethod || '',
     paymentStatus: source.paymentStatus || '',
+    refundStatus: source.refundStatus || 'none',
+    returnStatus: source.returnStatus || 'none',
+    refundRequestId: source.refundRequestId || '',
+    returnRequestId: source.returnRequestId || '',
     orderStatus: source.orderStatus || '',
     deliveryStatus: source.deliveryStatus || 'Pending',
     assignedDeliveryPartner: source.assignedDeliveryPartner || 'Unassigned',
@@ -45,6 +51,54 @@ function serializeOrder(order) {
     razorpay: source.razorpay || {},
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,
+  };
+}
+
+function serializeRefundRequest(refund) {
+  if (!refund) {
+    return null;
+  }
+  const source = typeof refund.toObject === 'function' ? refund.toObject() : refund;
+  return {
+    id: source._id?.toString() || source.id || '',
+    orderId: source.orderId?.toString() || '',
+    userId: source.userId || '',
+    reason: source.reason || '',
+    status: source.status || 'pending',
+    createdAt: source.createdAt || null,
+    processedAt: source.processedAt || '',
+    processedBy: source.processedBy || '',
+    rejectionReason: source.rejectionReason || '',
+    gatewayRefundId: source.gatewayRefundId || '',
+    fraudScore: Number(source.fraudScore || 0),
+    fraudDecision: source.fraudDecision || 'approve',
+    fraudReasons: Array.isArray(source.fraudReasons) ? source.fraudReasons : [],
+  };
+}
+
+function serializeReturnRequest(request) {
+  if (!request) {
+    return null;
+  }
+  const source = typeof request.toObject === 'function' ? request.toObject() : request;
+  return {
+    id: source._id?.toString() || source.id || '',
+    orderId: source.orderId?.toString() || '',
+    userId: source.userId || '',
+    address: source.address || '',
+    reason: source.reason || '',
+    status: source.status || 'requested',
+    createdAt: source.createdAt || null,
+    updatedAt: source.updatedAt || source.createdAt || null,
+    riderId: source.riderId || '',
+    pickupTaskId: source.pickupTaskId || '',
+    approvedAt: source.approvedAt || '',
+    pickedAt: source.pickedAt || '',
+    completedAt: source.completedAt || '',
+    processedBy: source.processedBy || '',
+    imageUrl: source.imageUrl || '',
+    rejectionReason: source.rejectionReason || '',
+    refundRequestId: source.refundRequestId || '',
   };
 }
 
@@ -124,6 +178,73 @@ function buildRazorpayReceipt(orderId) {
 
 function canManageDelivery(req) {
   return req.user?.role === 'rider' || req.user?.role === 'admin' || req.user?.role === 'super_admin';
+}
+
+function canManageRefunds(req) {
+  return req.user?.role === 'admin' || req.user?.role === 'super_admin';
+}
+
+function canManageReturns(req) {
+  return req.user?.role === 'rider' || req.user?.role === 'admin' || req.user?.role === 'super_admin';
+}
+
+function shippingAddressLabel(order) {
+  return [
+    order?.shippingAddress?.name,
+    order?.shippingAddress?.addressLine1,
+    order?.shippingAddress?.addressLine2,
+    order?.shippingAddress?.city,
+    order?.shippingAddress?.state,
+    order?.shippingAddress?.pincode,
+  ]
+    .map((part) => part?.toString().trim() || '')
+    .filter(Boolean)
+    .join(', ');
+}
+
+function isRefundEligible(order) {
+  if (!order) {
+    return false;
+  }
+  const paymentMethod = (order.paymentMethod || '').toUpperCase();
+  const paymentStatus = (order.paymentStatus || '').toLowerCase();
+  const refundStatus = (order.refundStatus || '').toLowerCase();
+  if (paymentMethod !== 'RAZORPAY' || paymentStatus !== 'paid') {
+    return false;
+  }
+  return !['requested', 'pending', 'approved', 'refunded'].includes(refundStatus);
+}
+
+function isReturnEligible(order) {
+  if (!order) {
+    return false;
+  }
+  const orderStatus = (order.orderStatus || '').toLowerCase();
+  const returnStatus = (order.returnStatus || '').toLowerCase();
+  if (orderStatus !== 'delivered') {
+    return false;
+  }
+  return !['requested', 'approved', 'assigned', 'picked', 'completed'].includes(returnStatus);
+}
+
+async function processRazorpayRefund(order, refundRequest) {
+  const paymentId = order?.razorpay?.paymentId || '';
+  if (!paymentId) {
+    throw new Error('A valid online payment reference is required before refunding.');
+  }
+
+  const razorpay = getRazorpayClient();
+  const amount = Math.round(Number(order.totalAmount || 0) * 100);
+  const refund = await razorpay.payments.refund(paymentId, {
+    amount,
+    notes: {
+      orderId: order._id.toString(),
+      refundRequestId: refundRequest._id.toString(),
+      reason: refundRequest.reason || '',
+    },
+  });
+
+  return refund;
 }
 
 function isOrderAvailableForRider(order) {
@@ -515,6 +636,485 @@ async function listUserOrders(req, res, next) {
   }
 }
 
+async function getRefundRequestForOrder(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id.' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+    if (order.userId !== req.user.uid && !canManageRefunds(req)) {
+      return res.status(403).json({ success: false, message: 'Refund access denied.' });
+    }
+
+    const refund = await RefundRequest.findOne({ orderId: id }).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: serializeRefundRequest(refund) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listRefundRequests(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const status = req.query?.status?.toString().trim().toLowerCase() || 'all';
+    const filter = canManageRefunds(req) ? {} : { userId: req.user.uid };
+    if (status !== 'all') {
+      filter.status = status;
+    }
+    const requests = await RefundRequest.find(filter).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: requests.map(serializeRefundRequest) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createRefundRequest(req, res, next) {
+  try {
+    const { id } = req.params;
+    const reason = req.body?.reason?.toString().trim() || '';
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id.' });
+    }
+    if (!reason) {
+      return res.status(400).json({ success: false, message: 'Refund reason is required.' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+    if (order.userId !== req.user.uid && !canManageRefunds(req)) {
+      return res.status(403).json({ success: false, message: 'You can only request a refund for your own order.' });
+    }
+    if (!isRefundEligible(order)) {
+      return res.status(400).json({ success: false, message: 'This order is not eligible for a refund right now.' });
+    }
+
+    const existing = await RefundRequest.findOne({ orderId: id }).sort({ createdAt: -1 });
+    if (existing && existing.status !== 'rejected') {
+      return res.status(400).json({ success: false, message: 'A refund request already exists for this order.' });
+    }
+
+    const refund = await RefundRequest.create({
+      orderId: order._id,
+      userId: order.userId,
+      reason,
+      status: 'pending',
+    });
+
+    order.refundStatus = 'requested';
+    order.refundRequestId = refund._id.toString();
+    await order.save();
+
+    return res.status(201).json({ success: true, data: serializeRefundRequest(refund) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function approveRefundRequest(req, res, next) {
+  try {
+    const { refundId } = req.params;
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!canManageRefunds(req)) {
+      return res.status(403).json({ success: false, message: 'Refund approval access denied.' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(refundId)) {
+      return res.status(400).json({ success: false, message: 'Invalid refund request id.' });
+    }
+
+    const refund = await RefundRequest.findById(refundId);
+    if (!refund) {
+      return res.status(404).json({ success: false, message: 'Refund request not found.' });
+    }
+    if (refund.status !== 'pending') {
+      return res.status(400).json({ success: false, message: 'This refund request has already been processed.' });
+    }
+
+    const order = await Order.findById(refund.orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    const gatewayRefund = await processRazorpayRefund(order, refund);
+    refund.status = 'approved';
+    refund.processedAt = new Date().toISOString();
+    refund.processedBy = req.user.uid;
+    refund.gatewayRefundId = gatewayRefund?.id || '';
+    await refund.save();
+
+    order.paymentStatus = 'refunded';
+    order.refundStatus = 'refunded';
+    order.refundRequestId = refund._id.toString();
+    await order.save();
+
+    return res.status(200).json({ success: true, data: serializeRefundRequest(refund) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function rejectRefundRequest(req, res, next) {
+  try {
+    const { refundId } = req.params;
+    const reason = req.body?.reason?.toString().trim() || '';
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!canManageRefunds(req)) {
+      return res.status(403).json({ success: false, message: 'Refund approval access denied.' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(refundId)) {
+      return res.status(400).json({ success: false, message: 'Invalid refund request id.' });
+    }
+    if (!reason) {
+      return res.status(400).json({ success: false, message: 'Add a reason before rejecting this refund.' });
+    }
+
+    const refund = await RefundRequest.findById(refundId);
+    if (!refund) {
+      return res.status(404).json({ success: false, message: 'Refund request not found.' });
+    }
+    if (refund.status !== 'pending') {
+      return res.status(400).json({ success: false, message: 'This refund request has already been processed.' });
+    }
+
+    const order = await Order.findById(refund.orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    refund.status = 'rejected';
+    refund.processedAt = new Date().toISOString();
+    refund.processedBy = req.user.uid;
+    refund.rejectionReason = reason;
+    await refund.save();
+
+    order.refundStatus = 'rejected';
+    order.refundRequestId = refund._id.toString();
+    await order.save();
+
+    return res.status(200).json({ success: true, data: serializeRefundRequest(refund) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getReturnRequestForOrder(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id.' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+    if (order.userId !== req.user.uid && !canManageReturns(req)) {
+      return res.status(403).json({ success: false, message: 'Return access denied.' });
+    }
+
+    const request = await ReturnRequest.findOne({ orderId: id }).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: serializeReturnRequest(request) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listReturnRequests(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const status = req.query?.status?.toString().trim().toLowerCase() || 'all';
+    const filter = canManageReturns(req) ? {} : { userId: req.user.uid };
+    if (status !== 'all') {
+      filter.status = status;
+    }
+    const requests = await ReturnRequest.find(filter).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, data: requests.map(serializeReturnRequest) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function createReturnRequest(req, res, next) {
+  try {
+    const { id } = req.params;
+    const reason = req.body?.reason?.toString().trim() || '';
+    const imageUrl = req.body?.imageUrl?.toString().trim() || '';
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id.' });
+    }
+    if (!reason) {
+      return res.status(400).json({ success: false, message: 'Return reason is required.' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+    if (order.userId !== req.user.uid && !canManageReturns(req)) {
+      return res.status(403).json({ success: false, message: 'You can only request a return for your own order.' });
+    }
+    if (!isReturnEligible(order)) {
+      return res.status(400).json({ success: false, message: 'This order is not eligible for return right now.' });
+    }
+
+    const existing = await ReturnRequest.findOne({ orderId: id }).sort({ createdAt: -1 });
+    if (existing && existing.status !== 'rejected') {
+      return res.status(400).json({ success: false, message: 'A return request already exists for this order.' });
+    }
+
+    const request = await ReturnRequest.create({
+      orderId: order._id,
+      userId: order.userId,
+      address: shippingAddressLabel(order) || 'Pickup address unavailable',
+      reason,
+      status: 'requested',
+      imageUrl,
+    });
+
+    order.returnStatus = 'requested';
+    order.returnRequestId = request._id.toString();
+    await order.save();
+
+    return res.status(201).json({ success: true, data: serializeReturnRequest(request) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function approveReturnRequest(req, res, next) {
+  try {
+    const { returnId } = req.params;
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!canManageRefunds(req)) {
+      return res.status(403).json({ success: false, message: 'Return approval access denied.' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(returnId)) {
+      return res.status(400).json({ success: false, message: 'Invalid return request id.' });
+    }
+
+    const request = await ReturnRequest.findById(returnId);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Return request not found.' });
+    }
+    if (!['requested', 'assigned'].includes(request.status)) {
+      return res.status(400).json({ success: false, message: 'This return request has already been processed.' });
+    }
+
+    const order = await Order.findById(request.orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    request.status = request.riderId ? 'assigned' : 'approved';
+    request.approvedAt = new Date().toISOString();
+    request.processedBy = req.user.uid;
+    await request.save();
+
+    order.returnStatus = request.status;
+    order.returnRequestId = request._id.toString();
+    await order.save();
+
+    return res.status(200).json({ success: true, data: serializeReturnRequest(request) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function rejectReturnRequest(req, res, next) {
+  try {
+    const { returnId } = req.params;
+    const reason = req.body?.reason?.toString().trim() || '';
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!canManageRefunds(req)) {
+      return res.status(403).json({ success: false, message: 'Return approval access denied.' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(returnId)) {
+      return res.status(400).json({ success: false, message: 'Invalid return request id.' });
+    }
+    if (!reason) {
+      return res.status(400).json({ success: false, message: 'Add a reason before rejecting this return.' });
+    }
+
+    const request = await ReturnRequest.findById(returnId);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Return request not found.' });
+    }
+
+    const order = await Order.findById(request.orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    request.status = 'rejected';
+    request.rejectionReason = reason;
+    request.completedAt = new Date().toISOString();
+    request.processedBy = req.user.uid;
+    await request.save();
+
+    order.returnStatus = 'rejected';
+    order.returnRequestId = request._id.toString();
+    await order.save();
+
+    return res.status(200).json({ success: true, data: serializeReturnRequest(request) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function markReturnPicked(req, res, next) {
+  try {
+    const { returnId } = req.params;
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!canManageReturns(req)) {
+      return res.status(403).json({ success: false, message: 'Pickup access denied.' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(returnId)) {
+      return res.status(400).json({ success: false, message: 'Invalid return request id.' });
+    }
+
+    const request = await ReturnRequest.findById(returnId);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Return request not found.' });
+    }
+    if (!['approved', 'assigned'].includes(request.status)) {
+      return res.status(400).json({ success: false, message: 'Only approved returns can be marked as picked.' });
+    }
+
+    const order = await Order.findById(request.orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    request.status = 'picked';
+    request.pickedAt = new Date().toISOString();
+    request.processedBy = req.user.uid;
+    if (!request.riderId && req.user.role === 'rider') {
+      request.riderId = req.user.uid;
+    }
+    await request.save();
+
+    order.returnStatus = 'picked';
+    order.returnRequestId = request._id.toString();
+    await order.save();
+
+    return res.status(200).json({ success: true, data: serializeReturnRequest(request) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function completeReturnRequest(req, res, next) {
+  try {
+    const { returnId } = req.params;
+    const qualityApproved = req.body?.qualityApproved !== false;
+    const rejectionReason = req.body?.rejectionReason?.toString().trim() || '';
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!canManageReturns(req)) {
+      return res.status(403).json({ success: false, message: 'Return completion access denied.' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(returnId)) {
+      return res.status(400).json({ success: false, message: 'Invalid return request id.' });
+    }
+
+    const request = await ReturnRequest.findById(returnId);
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Return request not found.' });
+    }
+    if (!['picked', 'approved', 'assigned'].includes(request.status)) {
+      return res.status(400).json({ success: false, message: 'This return is not ready for completion.' });
+    }
+
+    const order = await Order.findById(request.orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    if (!qualityApproved) {
+      request.status = 'rejected';
+      request.rejectionReason = rejectionReason || 'The returned item did not pass quality verification.';
+      request.completedAt = new Date().toISOString();
+      request.processedBy = req.user.uid;
+      await request.save();
+
+      order.returnStatus = 'rejected';
+      order.returnRequestId = request._id.toString();
+      await order.save();
+
+      return res.status(200).json({ success: true, data: serializeReturnRequest(request) });
+    }
+
+    let refund = await RefundRequest.findOne({ orderId: order._id }).sort({ createdAt: -1 });
+    if (!refund && isRefundEligible(order)) {
+      refund = await RefundRequest.create({
+        orderId: order._id,
+        userId: order.userId,
+        reason: `Return completed: ${request.reason}`,
+        status: 'pending',
+      });
+    }
+
+    if (refund && refund.status === 'pending') {
+      const gatewayRefund = await processRazorpayRefund(order, refund);
+      refund.status = 'approved';
+      refund.processedAt = new Date().toISOString();
+      refund.processedBy = req.user.uid;
+      refund.gatewayRefundId = gatewayRefund?.id || '';
+      await refund.save();
+      order.refundStatus = 'refunded';
+      order.paymentStatus = 'refunded';
+      order.refundRequestId = refund._id.toString();
+    }
+
+    request.status = 'completed';
+    request.completedAt = new Date().toISOString();
+    request.processedBy = req.user.uid;
+    request.refundRequestId = refund?._id?.toString() || request.refundRequestId || '';
+    await request.save();
+
+    order.returnStatus = 'completed';
+    order.returnRequestId = request._id.toString();
+    await order.save();
+
+    return res.status(200).json({ success: true, data: serializeReturnRequest(request) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function createRazorpayOrder(req, res, next) {
   try {
     const { orderId } = req.body || {};
@@ -682,6 +1282,18 @@ module.exports = {
   listAssignedDeliveryOrders,
   listAvailableDeliveryOrders,
   listStoreOrders,
+  getRefundRequestForOrder,
+  listRefundRequests,
+  createRefundRequest,
+  approveRefundRequest,
+  rejectRefundRequest,
+  getReturnRequestForOrder,
+  listReturnRequests,
+  createReturnRequest,
+  approveReturnRequest,
+  rejectReturnRequest,
+  markReturnPicked,
+  completeReturnRequest,
   createRazorpayOrder,
   updateDeliveryStatus,
   updateOrderStatus,
