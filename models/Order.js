@@ -22,6 +22,11 @@ const orderItemSchema = new mongoose.Schema(
       required: true,
       min: 1,
     },
+    size: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     image: {
       type: String,
       trim: true,
@@ -53,6 +58,8 @@ const razorpaySchema = new mongoose.Schema(
   },
   { _id: false }
 );
+
+const trackingTimestampSchema = new mongoose.Schema({}, { _id: false, strict: false });
 
 const orderSchema = new mongoose.Schema(
   {
@@ -120,6 +127,16 @@ const orderSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: 'Unassigned',
+    },
+    trackingId: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true,
+    },
+    trackingTimestamps: {
+      type: trackingTimestampSchema,
+      default: () => ({}),
     },
     riderLatitude: {
       type: Number,

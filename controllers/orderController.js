@@ -25,6 +25,7 @@ function serializeOrder(order) {
           name: item.name || '',
           price: Number(item.price || 0),
           quantity: Number(item.quantity || 0),
+          size: item.size || '',
           image: item.image || '',
         }))
       : [],
@@ -35,6 +36,8 @@ function serializeOrder(order) {
     orderStatus: source.orderStatus || '',
     deliveryStatus: source.deliveryStatus || 'Pending',
     assignedDeliveryPartner: source.assignedDeliveryPartner || 'Unassigned',
+    trackingId: source.trackingId || '',
+    trackingTimestamps: source.trackingTimestamps || {},
     riderLatitude: source.riderLatitude ?? null,
     riderLongitude: source.riderLongitude ?? null,
     riderLocationUpdatedAt: source.riderLocationUpdatedAt || '',
@@ -43,6 +46,61 @@ function serializeOrder(order) {
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,
   };
+}
+
+function buildTrackingId(orderId, storeId) {
+  const compactOrderId = orderId.toString().slice(-6).toUpperCase();
+  const compactStoreId = (storeId || '').toString().slice(-4).toUpperCase() || 'ABZO';
+  return `TRK-${compactStoreId}-${compactOrderId}`;
+}
+
+function trackingKeyForOrderStatus(status) {
+  switch ((status || '').toLowerCase()) {
+    case 'created':
+    case 'pending':
+      return 'Order Placed';
+    case 'confirmed':
+      return 'Confirmed';
+    case 'processing':
+      return 'Packed';
+    case 'shipped':
+      return 'Out for delivery';
+    case 'delivered':
+      return 'Delivered';
+    case 'cancelled':
+      return 'Cancelled';
+    default:
+      return 'Order Placed';
+  }
+}
+
+function trackingKeyForDeliveryStatus(status) {
+  switch ((status || '').toLowerCase()) {
+    case 'ready for pickup':
+      return 'Confirmed';
+    case 'assigned':
+    case 'picked up':
+      return 'Packed';
+    case 'out for delivery':
+      return 'Out for delivery';
+    case 'delivered':
+      return 'Delivered';
+    case 'cancelled':
+      return 'Cancelled';
+    default:
+      return '';
+  }
+}
+
+function appendTrackingTimestamp(order, key) {
+  if (!key) {
+    return;
+  }
+  const timestamps = { ...(order.trackingTimestamps || {}) };
+  if (!timestamps[key]) {
+    timestamps[key] = new Date().toISOString();
+  }
+  order.trackingTimestamps = timestamps;
 }
 
 function getRazorpayClient() {
@@ -146,6 +204,7 @@ async function createOrder(req, res, next) {
         name: product.name,
         price: product.price,
         quantity,
+        size: item.size?.toString().trim() || '',
         image: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : '',
       });
     }
@@ -160,16 +219,24 @@ async function createOrder(req, res, next) {
       paymentStatus: normalizedPaymentMethod === 'COD' ? 'pending' : 'pending',
       orderStatus: normalizedPaymentMethod === 'COD' ? 'confirmed' : 'pending',
       deliveryStatus: normalizedPaymentMethod === 'COD' ? 'Ready for pickup' : 'Pending',
+      trackingId: '',
+      trackingTimestamps: {},
       shippingAddress: normalizedShippingAddress,
     });
+
+    order.trackingId = buildTrackingId(order._id, resolvedStoreId);
+    appendTrackingTimestamp(order, 'Order Placed');
+    if (normalizedPaymentMethod === 'COD') {
+      appendTrackingTimestamp(order, 'Confirmed');
+    }
 
     if (normalizedPaymentMethod === 'COD' && !order.inventoryDeducted) {
       for (const item of normalizedItems) {
         await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.quantity } });
       }
       order.inventoryDeducted = true;
-      await order.save();
     }
+    await order.save();
 
     try {
       await trackOutfitInteraction({
@@ -256,6 +323,7 @@ async function acceptDelivery(req, res, next) {
     order.riderId = req.user.uid;
     order.assignedDeliveryPartner = req.user.name || 'Assigned Rider';
     order.deliveryStatus = 'Assigned';
+    appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
     await order.save();
 
     return res.status(200).json({ success: true, data: serializeOrder(order) });
@@ -299,6 +367,8 @@ async function updateDeliveryStatus(req, res, next) {
       order.orderStatus = 'delivered';
       order.paymentStatus = order.paymentMethod === 'COD' ? 'paid' : order.paymentStatus;
     }
+    appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(nextStatus));
+    appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
     await order.save();
 
     return res.status(200).json({ success: true, data: serializeOrder(order) });
@@ -407,9 +477,24 @@ async function updateOrderStatus(req, res, next) {
     }
 
     order.orderStatus = statusMap[normalizedStatus];
+    if (order.orderStatus === 'confirmed') {
+      order.deliveryStatus = 'Ready for pickup';
+    } else if (order.orderStatus === 'processing') {
+      order.deliveryStatus = order.riderId ? 'Picked up' : 'Assigned';
+    } else if (order.orderStatus === 'shipped') {
+      order.deliveryStatus = 'Out for delivery';
+    } else if (order.orderStatus === 'delivered') {
+      order.deliveryStatus = 'Delivered';
+      order.paymentStatus = order.paymentMethod === 'COD' ? 'paid' : order.paymentStatus;
+    } else if (order.orderStatus === 'cancelled') {
+      order.deliveryStatus = 'Cancelled';
+    }
+
     if (order.orderStatus === 'confirmed' && order.paymentMethod === 'COD') {
       order.paymentStatus = 'pending';
     }
+    appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
+    appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
     await order.save();
 
     return res.status(200).json({ success: true, data: serializeOrder(order) });
@@ -559,11 +644,14 @@ async function verifyPayment(req, res, next) {
 
     order.paymentStatus = paid ? 'paid' : 'failed';
     order.orderStatus = paid ? 'confirmed' : 'pending';
+    order.deliveryStatus = paid ? 'Ready for pickup' : 'Pending';
     order.razorpay = {
       ...order.razorpay,
       paymentId: razorpayPaymentId,
       signature: razorpaySignature,
     };
+    appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
+    appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
 
     if (paid && !order.inventoryDeducted) {
       for (const item of order.items) {
