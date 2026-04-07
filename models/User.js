@@ -85,6 +85,17 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    referralCode: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: '',
+    },
+    referredBy: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     roles: {
       type: Map,
       of: Boolean,

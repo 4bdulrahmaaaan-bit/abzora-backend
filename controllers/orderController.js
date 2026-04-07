@@ -6,6 +6,8 @@ const mongoose = require('mongoose');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
+const User = require('../models/User');
+const ReferralRecord = require('../models/ReferralRecord');
 const RefundRequest = require('../models/RefundRequest');
 const ReturnRequest = require('../models/ReturnRequest');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
@@ -155,6 +157,58 @@ function appendTrackingTimestamp(order, key) {
     timestamps[key] = new Date().toISOString();
   }
   order.trackingTimestamps = timestamps;
+}
+
+function referrerRewardForCompletedInvites(completedInvites) {
+  if (completedInvites >= 10) {
+    return 150;
+  }
+  if (completedInvites >= 4) {
+    return 100;
+  }
+  return 75;
+}
+
+async function processReferralRewardIfEligible(userId, order) {
+  const actor = await User.findOne({ uid: userId });
+  const referrerId = actor?.referredBy || '';
+  if (!actor || !referrerId || Number(order?.totalAmount || 0) < 499) {
+    return;
+  }
+
+  const existing = await ReferralRecord.findOne({
+    referrerId,
+    referredUserId: userId,
+  });
+  if (!existing || existing.rewardGiven) {
+    return;
+  }
+
+  const referrer = await User.findOne({ uid: referrerId });
+  if (!referrer) {
+    return;
+  }
+
+  const completedBefore = await ReferralRecord.countDocuments({
+    referrerId,
+    rewardGiven: true,
+  });
+  const referrerReward = referrerRewardForCompletedInvites(completedBefore + 1);
+  const friendReward = 75;
+  const nowIso = new Date().toISOString();
+
+  existing.status = 'completed';
+  existing.rewardGiven = true;
+  existing.referrerReward = referrerReward;
+  existing.friendReward = friendReward;
+  existing.completedAt = nowIso;
+  existing.qualifyingOrderId = order._id.toString();
+  existing.qualifyingOrderAmount = Number(order.totalAmount || 0);
+  await existing.save();
+
+  referrer.walletBalance = Number(referrer.walletBalance || 0) + referrerReward;
+  actor.walletBalance = Number(actor.walletBalance || 0) + friendReward;
+  await Promise.all([referrer.save(), actor.save()]);
 }
 
 function getRazorpayClient() {
@@ -358,6 +412,9 @@ async function createOrder(req, res, next) {
       order.inventoryDeducted = true;
     }
     await order.save();
+    if (normalizedPaymentMethod === 'COD') {
+      await processReferralRewardIfEligible(req.user.uid, order);
+    }
 
     try {
       await trackOutfitInteraction({
@@ -1260,6 +1317,9 @@ async function verifyPayment(req, res, next) {
       order.inventoryDeducted = true;
     }
     await order.save();
+    if (paid) {
+      await processReferralRewardIfEligible(req.user.uid, order);
+    }
 
     return res.status(200).json({
       success: true,

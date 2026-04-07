@@ -6,6 +6,11 @@ const cors = require('cors');
 const connectDB = require('./config/db');
 require('./config/cloudinary');
 const initializeFirebase = require('./config/firebase');
+const {
+  createCorsOptions,
+  createRateLimiter,
+  securityHeaders,
+} = require('./middleware/securityMiddleware');
 
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -27,15 +32,48 @@ const outfitRoutes = require('./routes/outfitRoutes');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
+app.set('trust proxy', 1);
 
-app.use(
-  cors({
-    origin: process.env.CLIENT_ORIGIN?.split(',').map((value) => value.trim()) || '*',
-    credentials: true,
-  })
-);
+app.use(cors(createCorsOptions()));
+app.use(securityHeaders);
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+const authLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 80,
+  message: 'Too many authentication requests. Please wait and try again.',
+});
+
+const orderLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 120,
+  message: 'Too many order requests. Please slow down and try again.',
+});
+
+const paymentLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 60,
+  message: 'Too many payment requests. Please wait and try again.',
+});
+
+const adminLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Too many admin requests. Please wait and try again.',
+});
+
+const supportLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 120,
+  message: 'Too many support requests. Please wait and try again.',
+});
+
+const uploadLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 40,
+  message: 'Too many upload requests. Please wait and try again.',
+});
 
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -59,17 +97,19 @@ app.get('/', (req, res) => {
   });
 });
 
-app.use('/auth', authRoutes);
+app.use('/auth', authLimiter, authRoutes);
 app.use('/products', productRoutes);
 app.use('/stores', storeRoutes);
-app.use('/orders', orderRoutes);
-app.use('/upload', uploadRoutes);
+app.use('/orders/create-razorpay-order', paymentLimiter);
+app.use('/orders/verify-payment', paymentLimiter);
+app.use('/orders', orderLimiter, orderRoutes);
+app.use('/upload', uploadLimiter, uploadRoutes);
 app.use('/wishlist', wishlistRoutes);
 app.use('/cards', cardRoutes);
 app.use('/chats', chatRoutes);
-app.use('/support', supportRoutes);
+app.use('/support', supportLimiter, supportRoutes);
 app.use('/ai', aiRoutes);
-app.use('/admin', adminRoutes);
+app.use('/admin', adminLimiter, adminRoutes);
 app.use('/kyc', kycRoutes);
 app.use('/reviews', reviewRoutes);
 app.use('/bookings', bookingRoutes);

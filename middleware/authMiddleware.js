@@ -47,6 +47,8 @@ function serializeUser(user) {
     isActive: user?.isActive ?? true,
     storeId: user?.storeId || '',
     walletBalance: user?.walletBalance ?? 0,
+    referralCode: user?.referralCode || '',
+    referredBy: user?.referredBy || '',
     riderApprovalStatus: user?.riderApprovalStatus || 'pending',
     riderVehicleType: user?.riderVehicleType || '',
     riderLicenseNumber: user?.riderLicenseNumber || '',

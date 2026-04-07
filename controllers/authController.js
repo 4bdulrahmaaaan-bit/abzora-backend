@@ -5,6 +5,9 @@ const User = require('../models/User');
 const UserAddress = require('../models/UserAddress');
 const UserMemory = require('../models/UserMemory');
 const UserStyleProfile = require('../models/UserStyleProfile');
+const MeasurementProfile = require('../models/MeasurementProfile');
+const ReferralRecord = require('../models/ReferralRecord');
+const GrowthOffer = require('../models/GrowthOffer');
 const VendorKycRequest = require('../models/VendorKycRequest');
 
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
@@ -50,6 +53,62 @@ function serializeUserResponse(user) {
   return {
     id: user?._id?.toString?.() || null,
     ...serializeUser(user),
+  };
+}
+
+function serializeMeasurementProfile(profile) {
+  return {
+    id: profile?._id?.toString?.() || '',
+    userId: profile?.userId || '',
+    label: profile?.label || '',
+    method: profile?.method || 'manual',
+    unit: profile?.unit || 'cm',
+    chest: Number(profile?.chest || 0),
+    shoulder: Number(profile?.shoulder || 0),
+    waist: Number(profile?.waist || 0),
+    sleeve: Number(profile?.sleeve || 0),
+    length: Number(profile?.length || 0),
+    standardSize: profile?.standardSize || '',
+    recommendedSize: profile?.recommendedSize || '',
+    sourceProfileId: profile?.sourceProfileId || '',
+  };
+}
+
+function serializeReferralRecord(record) {
+  return {
+    id: record?._id?.toString?.() || '',
+    referrerId: record?.referrerId || '',
+    referredUserId: record?.referredUserId || '',
+    referralCode: record?.referralCode || '',
+    status: record?.status || 'pending',
+    rewardGiven: Boolean(record?.rewardGiven),
+    referrerReward: Number(record?.referrerReward || 0),
+    friendReward: Number(record?.friendReward || 0),
+    createdAt: record?.createdAtIso || record?.createdAt?.toISOString?.() || '',
+    completedAt: record?.completedAt || '',
+    qualifyingOrderId: record?.qualifyingOrderId || '',
+    qualifyingOrderAmount:
+      record?.qualifyingOrderAmount == null ? null : Number(record.qualifyingOrderAmount),
+    fraudFlags: Array.isArray(record?.fraudFlags) ? record.fraudFlags : [],
+  };
+}
+
+function serializeGrowthOffer(offer) {
+  return {
+    id: offer?._id?.toString?.() || '',
+    userId: offer?.userId || '',
+    type: offer?.type || 'discount',
+    title: offer?.title || '',
+    subtitle: offer?.subtitle || '',
+    code: offer?.code || '',
+    discountPercent: Number(offer?.discountPercent || 0),
+    discountAmount: Number(offer?.discountAmount || 0),
+    minOrderValue: Number(offer?.minOrderValue || 0),
+    autoApply: Boolean(offer?.autoApply),
+    isClaimed: Boolean(offer?.isClaimed),
+    createdAt: offer?.createdAtIso || offer?.createdAt?.toISOString?.() || '',
+    expiresAt: offer?.expiresAt || '',
+    metadata: offer?.metadata && typeof offer.metadata === 'object' ? offer.metadata : {},
   };
 }
 
@@ -111,6 +170,56 @@ function normalizeCartItems(items) {
           : {},
     }))
     .filter((item) => item.productId);
+}
+
+function buildReferralCode(user) {
+  const seed = `${(user?.phone || user?.uid || user?._id?.toString?.() || 'ABZORA')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase()}ABZ`;
+  return seed.length > 10 ? seed.substring(0, 10) : seed.padRight(8, 'X');
+}
+
+async function ensureReferralCodeForUser(user) {
+  if (!user) {
+    return '';
+  }
+  const existing = toSafeTrimmedString(user.referralCode).toUpperCase();
+  if (existing) {
+    return existing;
+  }
+  user.referralCode = buildReferralCode(user);
+  await user.save();
+  return user.referralCode;
+}
+
+function referralTierForCompletedInvites(completedInvites) {
+  if (completedInvites >= 10) {
+    return 'Gold';
+  }
+  if (completedInvites >= 4) {
+    return 'Silver';
+  }
+  return 'Bronze';
+}
+
+function invitesToNextReferralTier(completedInvites) {
+  if (completedInvites < 4) {
+    return 4 - completedInvites;
+  }
+  if (completedInvites < 10) {
+    return 10 - completedInvites;
+  }
+  return 0;
+}
+
+function referralProgress(completedInvites) {
+  if (completedInvites >= 10) {
+    return 1;
+  }
+  if (completedInvites >= 4) {
+    return (completedInvites - 4) / 6;
+  }
+  return completedInvites / 4;
 }
 
 async function findApprovedVendorKyc(user) {
@@ -529,6 +638,282 @@ async function saveMemory(req, res, next) {
   }
 }
 
+async function listMeasurementProfiles(req, res, next) {
+  try {
+    const profiles = await MeasurementProfile.find({ userId: req.user.uid }).sort({
+      updatedAt: -1,
+      _id: -1,
+    });
+    return res.status(200).json({
+      success: true,
+      data: profiles.map(serializeMeasurementProfile),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function saveMeasurementProfile(req, res, next) {
+  try {
+    const profileId = toSafeTrimmedString(req.body?.id);
+    const payload = {
+      userId: req.user.uid,
+      label: toSafeTrimmedString(req.body?.label) || 'Saved Fit',
+      method: toSafeTrimmedString(req.body?.method) || 'manual',
+      unit: toSafeTrimmedString(req.body?.unit) || 'cm',
+      chest: Number(req.body?.chest || 0),
+      shoulder: Number(req.body?.shoulder || 0),
+      waist: Number(req.body?.waist || 0),
+      sleeve: Number(req.body?.sleeve || 0),
+      length: Number(req.body?.length || 0),
+      standardSize: toSafeTrimmedString(req.body?.standardSize),
+      recommendedSize: toSafeTrimmedString(req.body?.recommendedSize),
+      sourceProfileId: toSafeTrimmedString(req.body?.sourceProfileId),
+    };
+
+    let profile;
+    if (profileId && mongoose.Types.ObjectId.isValid(profileId)) {
+      profile = await MeasurementProfile.findOneAndUpdate(
+        { _id: profileId, userId: req.user.uid },
+        payload,
+        { new: true }
+      );
+    }
+    if (!profile) {
+      profile = await MeasurementProfile.create(payload);
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: serializeMeasurementProfile(profile),
+    });
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    return next(error);
+  }
+}
+
+async function removeMeasurementProfile(req, res, next) {
+  try {
+    const profileId = toSafeTrimmedString(req.params?.id);
+    if (!mongoose.Types.ObjectId.isValid(profileId)) {
+      return res.status(404).json({ success: false, message: 'Measurement profile not found.' });
+    }
+    await MeasurementProfile.deleteOne({ _id: profileId, userId: req.user.uid });
+    return res.status(200).json({ success: true, data: true });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function applyReferralCode(req, res, next) {
+  try {
+    const actor = req.dbUser || (await User.findOne({ uid: req.user.uid }));
+    const normalized = toSafeTrimmedString(req.body?.code).toUpperCase();
+    if (!actor) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    if (!normalized) {
+      return res.status(400).json({ success: false, message: 'Enter a valid referral code.' });
+    }
+    if (toSafeTrimmedString(actor.referredBy)) {
+      return res.status(400).json({ success: false, message: 'A referral code has already been applied to this account.' });
+    }
+
+    const referrer = await User.findOne({ referralCode: normalized });
+    if (!referrer) {
+      return res.status(404).json({ success: false, message: 'This referral code could not be found.' });
+    }
+    if ((referrer.uid || referrer.firebaseUid) === req.user.uid) {
+      return res.status(400).json({ success: false, message: 'You cannot use your own referral code.' });
+    }
+    if (toSafeTrimmedString(referrer.phone) && toSafeTrimmedString(referrer.phone) === toSafeTrimmedString(actor.phone)) {
+      return res.status(400).json({ success: false, message: 'This referral cannot be applied to the same phone number.' });
+    }
+
+    const existing = await ReferralRecord.findOne({
+      referrerId: referrer.uid || referrer.firebaseUid,
+      referredUserId: req.user.uid,
+    });
+    if (existing) {
+      return res.status(400).json({ success: false, message: 'This referral has already been linked.' });
+    }
+
+    const record = await ReferralRecord.create({
+      referrerId: referrer.uid || referrer.firebaseUid,
+      referredUserId: req.user.uid,
+      referralCode: normalized,
+      status: 'pending',
+      createdAtIso: new Date().toISOString(),
+    });
+    actor.referredBy = referrer.uid || referrer.firebaseUid;
+    await actor.save();
+
+    return res.status(200).json({
+      success: true,
+      data: serializeReferralRecord(record),
+    });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(400).json({ success: false, message: 'This referral has already been linked.' });
+    }
+    return next(error);
+  }
+}
+
+async function listReferralHistory(req, res, next) {
+  try {
+    const history = await ReferralRecord.find({ referrerId: req.user.uid }).sort({
+      createdAt: -1,
+      _id: -1,
+    });
+    return res.status(200).json({
+      success: true,
+      data: history.map(serializeReferralRecord),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getReferralDashboard(req, res, next) {
+  try {
+    const user = req.dbUser || (await User.findOne({ uid: req.user.uid }));
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    const referralCode = await ensureReferralCodeForUser(user);
+    const history = await ReferralRecord.find({ referrerId: req.user.uid }).sort({
+      createdAt: -1,
+      _id: -1,
+    });
+    const completed = history.filter((item) => item.rewardGiven);
+    const pending = history.filter((item) => !item.rewardGiven);
+    const completedCount = completed.length;
+    return res.status(200).json({
+      success: true,
+      data: {
+        referralCode,
+        invitedCount: history.length,
+        completedCount,
+        pendingCount: pending.length,
+        earnedCredits: completed.reduce((sum, item) => sum + Number(item.referrerReward || 0), 0),
+        walletBalance: Number(user.walletBalance || 0),
+        tier: referralTierForCompletedInvites(completedCount),
+        nextTierProgress: referralProgress(completedCount),
+        invitesToNextTier: invitesToNextReferralTier(completedCount),
+        history: history.map(serializeReferralRecord),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listGrowthOffers(req, res, next) {
+  try {
+    const offers = await GrowthOffer.find({ userId: req.user.uid }).sort({
+      createdAt: -1,
+      _id: -1,
+    });
+    return res.status(200).json({
+      success: true,
+      data: offers.map(serializeGrowthOffer),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function saveGrowthOffer(req, res, next) {
+  try {
+    const offerId = toSafeTrimmedString(req.body?.id);
+    const payload = {
+      userId: req.user.uid,
+      type: toSafeTrimmedString(req.body?.type) || 'discount',
+      title: toSafeTrimmedString(req.body?.title),
+      subtitle: toSafeTrimmedString(req.body?.subtitle),
+      code: toSafeTrimmedString(req.body?.code).toUpperCase(),
+      discountPercent: Number(req.body?.discountPercent || 0),
+      discountAmount: Number(req.body?.discountAmount || 0),
+      minOrderValue: Number(req.body?.minOrderValue || 0),
+      autoApply: Boolean(req.body?.autoApply),
+      isClaimed: Boolean(req.body?.isClaimed),
+      createdAtIso: toSafeTrimmedString(req.body?.createdAt) || new Date().toISOString(),
+      expiresAt: toSafeTrimmedString(req.body?.expiresAt),
+      metadata: req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {},
+    };
+    if (!payload.code) {
+      return res.status(400).json({ success: false, message: 'Offer code is required.' });
+    }
+    let offer;
+    if (offerId && mongoose.Types.ObjectId.isValid(offerId)) {
+      offer = await GrowthOffer.findOneAndUpdate(
+        { _id: offerId, userId: req.user.uid },
+        payload,
+        { new: true }
+      );
+    }
+    if (!offer) {
+      offer = await GrowthOffer.findOneAndUpdate(
+        { userId: req.user.uid, code: payload.code },
+        payload,
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+      );
+    }
+    return res.status(200).json({ success: true, data: serializeGrowthOffer(offer) });
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(400).json({ success: false, message: 'That offer code already exists.' });
+    }
+    return next(error);
+  }
+}
+
+async function validateGrowthOffer(req, res, next) {
+  try {
+    const code = toSafeTrimmedString(req.body?.code).toUpperCase();
+    const cartValue = Number(req.body?.cartValue || 0);
+    if (!code) {
+      return res.status(200).json({ success: true, data: null });
+    }
+    const offer = await GrowthOffer.findOne({ userId: req.user.uid, code });
+    if (!offer) {
+      return res.status(200).json({ success: true, data: null });
+    }
+    const expired = offer.expiresAt && Date.parse(offer.expiresAt) < Date.now();
+    const eligible = !offer.isClaimed && !expired && cartValue >= Number(offer.minOrderValue || 0);
+    return res.status(200).json({
+      success: true,
+      data: eligible ? serializeGrowthOffer(offer) : null,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function claimGrowthOffer(req, res, next) {
+  try {
+    const code = toSafeTrimmedString(req.body?.code).toUpperCase() || toSafeTrimmedString(req.params?.code).toUpperCase();
+    if (!code) {
+      return res.status(400).json({ success: false, message: 'Offer code is required.' });
+    }
+    const offer = await GrowthOffer.findOneAndUpdate(
+      { userId: req.user.uid, code },
+      { isClaimed: true },
+      { new: true }
+    );
+    return res.status(200).json({
+      success: true,
+      data: offer ? serializeGrowthOffer(offer) : null,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   me,
   debugAuth,
@@ -539,5 +924,15 @@ module.exports = {
   deleteAddress,
   getMemory,
   saveMemory,
+  listMeasurementProfiles,
+  saveMeasurementProfile,
+  removeMeasurementProfile,
+  applyReferralCode,
+  listReferralHistory,
+  getReferralDashboard,
+  listGrowthOffers,
+  saveGrowthOffer,
+  validateGrowthOffer,
+  claimGrowthOffer,
   isAllowedAdminEmail,
 };
