@@ -209,6 +209,8 @@ function serializeStylistProduct(product) {
     reviewCount: Number(product.reviewCount || 0),
     outfitType: product.outfitType || '',
     fabric: product.fabric || '',
+    subcategory: product.subcategory || '',
+    attributes: product.attributes ? Object.fromEntries(Object.entries(product.attributes)) : {},
     customizations: product.customizations || {},
     measurements: product.measurements || {},
     addons: Array.isArray(product.addons) ? product.addons : [],
@@ -220,9 +222,11 @@ function productText(product) {
     product.name,
     product.brand,
     product.category,
+    product.subcategory,
     product.description,
     product.outfitType,
     product.fabric,
+    ...Object.values(product.attributes || {}),
   ]
     .filter(Boolean)
     .join(' ')

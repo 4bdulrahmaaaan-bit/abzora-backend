@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 
+const { sanitizeAttributes } = require('../config/productAttributeConfig');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
 
@@ -37,6 +38,7 @@ function serializeProduct(product, options = {}) {
     description: source.description || '',
     stock: Number(source.stock || 0),
     category: source.category || '',
+    subcategory: source.subcategory || '',
     images: Array.isArray(source.images) ? source.images : [],
     sizes: Array.isArray(source.sizes) && source.sizes.length > 0 ? source.sizes : ['S', 'M', 'L'],
     demandScore: Number(source.demandScore || 0),
@@ -47,6 +49,7 @@ function serializeProduct(product, options = {}) {
     reviewCount: Number(source.reviewCount || 0),
     outfitType: source.outfitType || '',
     fabric: source.fabric || '',
+    attributes: source.attributes ? Object.fromEntries(Object.entries(source.attributes)) : {},
     storeId: populatedStore ? populatedStore._id?.toString() || populatedStore.id || '' : source.storeId?.toString() || '',
     store: populatedStore ? serializeStoreSummary(populatedStore) : null,
     isActive: Boolean(source.isActive),
@@ -57,7 +60,7 @@ function serializeProduct(product, options = {}) {
 
 async function createProduct(req, res, next) {
   try {
-    const { name, brand, price, images, storeId, stock, category, description } = req.body || {};
+    const { name, brand, price, images, storeId, stock, category, subcategory, description, attributes } = req.body || {};
     const normalizedName = name?.toString().trim() || '';
     const normalizedCategory = category?.toString().trim() || '';
     const normalizedDescription = description?.toString().trim() || '';
@@ -107,7 +110,9 @@ async function createProduct(req, res, next) {
       storeId,
       stock: normalizedStock,
       category: normalizedCategory,
+      subcategory: subcategory?.toString().trim() || '',
       description: normalizedDescription,
+      attributes: sanitizeAttributes(normalizedCategory, attributes),
     });
 
     return res.status(201).json({
@@ -183,7 +188,7 @@ async function updateProduct(req, res, next) {
       return res.status(403).json({ success: false, message: 'You can only update products from your own store.' });
     }
 
-    const { name, brand, price, images, stock, category, description, isActive } = req.body || {};
+    const { name, brand, price, images, stock, category, subcategory, description, attributes, isActive } = req.body || {};
     const normalizedName = name?.toString().trim() || product.name;
     const normalizedBrand =
       brand == null
@@ -211,7 +216,11 @@ async function updateProduct(req, res, next) {
     product.price = normalizedPrice;
     product.stock = normalizedStock;
     product.category = normalizedCategory;
+    product.subcategory = subcategory == null ? product.subcategory : subcategory.toString().trim();
     product.description = description?.toString().trim() ?? product.description;
+    if (attributes && typeof attributes === 'object' && !Array.isArray(attributes)) {
+      product.attributes = sanitizeAttributes(normalizedCategory, attributes);
+    }
     if (Array.isArray(images)) {
       product.images = images.map((item) => item?.toString().trim()).filter(Boolean);
     }

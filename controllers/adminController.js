@@ -125,6 +125,8 @@ function serializeProduct(item) {
     description: item.description || '',
     stock: Number(item.stock || 0),
     category: item.category || '',
+    subcategory: item.subcategory || '',
+    attributes: item.attributes ? Object.fromEntries(Object.entries(item.attributes)) : {},
     images: item.images || [],
     storeId: item.storeId?._id?.toString?.() || item.storeId?.toString?.() || '',
     store: item.storeId && typeof item.storeId === 'object'

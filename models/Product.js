@@ -37,6 +37,11 @@ const productSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    subcategory: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     description: {
       type: String,
       trim: true,
@@ -85,6 +90,11 @@ const productSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: '',
+    },
+    attributes: {
+      type: Map,
+      of: String,
+      default: {},
     },
     isActive: {
       type: Boolean,
