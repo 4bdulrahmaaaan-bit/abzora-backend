@@ -112,7 +112,7 @@ async function createProduct(req, res, next) {
       category: normalizedCategory,
       subcategory: subcategory?.toString().trim() || '',
       description: normalizedDescription,
-      attributes: sanitizeAttributes(normalizedCategory, attributes),
+      attributes: sanitizeAttributes(subcategory?.toString().trim() || normalizedCategory, attributes),
     });
 
     return res.status(201).json({
@@ -219,7 +219,10 @@ async function updateProduct(req, res, next) {
     product.subcategory = subcategory == null ? product.subcategory : subcategory.toString().trim();
     product.description = description?.toString().trim() ?? product.description;
     if (attributes && typeof attributes === 'object' && !Array.isArray(attributes)) {
-      product.attributes = sanitizeAttributes(normalizedCategory, attributes);
+      product.attributes = sanitizeAttributes(
+        (subcategory == null ? product.subcategory : subcategory.toString().trim()) || normalizedCategory,
+        attributes,
+      );
     }
     if (Array.isArray(images)) {
       product.images = images.map((item) => item?.toString().trim()).filter(Boolean);
