@@ -21,6 +21,11 @@ const productSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    model3d: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     storeId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Store',
