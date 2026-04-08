@@ -88,11 +88,164 @@ function serializeOrder(order) {
     riderLatitude: source.riderLatitude ?? null,
     riderLongitude: source.riderLongitude ?? null,
     riderLocationUpdatedAt: source.riderLocationUpdatedAt || '',
+    fulfillmentType: source.fulfillmentType || 'marketplace',
+    customOrderStatus: source.customOrderStatus || 'none',
+    customMeasurements: source.customMeasurements || {},
+    customDesignOptions: source.customDesignOptions || {},
+    referenceImageUrl: source.referenceImageUrl || '',
+    previewImageUrl: source.previewImageUrl || '',
+    vendorFinalImageUrl: source.vendorFinalImageUrl || '',
+    selectedDesignerName: source.selectedDesignerName || '',
+    qualityApprovalStatus: source.qualityApprovalStatus || 'not_required',
+    measurementsConfirmedByVendor: Boolean(source.measurementsConfirmedByVendor),
+    preDispatchChecklistCompletedAt: source.preDispatchChecklistCompletedAt || '',
+    customerFitFeedbackStatus: source.customerFitFeedbackStatus || 'pending',
+    customerFitRating: Number(source.customerFitRating || 0),
+    customerQualityRating: Number(source.customerQualityRating || 0),
+    customerDeliveryRating: Number(source.customerDeliveryRating || 0),
+    customerFitFeedbackNotes: source.customerFitFeedbackNotes || '',
+    customerFitRespondedAt: source.customerFitRespondedAt || '',
+    alterationStatus: source.alterationStatus || 'none',
+    alterationRequestedAt: source.alterationRequestedAt || '',
+    alterationResolvedAt: source.alterationResolvedAt || '',
+    alterationNotes: source.alterationNotes || '',
+    customProductionTimeDays: Number(source.customProductionTimeDays || 0),
+    customizationSummary: source.customizationSummary || '',
     shippingAddress: source.shippingAddress || {},
     razorpay: source.razorpay || {},
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,
   };
+}
+
+async function applyCustomVendorPenalty(store, averageScore) {
+  if (!store || store.vendorType !== 'custom_vendor') {
+    return;
+  }
+  const profile = store.customVendorProfile?.toObject?.() ??
+    store.customVendorProfile ??
+    {};
+  const penaltyIncrement = averageScore < 2 ? 2 : 1;
+  const penaltyPoints = Number(profile.penaltyPoints || 0) + penaltyIncrement;
+  let qualityTier = 'watchlist';
+  let activeCustomOrderLimit = Number(profile.activeCustomOrderLimit || 0);
+
+  if (penaltyPoints >= 6) {
+    qualityTier = 'suspended';
+    activeCustomOrderLimit = 0;
+    store.isActive = false;
+  } else if (penaltyPoints >= 3) {
+    qualityTier = 'restricted';
+    activeCustomOrderLimit = 3;
+  }
+
+  store.customVendorProfile = {
+    ...profile,
+    qualityTier,
+    penaltyPoints,
+    activeCustomOrderLimit,
+  };
+  await store.save();
+}
+
+async function submitCustomFitFeedback(req, res, next) {
+  try {
+    const orderId = String(req.params?.id || '').trim();
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id.' });
+    }
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+    if (order.userId !== req.user.uid) {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+    if (order.fulfillmentType !== 'custom_tailoring') {
+      return res.status(400).json({ success: false, message: 'Fit feedback is available only for custom orders.' });
+    }
+    if (order.customOrderStatus !== 'delivered' && order.orderStatus !== 'delivered') {
+      return res.status(400).json({ success: false, message: 'Fit feedback can only be submitted after delivery.' });
+    }
+
+    const fitRating = Number(req.body?.fitRating || 0);
+    const qualityRating = Number(req.body?.qualityRating || 0);
+    const deliveryRating = Number(req.body?.deliveryRating || 0);
+    const notes = String(req.body?.notes || '').trim();
+    const needsAlteration = req.body?.needsAlteration === true;
+
+    order.customerFitRating = Math.min(5, Math.max(0, fitRating));
+    order.customerQualityRating = Math.min(5, Math.max(0, qualityRating));
+    order.customerDeliveryRating = Math.min(5, Math.max(0, deliveryRating));
+    order.customerFitFeedbackNotes = notes;
+    order.customerFitRespondedAt = new Date().toISOString();
+    order.customerFitFeedbackStatus = needsAlteration
+      ? 'alteration_requested'
+      : fitRating >= 4 && qualityRating >= 4
+          ? 'fit_good'
+          : 'issue_reported';
+    if (needsAlteration) {
+      order.alterationStatus = 'requested';
+      order.alterationRequestedAt = order.alterationRequestedAt || new Date().toISOString();
+      order.alterationNotes = notes;
+      order.customOrderStatus = 'accepted';
+      order.orderStatus = 'processing';
+    }
+    await order.save();
+
+    const averageScore =
+      (order.customerFitRating + order.customerQualityRating + order.customerDeliveryRating) / 3;
+    if (averageScore > 0 && averageScore < 3.2) {
+      const store = await Store.findById(order.storeId);
+      await applyCustomVendorPenalty(store, averageScore);
+    }
+
+    return res.status(200).json({ success: true, data: serializeOrder(order) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function requestCustomAlteration(req, res, next) {
+  try {
+    const orderId = String(req.params?.id || '').trim();
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id.' });
+    }
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+    if (order.userId !== req.user.uid) {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+    if (order.fulfillmentType !== 'custom_tailoring') {
+      return res.status(400).json({ success: false, message: 'Alteration is available only for custom orders.' });
+    }
+
+    const notes = String(req.body?.notes || '').trim();
+    order.alterationStatus = 'requested';
+    order.alterationRequestedAt = new Date().toISOString();
+    order.alterationNotes = notes;
+    order.customerFitFeedbackStatus = 'alteration_requested';
+    order.customOrderStatus = 'accepted';
+    order.orderStatus = 'processing';
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+      data: serializeOrder(order),
+      message: 'Alteration requested and routed back to the same vendor.',
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 function serializeRefundRequest(refund) {
@@ -1658,6 +1811,8 @@ module.exports = {
   markReturnPicked,
   completeReturnRequest,
   createRazorpayOrder,
+  requestCustomAlteration,
+  submitCustomFitFeedback,
   updateDeliveryStatus,
   updateOrderStatus,
   cancelOrder,

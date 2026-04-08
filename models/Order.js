@@ -60,6 +60,8 @@ const razorpaySchema = new mongoose.Schema(
 );
 
 const trackingTimestampSchema = new mongoose.Schema({}, { _id: false, strict: false });
+const customMeasurementsSchema = new mongoose.Schema({}, { _id: false, strict: false });
+const customDesignSchema = new mongoose.Schema({}, { _id: false, strict: false });
 
 const orderSchema = new mongoose.Schema(
   {
@@ -157,6 +159,134 @@ const orderSchema = new mongoose.Schema(
       type: String,
       enum: ['none', 'pending', 'processed', 'reversed'],
       default: 'none',
+    },
+    fulfillmentType: {
+      type: String,
+      enum: ['marketplace', 'custom_tailoring'],
+      default: 'marketplace',
+      index: true,
+    },
+    customOrderStatus: {
+      type: String,
+      enum: [
+        'none',
+        'new_order',
+        'accepted',
+        'needs_clarification',
+        'in_stitching',
+        'quality_check',
+        'ready',
+        'shipped',
+        'delivered',
+        'rejected',
+      ],
+      default: 'none',
+      index: true,
+    },
+    selectedDesignerName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    customMeasurements: {
+      type: customMeasurementsSchema,
+      default: () => ({}),
+    },
+    customDesignOptions: {
+      type: customDesignSchema,
+      default: () => ({}),
+    },
+    referenceImageUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    previewImageUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    vendorFinalImageUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    qualityApprovalStatus: {
+      type: String,
+      enum: ['not_required', 'pending', 'approved', 'rejected'],
+      default: 'not_required',
+    },
+    measurementsConfirmedByVendor: {
+      type: Boolean,
+      default: false,
+    },
+    preDispatchChecklistCompletedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    customerFitFeedbackStatus: {
+      type: String,
+      enum: ['pending', 'fit_good', 'alteration_requested', 'issue_reported'],
+      default: 'pending',
+    },
+    customerFitRating: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    customerQualityRating: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    customerDeliveryRating: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    customerFitFeedbackNotes: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    customerFitRespondedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    alterationStatus: {
+      type: String,
+      enum: ['none', 'requested', 'accepted', 'in_progress', 'completed', 'rejected'],
+      default: 'none',
+    },
+    alterationRequestedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    alterationResolvedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    alterationNotes: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    customProductionTimeDays: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    customizationSummary: {
+      type: String,
+      trim: true,
+      default: '',
     },
     riderPayoutStatus: {
       type: String,

@@ -22,6 +22,8 @@ const {
   completeReturnRequest,
   cancelOrder,
   createRazorpayOrder,
+  requestCustomAlteration,
+  submitCustomFitFeedback,
   updateDeliveryStatus,
   updateOrderStatus,
   updateRiderLocation,
@@ -49,6 +51,8 @@ router.get('/:id/refund-request', getRefundRequestForOrder);
 router.post('/:id/refund-request', createRefundRequest);
 router.get('/:id/return-request', getReturnRequestForOrder);
 router.post('/:id/return-request', createReturnRequest);
+router.post('/:id/custom-fit-feedback', submitCustomFitFeedback);
+router.post('/:id/custom-alteration', requestCustomAlteration);
 router.post('/:id/cancel', cancelOrder);
 router.post('/:id/accept-delivery', acceptDelivery);
 router.post('/create-razorpay-order', createRazorpayOrder);

@@ -5,6 +5,7 @@ const {
   createStore,
   getStore,
   getOwnStore,
+  listRankedCustomStores,
   listStores,
   updateStore,
 } = require('../controllers/storeController');
@@ -12,6 +13,7 @@ const {
 const router = express.Router();
 
 router.get('/', listStores);
+router.get('/custom/ranked', listRankedCustomStores);
 router.get('/owner/me', authMiddleware, getOwnStore);
 router.get('/:id', getStore);
 router.post('/', authMiddleware, createStore);
