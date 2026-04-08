@@ -35,6 +35,10 @@ const bannerRoutes = require('./routes/bannerRoutes');
 const categoryRoutes = require('./routes/category.routes');
 const outfitRoutes = require('./routes/outfitRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
+const financeRoutes = require('./routes/financeRoutes');
+const walletRoutes = require('./routes/walletRoutes');
+const payoutRoutes = require('./routes/payoutRoutes');
+const arRoutes = require('./routes/arRoutes');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -107,6 +111,11 @@ app.get('/', (req, res) => {
       products: '/products',
       stores: '/stores',
       orders: '/orders',
+      finance: '/finance/overview',
+      wallet: '/wallet/vendor',
+      payouts: '/payouts/vendor/settle',
+      aiSpecs: '/ai/specs',
+      arGenerate: '/ar/generate',
       upload: '/upload',
     },
   });
@@ -137,6 +146,10 @@ app.use('/bookings', bookingRoutes);
 app.use('/banners', bannerRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/outfits', outfitRoutes);
+app.use('/finance', adminLimiter, financeRoutes);
+app.use('/wallet', withdrawalLimiter, walletRoutes);
+app.use('/payouts', adminLimiter, payoutRoutes);
+app.use('/ar', arRoutes);
 app.use('/webhooks', webhookRoutes);
 
 app.use((req, res) => {

@@ -14,6 +14,11 @@ const {
   generateOutfitRecommendations,
   resolveUserIdentity,
 } = require('../services/outfitEngine');
+const {
+  CATEGORY_SPEC_CONFIG,
+  buildDynamicSpecs,
+  normalizeCategory,
+} = require('../services/productSpecsService');
 
 function isAdmin(req) {
   return req.user?.role === 'admin' || req.user?.role === 'super_admin';
@@ -1362,6 +1367,62 @@ async function logAiEvent(req, res, next) {
   }
 }
 
+async function generateProductSpecs(req, res, next) {
+  try {
+    const productId = req.body?.productId?.toString().trim() || '';
+    let source = {
+      name: req.body?.name || '',
+      brand: req.body?.brand || '',
+      category: req.body?.category || '',
+      subcategory: req.body?.subcategory || '',
+      description: req.body?.description || '',
+      attributes: req.body?.attributes || {},
+    };
+
+    if (productId) {
+      const product = await Product.findById(productId);
+      if (!product) {
+        return res.status(404).json({ success: false, message: 'Product not found.' });
+      }
+      source = {
+        name: product.name || '',
+        brand: product.brand || '',
+        category: product.category || '',
+        subcategory: product.subcategory || '',
+        description: product.description || '',
+        attributes: product.attributes || {},
+      };
+    }
+
+    const result = buildDynamicSpecs(source);
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...result,
+        productId: productId || null,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getProductSpecConfig(req, res, next) {
+  try {
+    const requestedCategory = normalizeCategory(req.query?.category || '', req.query?.subcategory || '');
+    const config = CATEGORY_SPEC_CONFIG[requestedCategory] || CATEGORY_SPEC_CONFIG.generic;
+    return res.status(200).json({
+      success: true,
+      data: {
+        category: requestedCategory,
+        sections: config.sections,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   runAiGateway,
   recommendSize,
@@ -1379,4 +1440,6 @@ module.exports = {
   listAiDailyStats,
   listUserAiUsageStats,
   logAiEvent,
+  generateProductSpecs,
+  getProductSpecConfig,
 };

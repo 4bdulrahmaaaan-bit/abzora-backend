@@ -18,6 +18,8 @@ const {
   listAiDailyStats,
   listUserAiUsageStats,
   logAiEvent,
+  generateProductSpecs,
+  getProductSpecConfig,
 } = require('../controllers/aiController');
 
 const router = express.Router();
@@ -39,5 +41,7 @@ router.get('/usage/logs', listAiUsageLogs);
 router.get('/usage/daily', listAiDailyStats);
 router.get('/usage/users', listUserAiUsageStats);
 router.post('/events', logAiEvent);
+router.get('/specs/config', getProductSpecConfig);
+router.post('/specs', generateProductSpecs);
 
 module.exports = router;
