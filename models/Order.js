@@ -203,6 +203,39 @@ const orderSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    isSuspicious: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    fraudStatus: {
+      type: String,
+      enum: ['clear', 'review', 'blocked'],
+      default: 'clear',
+      index: true,
+    },
+    riskScore: {
+      type: Number,
+      default: 0,
+    },
+    riskReasons: {
+      type: [String],
+      default: [],
+    },
+    fraudSignals: {
+      type: [String],
+      default: [],
+    },
+    placedFromIp: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    placedFromDeviceId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     refundStatus: {
       type: String,
       enum: ['none', 'requested', 'pending', 'approved', 'refunded', 'rejected'],

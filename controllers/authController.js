@@ -9,6 +9,7 @@ const MeasurementProfile = require('../models/MeasurementProfile');
 const ReferralRecord = require('../models/ReferralRecord');
 const GrowthOffer = require('../models/GrowthOffer');
 const VendorKycRequest = require('../models/VendorKycRequest');
+const { recordUserNetworkContext } = require('../services/fraudDetectionService');
 
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
 const SELF_ASSIGNABLE_ROLES = new Set(['user', 'customer', 'vendor', 'rider']);
@@ -460,6 +461,7 @@ async function syncProfile(req, res, next) {
 
     await req.dbUser.save();
     await ensureLinkedStoreId(req.dbUser);
+    await recordUserNetworkContext(req.dbUser, req);
 
     req.user = {
       ...req.user,

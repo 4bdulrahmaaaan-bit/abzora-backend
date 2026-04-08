@@ -31,6 +31,7 @@ const {
   runScheduledSettlements,
   settleVendorPayouts,
   settleRiderPayouts,
+  updateFraudAlertStatus,
 } = require('../controllers/financeController');
 
 const router = express.Router();
@@ -54,6 +55,7 @@ router.post('/finance/settlements/riders', settleRiderPayouts);
 router.post('/finance/settlements/run', runScheduledSettlements);
 router.post('/finance/withdrawals/:requestId/approve', approvePendingWithdrawal);
 router.post('/finance/withdrawals/:requestId/reject', rejectPendingWithdrawal);
+router.patch('/finance/fraud-alerts/:alertId', updateFraudAlertStatus);
 router.get('/disputes', listDisputes);
 router.patch('/disputes/:id', updateDispute);
 router.get('/activity-logs', listActivityLogs);

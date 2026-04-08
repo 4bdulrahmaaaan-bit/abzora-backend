@@ -11,6 +11,12 @@ const User = require('../models/User');
 const VendorWallet = require('../models/VendorWallet');
 const WithdrawalRequest = require('../models/WithdrawalRequest');
 const {
+  createFraudAlert,
+  evaluateWithdrawalRisk,
+  mergeUserFraudFlags,
+  toSeverity,
+} = require('./fraudDetectionService');
+const {
   createOrUpdateContact,
   createOrUpdateFundAccount,
   createPayout,
@@ -865,12 +871,47 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
     if (!payoutProfile.methodType) {
       throw new Error('Configure a payout account before requesting a withdrawal.');
     }
+    const withdrawalRisk = await evaluateWithdrawalRisk({
+      user,
+      wallet: freshWallet,
+      walletType,
+      amount: safeAmount,
+    });
+    if (withdrawalRisk.decision === 'block') {
+      freshWallet.balance = roundMoney(Number(freshWallet.balance || 0) + safeAmount);
+      freshWallet.reservedAmount = roundMoney(
+        Math.max(0, Number(freshWallet.reservedAmount || 0) - safeAmount),
+      );
+      await freshWallet.save(withSession({}, session));
+      if (walletType === 'vendor' && freshWallet.storeId) {
+        await Store.findByIdAndUpdate(
+          freshWallet.storeId,
+          { $set: { walletBalance: freshWallet.balance } },
+          withSession({}, session),
+        );
+      }
+      await mergeUserFraudFlags(userId, {
+        score: withdrawalRisk.riskScore,
+        reasons: withdrawalRisk.reasons,
+      });
+      await createFraudAlert({
+        type: 'withdrawal',
+        severity: toSeverity(withdrawalRisk.riskScore),
+        userId,
+        storeId: walletType === 'vendor' ? freshWallet.storeId || '' : '',
+        riderId: walletType === 'rider' ? freshWallet.riderId || '' : '',
+        riskScore: withdrawalRisk.riskScore,
+        reasons: withdrawalRisk.reasons,
+        message: 'Withdrawal blocked by risk rules.',
+      });
+      throw new Error('Withdrawal request blocked for security review.');
+    }
     const [request] = await WithdrawalRequest.create(
       [
         {
           requestId: buildId(`${walletType}-wd`),
           walletType,
-          status: 'pending',
+          status: withdrawalRisk.decision === 'review' ? 'manual_review' : 'pending',
           userId,
           storeId: walletType === 'vendor' ? freshWallet.storeId || '' : '',
           riderId: walletType === 'rider' ? freshWallet.riderId || '' : '',
@@ -883,10 +924,31 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
             payoutMethodType: payoutProfile.methodType,
             payoutConfigured: Boolean(payoutProfile.methodType),
           },
+          isSuspicious: withdrawalRisk.decision === 'review',
+          reviewRequired: withdrawalRisk.decision === 'review',
+          riskScore: withdrawalRisk.riskScore,
+          riskReasons: withdrawalRisk.reasons,
         },
       ],
       withSession({}, session),
     );
+    if (withdrawalRisk.decision === 'review') {
+      await mergeUserFraudFlags(userId, {
+        score: withdrawalRisk.riskScore,
+        reasons: withdrawalRisk.reasons,
+      });
+      await createFraudAlert({
+        type: 'withdrawal',
+        severity: toSeverity(withdrawalRisk.riskScore),
+        userId,
+        storeId: walletType === 'vendor' ? freshWallet.storeId || '' : '',
+        riderId: walletType === 'rider' ? freshWallet.riderId || '' : '',
+        withdrawalRequestId: request.requestId,
+        riskScore: withdrawalRisk.riskScore,
+        reasons: withdrawalRisk.reasons,
+        message: 'Withdrawal moved to manual review.',
+      });
+    }
 
     await Promise.all([
       recordTransaction(
@@ -895,7 +957,7 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
           userType: walletType,
           userId,
           amount: safeAmount,
-          status: 'requested',
+          status: withdrawalRisk.decision === 'review' ? 'manual_review' : 'requested',
           payoutId: request.requestId,
           storeId: walletType === 'vendor' ? freshWallet.storeId || '' : '',
           riderId: walletType === 'rider' ? freshWallet.riderId || '' : '',
@@ -908,13 +970,15 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
           action: 'withdrawal_requested',
           actorId: userId,
           actorRole: walletType,
-          status: 'requested',
+          status: withdrawalRisk.decision === 'review' ? 'review' : 'requested',
           walletType,
           storeId: walletType === 'vendor' ? freshWallet.storeId || '' : '',
           riderId: walletType === 'rider' ? freshWallet.riderId || '' : '',
           withdrawalRequestId: request.requestId,
           amount: safeAmount,
-          message: note,
+          message: withdrawalRisk.decision === 'review'
+            ? `Withdrawal queued for manual review. ${note}`.trim()
+            : note,
         },
         session,
       ),
@@ -934,7 +998,7 @@ async function approveWithdrawalRequest({ requestId, processedBy, actorRole = 'a
       throw new Error('Withdrawal request not found.');
     }
     const wasFailed = request.status === 'failed';
-    if (!['pending', 'failed'].includes(request.status)) {
+    if (!['pending', 'manual_review', 'failed'].includes(request.status)) {
       throw new Error('This withdrawal request cannot be approved again.');
     }
 
@@ -1047,7 +1111,7 @@ async function rejectWithdrawalRequest({
     if (!request) {
       throw new Error('Withdrawal request not found.');
     }
-    if (!['pending', 'failed'].includes(request.status)) {
+    if (!['pending', 'manual_review', 'failed'].includes(request.status)) {
       throw new Error('This withdrawal request can no longer be rejected.');
     }
 

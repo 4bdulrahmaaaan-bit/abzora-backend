@@ -17,7 +17,7 @@ const withdrawalRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'processing', 'completed', 'failed', 'rejected'],
+      enum: ['pending', 'manual_review', 'processing', 'completed', 'failed', 'rejected'],
       default: 'pending',
       index: true,
     },
@@ -115,6 +115,24 @@ const withdrawalRequestSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
+    },
+    isSuspicious: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    reviewRequired: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    riskScore: {
+      type: Number,
+      default: 0,
+    },
+    riskReasons: {
+      type: [String],
+      default: [],
     },
     auditOrderIds: {
       type: [String],

@@ -13,6 +13,13 @@ const ReturnRequest = require('../models/ReturnRequest');
 const Transaction = require('../models/Transaction');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
 const {
+  createFraudAlert,
+  evaluateOrderRisk,
+  evaluateRefundRisk,
+  mergeUserFraudFlags,
+  toSeverity,
+} = require('../services/fraudDetectionService');
+const {
   calculateOrderFinancials,
   createWithdrawalRequest,
   financeConfig,
@@ -65,6 +72,10 @@ function serializeOrder(order) {
     payoutId: source.payoutId || '',
     riderPayoutId: source.riderPayoutId || '',
     payoutProcessed: Boolean(source.payoutProcessed),
+    isSuspicious: Boolean(source.isSuspicious),
+    fraudStatus: source.fraudStatus || 'clear',
+    riskScore: Number(source.riskScore || 0),
+    riskReasons: Array.isArray(source.riskReasons) ? source.riskReasons : [],
     refundStatus: source.refundStatus || 'none',
     returnStatus: source.returnStatus || 'none',
     refundRequestId: source.refundRequestId || '',
@@ -425,6 +436,35 @@ async function createOrder(req, res, next) {
       commissionPercent: store?.commissionRate,
     });
 
+    const user = await User.findOne({ uid: req.user.uid });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const risk = await evaluateOrderRisk({
+      user,
+      store,
+      req,
+    });
+    if (risk.decision === 'block') {
+      await mergeUserFraudFlags(user.uid, { score: risk.riskScore, reasons: risk.reasons });
+      await createFraudAlert({
+        type: 'order',
+        severity: toSeverity(risk.riskScore),
+        userId: user.uid,
+        storeId: resolvedStoreId,
+        riskScore: risk.riskScore,
+        reasons: risk.reasons,
+        message: 'Order creation blocked by fraud rules.',
+        ipAddress: risk.fingerprint.ipAddress,
+        deviceId: risk.fingerprint.deviceId,
+      });
+      return res.status(429).json({
+        success: false,
+        message: 'Too many risky order attempts detected. Please try again later or contact support.',
+      });
+    }
+
     const order = await Order.create({
       userId: req.user.uid,
       storeId: resolvedStoreId,
@@ -449,12 +489,34 @@ async function createOrder(req, res, next) {
       trackingId: '',
       trackingTimestamps: {},
       shippingAddress: normalizedShippingAddress,
+      isSuspicious: risk.decision === 'review',
+      fraudStatus: risk.decision === 'review' ? 'review' : 'clear',
+      riskScore: risk.riskScore,
+      riskReasons: risk.reasons,
+      fraudSignals: risk.reasons,
+      placedFromIp: risk.fingerprint.ipAddress,
+      placedFromDeviceId: risk.fingerprint.deviceId,
     });
 
     order.trackingId = buildTrackingId(order._id, resolvedStoreId);
     appendTrackingTimestamp(order, 'Order Placed');
     if (normalizedPaymentMethod === 'COD') {
       appendTrackingTimestamp(order, 'Confirmed');
+    }
+    if (risk.decision === 'review') {
+      await mergeUserFraudFlags(user.uid, { score: risk.riskScore, reasons: risk.reasons });
+      await createFraudAlert({
+        type: 'order',
+        severity: toSeverity(risk.riskScore),
+        userId: user.uid,
+        storeId: resolvedStoreId,
+        orderId: order._id.toString(),
+        riskScore: risk.riskScore,
+        reasons: risk.reasons,
+        message: 'Order placed but marked suspicious for manual review.',
+        ipAddress: risk.fingerprint.ipAddress,
+        deviceId: risk.fingerprint.deviceId,
+      });
     }
 
     if (normalizedPaymentMethod === 'COD' && !order.inventoryDeducted) {
@@ -870,15 +932,41 @@ async function createRefundRequest(req, res, next) {
       return res.status(400).json({ success: false, message: 'A refund request already exists for this order.' });
     }
 
+    const refundFraud = await evaluateRefundRisk({ userId: order.userId });
+
     const refund = await RefundRequest.create({
       orderId: order._id,
       userId: order.userId,
       reason,
       status: 'pending',
+      fraudScore: refundFraud.riskScore,
+      fraudDecision: refundFraud.decision === 'clear' ? 'approve' : refundFraud.decision,
+      fraudReasons: refundFraud.reasons,
     });
 
     order.refundStatus = 'requested';
     order.refundRequestId = refund._id.toString();
+    if (refundFraud.decision !== 'clear') {
+      order.isSuspicious = true;
+      order.fraudStatus = 'review';
+      order.riskScore = Math.max(Number(order.riskScore || 0), refundFraud.riskScore);
+      order.riskReasons = Array.from(new Set([...(order.riskReasons || []), ...refundFraud.reasons]));
+      await mergeUserFraudFlags(order.userId, {
+        score: refundFraud.riskScore,
+        reasons: refundFraud.reasons,
+      });
+      await createFraudAlert({
+        type: 'refund',
+        severity: toSeverity(refundFraud.riskScore),
+        userId: order.userId,
+        storeId: order.storeId?.toString() || '',
+        orderId: order._id.toString(),
+        refundRequestId: refund._id.toString(),
+        riskScore: refundFraud.riskScore,
+        reasons: refundFraud.reasons,
+        message: 'Refund request requires fraud review.',
+      });
+    }
     await order.save();
 
     return res.status(201).json({ success: true, data: serializeRefundRequest(refund) });

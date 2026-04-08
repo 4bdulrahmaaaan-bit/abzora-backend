@@ -182,6 +182,37 @@ const userSchema = new mongoose.Schema(
       type: payoutProfileSchema,
       default: () => ({}),
     },
+    isFlagged: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    riskScore: {
+      type: Number,
+      default: 0,
+    },
+    fraudFlags: {
+      type: [String],
+      default: [],
+    },
+    lastKnownIp: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    lastKnownUserAgent: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    knownDeviceIds: {
+      type: [String],
+      default: [],
+    },
+    recentIpAddresses: {
+      type: [String],
+      default: [],
+    },
   },
   {
     timestamps: true,

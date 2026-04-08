@@ -1,6 +1,9 @@
 const Order = require('../models/Order');
 const Transaction = require('../models/Transaction');
 const WithdrawalRequest = require('../models/WithdrawalRequest');
+const AdminPayout = require('../models/AdminPayout');
+const FraudAlert = require('../models/FraudAlert');
+const User = require('../models/User');
 const {
   approveWithdrawalRequest,
   createWithdrawalRequest,
@@ -90,8 +93,42 @@ function serializeWithdrawalRequest(item) {
     idempotencyKey: source.idempotencyKey || '',
     failureReason: source.failureReason || '',
     retryCount: Number(source.retryCount || 0),
+    isSuspicious: Boolean(source.isSuspicious),
+    reviewRequired: Boolean(source.reviewRequired),
+    riskScore: Number(source.riskScore || 0),
+    riskReasons: Array.isArray(source.riskReasons) ? source.riskReasons : [],
     auditOrderIds: Array.isArray(source.auditOrderIds) ? source.auditOrderIds : [],
     metadata: source.metadata || {},
+  };
+}
+
+function serializeFraudAlert(item) {
+  if (!item) {
+    return null;
+  }
+  const source = typeof item.toObject === 'function' ? item.toObject() : item;
+  return {
+    id: source.alertId || source._id?.toString() || '',
+    type: source.type || 'order',
+    severity: source.severity || 'medium',
+    status: source.status || 'open',
+    userId: source.userId || '',
+    storeId: source.storeId || '',
+    riderId: source.riderId || '',
+    orderId: source.orderId || '',
+    withdrawalRequestId: source.withdrawalRequestId || '',
+    refundRequestId: source.refundRequestId || '',
+    riskScore: Number(source.riskScore || 0),
+    reasons: Array.isArray(source.reasons) ? source.reasons : [],
+    message: source.message || '',
+    ipAddress: source.ipAddress || '',
+    deviceId: source.deviceId || '',
+    relatedOrderIds: Array.isArray(source.relatedOrderIds) ? source.relatedOrderIds : [],
+    metadata: source.metadata || {},
+    reviewedBy: source.reviewedBy || '',
+    reviewedAt: source.reviewedAt || '',
+    createdAt: source.createdAt || null,
+    updatedAt: source.updatedAt || null,
   };
 }
 
@@ -115,6 +152,42 @@ function serializeTransaction(item) {
     createdAt: source.createdAtIso || source.createdAt || null,
     metadata: source.metadata || {},
   };
+}
+
+function startOfDay(date = new Date()) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function startOfWeek(date = new Date()) {
+  const dayStart = startOfDay(date);
+  const offset = dayStart.getDay() === 0 ? 6 : dayStart.getDay() - 1;
+  return new Date(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate() - offset);
+}
+
+function sameDay(left, right) {
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+function buildDailySeries({ items, amountFor, dateFor, days = 7, labelFormatter }) {
+  return Array.from({ length: days }, (_, index) => {
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() - (days - 1 - index));
+    const value = items
+      .filter((item) => {
+        const date = dateFor(item);
+        return date && sameDay(date, day);
+      })
+      .reduce((sum, item) => sum + Number(amountFor(item) || 0), 0);
+    return {
+      label: labelFormatter ? labelFormatter(day) : `${day.getDate()}`,
+      value: Number(value || 0),
+    };
+  });
 }
 
 async function getVendorWallet(req, res, next) {
@@ -146,6 +219,79 @@ async function getVendorWallet(req, res, next) {
         payoutProfile: serializePayoutProfile(payoutProfile),
         transactions: transactions.map(serializeTransaction),
         withdrawalRequests: withdrawalRequests.map(serializeWithdrawalRequest),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getVendorDashboard(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const store = await Store.findOne({ ownerId: req.user.uid });
+    if (!store) {
+      return res.status(404).json({ success: false, message: 'Store not found.' });
+    }
+
+    const [wallet, transactions, orders] = await Promise.all([
+      getOrCreateVendorWallet(store._id.toString(), req.user.uid),
+      Transaction.find({
+        $or: [{ userType: 'vendor', userId: req.user.uid }, { storeId: store._id.toString() }],
+      })
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(12),
+      Order.find({ storeId: store._id }).sort({ createdAt: -1, _id: -1 }).limit(250),
+    ]);
+
+    const now = new Date();
+    const today = startOfDay(now);
+    const weekStart = startOfWeek(now);
+    const completedOrders = orders.filter((order) => order.orderStatus === 'delivered');
+    const todayCompleted = completedOrders.filter((order) => {
+      const date = order.updatedAt || order.createdAt;
+      return date && sameDay(date, today);
+    });
+
+    const dailySeries = buildDailySeries({
+      items: completedOrders,
+      amountFor: (order) => order.vendorEarnings,
+      dateFor: (order) => order.updatedAt || order.createdAt,
+      days: 7,
+      labelFormatter: (date) =>
+        date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+    });
+
+    const lastPayoutTransaction = transactions.find(
+      (item) => item.type === 'payout' && ['completed', 'processed'].includes(String(item.status || '').toLowerCase()),
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        todayEarnings: todayCompleted.reduce((sum, order) => sum + Number(order.vendorEarnings || 0), 0),
+        totalEarnings: Number(wallet.totalEarnings || 0),
+        pendingAmount: Number(wallet.pendingAmount || 0),
+        availableBalance: Number(wallet.balance || 0),
+        reservedAmount: Number(wallet.reservedAmount || 0),
+        lastPayoutAmount: Number(lastPayoutTransaction?.amount || 0),
+        lastPayoutAt: lastPayoutTransaction?.createdAtIso || '',
+        ordersCompleted: completedOrders.length,
+        ordersToday: todayCompleted.length,
+        weeklyEarnings: completedOrders
+          .filter((order) => {
+            const date = order.updatedAt || order.createdAt;
+            return date && date >= weekStart;
+          })
+          .reduce((sum, order) => sum + Number(order.vendorEarnings || 0), 0),
+        dailySeries,
+        transactions: transactions.map(serializeTransaction),
+        wallet: serializeWallet(wallet, {
+          storeId: store._id.toString(),
+          commissionRate: Number(store.commissionRate || financeConfig().adminCommissionPercent),
+        }),
       },
     });
   } catch (error) {
@@ -252,6 +398,45 @@ async function getRiderWallet(req, res, next) {
   }
 }
 
+async function getRiderDashboard(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const [wallet, transactions, orders] = await Promise.all([
+      getOrCreateRiderWallet(req.user.uid),
+      Transaction.find({ userType: 'rider', userId: req.user.uid })
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(12),
+      Order.find({ riderId: req.user.uid }).sort({ createdAt: -1, _id: -1 }).limit(250),
+    ]);
+
+    const now = new Date();
+    const today = startOfDay(now);
+    const deliveredOrders = orders.filter((order) => order.orderStatus === 'delivered');
+    const todayDelivered = deliveredOrders.filter((order) => {
+      const date = order.updatedAt || order.createdAt;
+      return date && sameDay(date, today);
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        todayDeliveries: todayDelivered.length,
+        earningsToday: todayDelivered.reduce((sum, order) => sum + Number(order.riderEarnings || 0), 0),
+        totalEarnings: Number(wallet.totalEarnings || 0),
+        pendingPayout: Number(wallet.pendingAmount || 0),
+        availableBalance: Number(wallet.balance || 0),
+        reservedAmount: Number(wallet.reservedAmount || 0),
+        transactions: transactions.map(serializeTransaction),
+        wallet: serializeWallet(wallet, { riderId: req.user.uid }),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function requestRiderWithdraw(req, res, next) {
   try {
     if (!req.user?.uid) {
@@ -315,12 +500,14 @@ async function getAdminFinance(req, res, next) {
     if (!ensureAdmin(req, res)) {
       return;
     }
-    const [adminWallet, vendorWallets, riderWallets, transactions, withdrawalRequests] = await Promise.all([
+    const [adminWallet, vendorWallets, riderWallets, transactions, withdrawalRequests, fraudAlerts, flaggedUsers] = await Promise.all([
       getOrCreateAdminWallet(),
       VendorWallet.find({}).sort({ updatedAt: -1 }).limit(50),
       RiderWallet.find({}).sort({ updatedAt: -1 }).limit(50),
       Transaction.find({}).sort({ createdAt: -1, _id: -1 }).limit(50),
-      listWithdrawalRequests({ status: { $in: ['pending', 'failed', 'processing'] } }),
+      listWithdrawalRequests({ status: { $in: ['pending', 'manual_review', 'failed', 'processing'] } }),
+      FraudAlert.find({ status: { $in: ['open', 'reviewing'] } }).sort({ createdAt: -1, _id: -1 }).limit(30),
+      User.countDocuments({ isFlagged: true }),
     ]);
 
     const vendorPending = vendorWallets.reduce((sum, item) => sum + Number(item.pendingAmount || 0), 0);
@@ -348,8 +535,39 @@ async function getAdminFinance(req, res, next) {
         riderWallets: riderWallets.map((wallet) => serializeWallet(wallet, { riderId: wallet.riderId })),
         transactions: transactions.map(serializeTransaction),
         withdrawalRequests: withdrawalRequests.map(serializeWithdrawalRequest),
+        fraudAlerts: fraudAlerts.map(serializeFraudAlert),
+        flaggedUsers,
       },
     });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function updateFraudAlertStatus(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const alertId = String(req.params?.alertId || '').trim();
+    const status = String(req.body?.status || '').trim().toLowerCase();
+    if (!alertId) {
+      return res.status(400).json({ success: false, message: 'alertId is required.' });
+    }
+    if (!['open', 'reviewing', 'resolved', 'ignored'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'Invalid fraud alert status.' });
+    }
+    const alert = await FraudAlert.findOne({ alertId });
+    if (!alert) {
+      return res.status(404).json({ success: false, message: 'Fraud alert not found.' });
+    }
+    alert.status = status;
+    if (status === 'resolved' || status === 'ignored') {
+      alert.reviewedBy = req.user.uid;
+      alert.reviewedAt = new Date().toISOString();
+    }
+    await alert.save();
+    return res.status(200).json({ success: true, data: serializeFraudAlert(alert) });
   } catch (error) {
     return next(error);
   }
@@ -564,8 +782,10 @@ async function handleRazorpayPayoutWebhook(req, res, next) {
 module.exports = {
   approvePendingWithdrawal,
   getAdminFinance,
+  getRiderDashboard,
   getRiderWallet,
   getRiderPayoutProfile,
+  getVendorDashboard,
   getVendorWallet,
   getVendorPayoutProfile,
   handleRazorpayPayoutWebhook,
@@ -577,4 +797,5 @@ module.exports = {
   saveVendorPayoutProfile,
   settleRiderPayouts,
   settleVendorPayouts,
+  updateFraudAlertStatus,
 };

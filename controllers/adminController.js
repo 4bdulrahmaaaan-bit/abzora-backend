@@ -339,9 +339,24 @@ async function getDashboardSummary(req, res, next) {
       .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
 
     const totalOrders = orders.length;
+    const today = new Date();
+    const ordersToday = orders.filter((order) => {
+      const date = order.createdAt || null;
+      return (
+        date &&
+        date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth() &&
+        date.getDate() === today.getDate()
+      );
+    }).length;
     const commissionRevenue = orders
       .filter((order) => order.paymentStatus === 'paid')
       .reduce((sum, order) => sum + Number(order.platformCommission || 0), 0);
+    const vendorPayouts = await AdminPayout.find({}).sort({ createdAt: -1, _id: -1 }).limit(200);
+    const vendorPayoutTotal = vendorPayouts.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const riderPayoutTotal = orders
+      .filter((order) => String(order.riderPayoutStatus || '').toLowerCase() === 'processed')
+      .reduce((sum, order) => sum + Number(order.riderEarnings || 0), 0);
     const delivered = orders.filter((order) => order.orderStatus === 'delivered');
     const salesByStore = new Map();
     for (const order of delivered) {
@@ -363,6 +378,43 @@ async function getDashboardSummary(req, res, next) {
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, 5);
 
+    const dailySales = Array.from({ length: 7 }, (_, index) => {
+      const day = new Date();
+      day.setHours(0, 0, 0, 0);
+      day.setDate(day.getDate() - (6 - index));
+      const value = delivered
+        .filter((order) => {
+          const date = order.updatedAt || order.createdAt;
+          return (
+            date &&
+            date.getFullYear() === day.getFullYear() &&
+            date.getMonth() === day.getMonth() &&
+            date.getDate() === day.getDate()
+          );
+        })
+        .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+      return {
+        label: day.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }),
+        value,
+      };
+    });
+
+    const weeklySales = Array.from({ length: 4 }, (_, index) => {
+      const end = new Date();
+      end.setHours(23, 59, 59, 999);
+      end.setDate(end.getDate() - ((3 - index) * 7));
+      const start = new Date(end);
+      start.setHours(0, 0, 0, 0);
+      start.setDate(start.getDate() - 6);
+      const value = delivered
+        .filter((order) => {
+          const date = order.updatedAt || order.createdAt;
+          return date && date >= start && date <= end;
+        })
+        .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+      return { label: `W${index + 1}`, value };
+    });
+
     return res.status(200).json({
       success: true,
       data: {
@@ -370,12 +422,17 @@ async function getDashboardSummary(req, res, next) {
         storesCount,
         productsCount,
         totalOrders,
+        ordersToday,
         totalRevenue,
         platformCommissionRevenue: commissionRevenue,
+        vendorPayouts: vendorPayoutTotal,
+        riderPayouts: riderPayoutTotal,
         openSupportChats,
         pendingVendorKyc,
         pendingRiderKyc,
         topStores,
+        dailySales,
+        weeklySales,
       },
     });
   } catch (error) {
