@@ -11,6 +11,8 @@ const {
   deleteAddress,
   getMemory,
   saveMemory,
+  getBodyProfile,
+  saveBodyProfile,
   listMeasurementProfiles,
   saveMeasurementProfile,
   removeMeasurementProfile,
@@ -34,6 +36,8 @@ router.post('/addresses', authMiddleware, saveAddress);
 router.delete('/addresses/:id', authMiddleware, deleteAddress);
 router.get('/memory', authMiddleware, getMemory);
 router.put('/memory', authMiddleware, saveMemory);
+router.get('/body-profile', authMiddleware, getBodyProfile);
+router.post('/body-profile', authMiddleware, saveBodyProfile);
 router.get('/measurements', authMiddleware, listMeasurementProfiles);
 router.post('/measurements', authMiddleware, saveMeasurementProfile);
 router.delete('/measurements/:id', authMiddleware, removeMeasurementProfile);

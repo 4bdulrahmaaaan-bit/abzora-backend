@@ -4,6 +4,7 @@ const Product = require('../models/Product');
 const {
   generateOutfitRecommendations,
   trackOutfitInteraction,
+  recommendProductsForBodyType,
 } = require('../services/outfitEngine');
 
 function normalizeLimit(value, fallback = 6) {
@@ -133,8 +134,30 @@ async function getCompleteLook(req, res, next) {
   }
 }
 
+async function getBodyTypeRecommendations(req, res, next) {
+  try {
+    const userId =
+      req.query.userId?.toString().trim() ||
+      req.user?.uid ||
+      req.user?.firebaseUid ||
+      '';
+    const limit = normalizeLimit(req.query.limit, 10);
+    const data = await recommendProductsForBodyType({
+      userId,
+      limit,
+    });
+    return res.status(200).json({
+      success: true,
+      data,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   getOutfits,
   trackOutfit,
   getCompleteLook,
+  getBodyTypeRecommendations,
 };

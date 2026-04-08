@@ -83,6 +83,42 @@ function parseSizeChart(rawSizeChart, availableSizes = []) {
   const chartEntries = [];
 
   if (rawSizeChart && typeof rawSizeChart === 'object' && !Array.isArray(rawSizeChart)) {
+    // Preferred format:
+    // { S: { chest: 90, waist: 80 }, M: { chest: 100, waist: 90 } }
+    for (const [sizeKey, metricMap] of Object.entries(rawSizeChart)) {
+      const normalizedSize = sizeKey.toString().trim().toUpperCase();
+      if (!SIZE_ORDER.includes(normalizedSize) || !metricMap || typeof metricMap !== 'object') {
+        continue;
+      }
+      const chest = toMeasurementValue(metricMap.chest ?? metricMap.chestCm);
+      const waist = toMeasurementValue(metricMap.waist ?? metricMap.waistCm);
+      const hip = toMeasurementValue(metricMap.hips ?? metricMap.hip ?? metricMap.hipCm);
+      const shoulder = toMeasurementValue(metricMap.shoulder ?? metricMap.shoulderCm);
+      const inseam = toMeasurementValue(metricMap.inseam ?? metricMap.inseamCm);
+      const armLength = toMeasurementValue(metricMap.armLength ?? metricMap.armLengthCm);
+      if (
+        chest == null &&
+        waist == null &&
+        hip == null &&
+        shoulder == null &&
+        inseam == null &&
+        armLength == null
+      ) {
+        continue;
+      }
+      chartEntries.push({
+        size: normalizedSize,
+        chest,
+        waist,
+        hip,
+        shoulder,
+        inseam,
+        armLength,
+      });
+    }
+
+    // Legacy flattened format fallback:
+    // { s_chest: "90", m_waist: "80-84", ... }
     for (const [key, value] of Object.entries(rawSizeChart)) {
       const normalizedKey = key.toString().trim().toLowerCase();
       const sizeMatch = normalizedKey.match(/\b(xs|s|m|l|xl|xxl|xxxl)\b/i);
@@ -168,6 +204,42 @@ function nearestSizeFromChart({ chart, chest, waist, hip }) {
     }
   }
   return best?.size || null;
+}
+
+function sizeScoreForEntry({ entry, chest, waist, hip }) {
+  let score = 0;
+  let matchedMetrics = 0;
+  if (chest != null && entry.chest != null) {
+    score += Math.abs(chest - entry.chest);
+    matchedMetrics += 1;
+  }
+  if (waist != null && entry.waist != null) {
+    score += Math.abs(waist - entry.waist);
+    matchedMetrics += 1;
+  }
+  if (hip != null && entry.hip != null) {
+    score += Math.abs(hip - entry.hip);
+    matchedMetrics += 1;
+  }
+  return {
+    score,
+    matchedMetrics,
+  };
+}
+
+function fallbackPopularSize(availableSizes = []) {
+  const normalized = Array.isArray(availableSizes)
+    ? availableSizes
+        .map((item) => item?.toString?.().trim().toUpperCase())
+        .filter(Boolean)
+    : [];
+  if (normalized.length === 0) {
+    return 'M';
+  }
+  if (normalized.includes('M')) {
+    return 'M';
+  }
+  return normalized[Math.floor(normalized.length / 2)] || normalized[0] || 'M';
 }
 
 function parseNumber(value) {
@@ -474,6 +546,15 @@ function buildStylistMessage({
   return `${intro}${bodyNote} ${outro}`.trim();
 }
 
+function normalizeIdList(values) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values
+    .map((item) => item?.toString?.().trim?.() || '')
+    .filter(Boolean);
+}
+
 async function rankDirectProducts({
   prompt,
   filters,
@@ -501,6 +582,9 @@ async function rankDirectProducts({
   const tokens = tokenizePrompt(prompt);
   const preferredCategories = (profile?.preferredCategories || []).map((item) => normalizeText(item));
   const preferredColors = (profile?.colorPreference || []).map((item) => normalizeText(item));
+  const pastPurchases = new Set(normalizeIdList(profile?.pastPurchases));
+  const likedProducts = new Set(normalizeIdList(profile?.wishlist));
+  const browsingHistory = new Set(normalizeIdList(profile?.browsingHistory));
   const desiredSize = (memory?.recommendedSize || memory?.size || profile?.size || '').toString().trim();
   const bodyType = memory?.bodyType || profile?.bodyType || '';
 
@@ -525,6 +609,16 @@ async function rankDirectProducts({
       score += bodyFitScore(bodyType, product);
       score += sizeAvailabilityScore(desiredSize, product);
       score += priceRangeScore(profile, product);
+      const id = product._id?.toString?.() || '';
+      if (id && pastPurchases.has(id)) {
+        score += 0.18;
+      }
+      if (id && likedProducts.has(id)) {
+        score += 0.2;
+      }
+      if (id && browsingHistory.has(id)) {
+        score += 0.1;
+      }
       score += Math.min(0.12, Number(product.demandScore || 0) * 0.18);
       score += Math.min(0.12, Number(product.purchaseCount || 0) / 40);
       return { product, score };
@@ -663,26 +757,104 @@ async function recommendSize(req, res, next) {
     const sizeChart = req.body?.sizeChart && typeof req.body.sizeChart === 'object'
       ? req.body.sizeChart
       : null;
+    const resolved = await resolveUserIdentity(req.user?.uid || req.user?.firebaseUid || req.user?.id || '');
+    const memory = resolved?.memory;
+    const historySize = (memory?.recommendedSize || memory?.size || '').toString().trim().toUpperCase();
 
-    if (height == null || weight == null) {
-      return res.status(400).json({
-        success: false,
-        message: 'height and weight are required.',
+    const chart = parseSizeChart(sizeChart, availableSizes);
+    const hasBodyMeasurements = chest != null || waist != null || hip != null;
+    const recommendation = (() => {
+      if (chart.length > 0 && hasBodyMeasurements) {
+        const scored = chart
+          .map((entry) => {
+            const result = sizeScoreForEntry({ entry, chest, waist, hip });
+            return {
+              size: entry.size,
+              score: result.score,
+              matchedMetrics: result.matchedMetrics,
+            };
+          })
+          .filter((item) => item.matchedMetrics > 0)
+          .sort((left, right) => left.score - right.score);
+
+        if (scored.length > 0) {
+          let chosen = scored[0];
+          if (scored.length > 1 && Math.abs(scored[1].score - scored[0].score) <= 2.5) {
+            const firstIndex = SIZE_ORDER.indexOf(scored[0].size);
+            const secondIndex = SIZE_ORDER.indexOf(scored[1].size);
+            if (fitPreference === 'slim') {
+              chosen = firstIndex <= secondIndex ? scored[0] : scored[1];
+            } else if (fitPreference === 'loose') {
+              chosen = firstIndex >= secondIndex ? scored[0] : scored[1];
+            }
+          }
+
+          const minScore = scored[0].score;
+          const maxScore = scored[scored.length - 1].score;
+          const normalized = maxScore <= minScore
+            ? 0
+            : ((chosen.score - minScore) / (maxScore - minScore));
+          const confidencePercent = Math.max(
+            60,
+            Math.min(99, Math.round(100 - (normalized * 100))),
+          );
+          const confidence = confidencePercent >= 86
+            ? 'high'
+            : confidencePercent >= 72
+              ? 'medium'
+              : 'low';
+          return {
+            recommendedSize: chosen.size,
+            confidence,
+            confidencePercent,
+            reason: 'Best match for your chest and waist',
+            reasoning: `Matched ${chosen.size} with lowest body-to-chart difference`,
+            message: 'Best fit based on your body profile',
+          };
+        }
+      }
+
+      if (!hasBodyMeasurements && historySize) {
+        return {
+          recommendedSize: historySize,
+          confidence: 'medium',
+          confidencePercent: 78,
+          reason: 'Using your previous purchase history',
+          reasoning: 'No body measurements provided, reused your past size preference',
+          message: 'Best fit based on your profile history',
+        };
+      }
+
+      if (!hasBodyMeasurements) {
+        const popular = fallbackPopularSize(availableSizes);
+        return {
+          recommendedSize: popular,
+          confidence: 'low',
+          confidencePercent: 68,
+          reason: 'Using popular size fallback',
+          reasoning: 'No body profile data available yet',
+          message: 'Fallback recommendation',
+        };
+      }
+
+      // Final fallback: heuristic engine
+      const heuristic = buildSizeRecommendation({
+        height: height ?? 170,
+        weight: weight ?? 68,
+        bodyType,
+        fitPreference,
+        productFit,
+        chest,
+        waist,
+        hip,
+        availableSizes,
+        sizeChart,
       });
-    }
-
-    const recommendation = buildSizeRecommendation({
-      height,
-      weight,
-      bodyType,
-      fitPreference,
-      productFit,
-      chest,
-      waist,
-      hip,
-      availableSizes,
-      sizeChart,
-    });
+      return {
+        ...heuristic,
+        reason: 'Best match for your profile',
+      };
+    })();
 
     return res.status(200).json({
       success: true,
@@ -726,6 +898,14 @@ async function stylistChat(req, res, next) {
         .toString()
         .trim()
         .toLowerCase();
+    const bodyContext = {
+      heightCm: Number(req.body?.heightCm ?? memory?.heightCm || 0),
+      bodyType: bodyType || 'unknown',
+      preference: (req.body?.preferredStyle || memory?.preferredStyle || '').toString().trim().toLowerCase() || 'casual',
+      chestCm: Number(req.body?.chestCm ?? memory?.chestCm || 0),
+      waistCm: Number(req.body?.waistCm ?? memory?.waistCm || 0),
+      hipCm: Number(req.body?.hipCm ?? memory?.hipCm || 0),
+    };
 
     let outfits = [];
     if (intent !== 'size_help' || focusedProductId || filters.occasion || filters.style) {
@@ -783,6 +963,11 @@ async function stylistChat(req, res, next) {
       reason: entry.reason,
       recommendedSize: size || '',
     }));
+    const structuredOutfits = outfits.map((outfit) => ({
+      title: outfit.title,
+      items: (outfit.items || []).map((item) => item.productId || item.id).filter(Boolean),
+      reason: outfit.bodyReason || outfit.reasoning || 'Enhances your body shape and personal style',
+    }));
 
     return res.status(200).json({
       success: true,
@@ -797,6 +982,8 @@ async function stylistChat(req, res, next) {
         products,
         quickReplies: quickRepliesForStylist(intent, filters),
         notes: uniqueStrings([
+          'Styled for you',
+          bodyType ? `Based on your body: ${bodyType}` : '',
           filters.occasion ? `Occasion: ${filters.occasion}` : '',
           filters.style ? `Style: ${filters.style}` : '',
           filters.color ? `Color cue: ${filters.color}` : '',
@@ -804,7 +991,64 @@ async function stylistChat(req, res, next) {
         ]),
         highlightedSize: size || '',
         intent,
-        outfits,
+        outfits: structuredOutfits,
+        contextPrompt: {
+          user: bodyContext,
+          task: 'Recommend outfits that fit body type and style.',
+        },
+        personalization: {
+          pastPurchases: normalizeIdList(styleProfile?.pastPurchases),
+          likedProducts: normalizeIdList(styleProfile?.wishlist),
+          browsingHistory: normalizeIdList(styleProfile?.browsingHistory),
+        },
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function stylistRecommendations(req, res, next) {
+  try {
+    const resolved = await resolveUserIdentity(req.user?.uid || req.user?.firebaseUid || req.user?.id || '');
+    const memory = resolved.memory;
+    const styleProfile = resolved.styleProfile;
+    const prompt = (req.body?.prompt || 'casual outfit recommendations').toString().trim();
+    const filters = {
+      occasion: detectOccasion(prompt),
+      style: detectStyle(prompt),
+      budget: detectBudget(prompt),
+    };
+    const outfits = await generateOutfitRecommendations({
+      userId: resolved.uid || req.user?.uid || '',
+      occasion: filters.occasion,
+      budget: filters.budget,
+      style: filters.style,
+      limit: Math.max(1, Math.min(8, Number(req.body?.limit || 4))),
+    });
+    const bodyType =
+      (req.body?.bodyType || memory?.bodyType || styleProfile?.bodyType || '')
+        .toString()
+        .trim()
+        .toLowerCase();
+    const payloadOutfits = outfits.map((outfit) => ({
+      title: outfit.title,
+      items: (outfit.items || []).map((item) => item.productId || item.id).filter(Boolean),
+      reason: outfit.bodyReason || 'Balances your proportions',
+    }));
+    return res.status(200).json({
+      success: true,
+      data: {
+        outfits: payloadOutfits,
+        reason: 'Enhances your body shape',
+        contextPrompt: {
+          user: {
+            heightCm: Number(req.body?.heightCm ?? memory?.heightCm || 0),
+            bodyType: bodyType || 'unknown',
+            preference: (req.body?.preferredStyle || memory?.preferredStyle || '').toString().trim().toLowerCase() || 'casual',
+          },
+          task: 'Recommend outfits that fit body type and style.',
+        },
       },
     });
   } catch (error) {
@@ -1121,6 +1365,7 @@ module.exports = {
   runAiGateway,
   recommendSize,
   stylistChat,
+  stylistRecommendations,
   getChatHistory,
   appendChatHistoryEntry,
   clearUserMemory,

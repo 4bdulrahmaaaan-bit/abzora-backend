@@ -258,6 +258,101 @@ function inferFit(product) {
   return 'regular';
 }
 
+function parseNumeric(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function classifyBodyShapeFromMeasurements({ chest, waist, hip }) {
+  const c = parseNumeric(chest);
+  const w = parseNumeric(waist);
+  const h = parseNumeric(hip);
+  if (c == null || h == null) {
+    return 'Unknown';
+  }
+  const chestHipDiff = c - h;
+  const waistRatio = w == null || c <= 0 || h <= 0 ? 0.88 : w / ((c + h) / 2);
+  if (waistRatio <= 0.74) {
+    return 'Hourglass';
+  }
+  if (Math.abs(chestHipDiff) <= 4) {
+    return 'Rectangle';
+  }
+  if (h > c) {
+    return 'Pear';
+  }
+  return 'Inverted Triangle';
+}
+
+function bodyShapeRules(bodyShape) {
+  switch ((bodyShape || '').toLowerCase()) {
+    case 'rectangle':
+      return {
+        preferredStyles: ['layered', 'structured', 'casual', 'formal'],
+        preferredRoles: ['top', 'jacket'],
+        avoidTags: [],
+        reason: 'Layered and structured picks add definition to your shape.',
+      };
+    case 'pear':
+      return {
+        preferredStyles: ['bright-top', 'casual', 'formal'],
+        preferredRoles: ['top'],
+        avoidTags: ['loud-bottom'],
+        reason: 'Brighter tops and balanced bottoms complement your proportions.',
+      };
+    case 'inverted triangle':
+      return {
+        preferredStyles: ['minimal-shoulder', 'relaxed-bottom', 'casual'],
+        preferredRoles: ['bottom'],
+        avoidTags: ['padded-shoulder'],
+        reason: 'Lower-body emphasis balances shoulder width.',
+      };
+    case 'hourglass':
+      return {
+        preferredStyles: ['waist-defined', 'fitted', 'formal', 'casual'],
+        preferredRoles: ['top', 'onepiece'],
+        avoidTags: [],
+        reason: 'Waist-focused silhouettes enhance your natural balance.',
+      };
+    default:
+      return {
+        preferredStyles: ['casual', 'formal'],
+        preferredRoles: ['top', 'bottom'],
+        avoidTags: [],
+        reason: 'Matched from fit, style history, and trending products.',
+      };
+  }
+}
+
+function inferProductTags(product, signal) {
+  const fromAttributes = (() => {
+    const attributes = mapToObject(product.attributes);
+    const raw = attributes.tags || attributes.tag || '';
+    if (Array.isArray(raw)) {
+      return raw.map((item) => item.toString().trim().toLowerCase()).filter(Boolean);
+    }
+    if (typeof raw === 'string') {
+      return raw
+        .split(',')
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean);
+    }
+    return [];
+  })();
+  const text = asText(product);
+  const inferred = [
+    signal.fit === 'slim' ? 'slim-fit' : null,
+    signal.fit === 'relaxed' ? 'loose' : null,
+    signal.occasion === 'casual' ? 'casual' : null,
+    signal.occasion === 'office' ? 'formal' : null,
+    text.includes('jacket') || text.includes('blazer') ? 'layered' : null,
+    text.includes('bright') || text.includes('vibrant') ? 'bright-top' : null,
+    text.includes('pad') && text.includes('shoulder') ? 'padded-shoulder' : null,
+    signal.role === 'bottom' ? 'relaxed-bottom' : null,
+  ].filter(Boolean);
+  return [...new Set([...fromAttributes, ...inferred])];
+}
+
 function preferredFitForBodyType(bodyType) {
   const normalized = (bodyType || '').toString().trim().toLowerCase();
   if (normalized === 'slim' || normalized === 'athletic') return 'structured';
@@ -286,6 +381,7 @@ function categorySignal(product) {
 }
 
 function serializeProductSummary(product) {
+  const signal = inferSignals(product);
   return {
     id: product._id?.toString() || product.id || '',
     productId: product._id?.toString() || product.id || '',
@@ -313,6 +409,7 @@ function serializeProductSummary(product) {
     reviewCount: Number(product.reviewCount || 0),
     outfitType: product.outfitType || '',
     fabric: product.fabric || '',
+    tags: signal.tags,
   };
 }
 
@@ -360,7 +457,7 @@ async function ensureStyleProfile(userId) {
 }
 
 function inferSignals(product) {
-  return {
+  const base = {
     role: inferRole(product),
     colors: inferColors(product),
     occasion: inferOccasion(product),
@@ -369,6 +466,33 @@ function inferSignals(product) {
     category: categorySignal(product),
     price: Number(product.price || 0),
   };
+  return {
+    ...base,
+    tags: inferProductTags(product, base),
+  };
+}
+
+function bodyShapeRuleScore(signal, bodyShape) {
+  if (!bodyShape || bodyShape === 'Unknown') {
+    return 0;
+  }
+  const rules = bodyShapeRules(bodyShape);
+  let score = 0;
+  if (rules.preferredRoles.includes(signal.role)) {
+    score += 0.1;
+  }
+  if (rules.preferredStyles.includes(signal.style)) {
+    score += 0.08;
+  }
+  if (Array.isArray(signal.tags) && signal.tags.length > 0) {
+    if (rules.preferredStyles.some((styleTag) => signal.tags.includes(styleTag))) {
+      score += 0.1;
+    }
+    if (rules.avoidTags.some((tag) => signal.tags.includes(tag))) {
+      score -= 0.12;
+    }
+  }
+  return clamp(score, -0.2, 0.22);
 }
 
 async function updateStyleProfileFromProducts({
@@ -580,6 +704,9 @@ function productPreferenceScore(product, signal, profile, filters, anchorSignal)
       score += 0.1;
     }
   }
+  if (profile?.bodyShape) {
+    score += bodyShapeRuleScore(signal, profile.bodyShape);
+  }
 
   const desiredSize = (profile?.size || '').toString().trim().toUpperCase();
   if (desiredSize && Array.isArray(product.sizes) && product.sizes.map((item) => item.toUpperCase()).includes(desiredSize)) {
@@ -734,6 +861,8 @@ async function buildOutfitFromBase({
     ...selected.slice(1).map((item) => item._id.toString()),
   ].join('-');
 
+  const bodyShape = profile?.bodyShape || 'Unknown';
+  const bodyReason = bodyShapeRules(bodyShape).reason;
   return {
     outfitId,
     title,
@@ -742,7 +871,9 @@ async function buildOutfitFromBase({
     matchScore: Math.round(totalScore * 100),
     occasion: filters.occasion || baseSignal.occasion,
     style: filters.style || baseSignal.style,
-    reasoning: 'Ranked from user preferences, trending demand, behavior similarity, and inventory depth.',
+    reasoning: `Ranked from body-shape rules, user preferences, trending demand, behavior similarity, and inventory depth.`,
+    bodyTypeLabel: bodyShape,
+    bodyReason,
   };
 }
 
@@ -756,6 +887,17 @@ async function generateOutfitRecommendations({
 }) {
   const resolved = await resolveUserIdentity(userId);
   const profile = resolved.styleProfile || await ensureStyleProfile(resolved.uid || userId);
+  const bodyShape = classifyBodyShapeFromMeasurements({
+    chest: resolved.memory?.chestCm,
+    waist: resolved.memory?.waistCm,
+    hip: resolved.memory?.hipCm,
+  });
+  if (profile && !profile.bodyShape) {
+    profile.bodyShape = bodyShape;
+  }
+  if (profile) {
+    profile.bodyShape = bodyShape;
+  }
   const filters = {
     occasion: (occasion || '').toString().trim().toLowerCase(),
     budget: normalizeBudgetFilter(budget),
@@ -836,9 +978,47 @@ async function generateOutfitRecommendations({
   return outfits;
 }
 
+async function recommendProductsForBodyType({
+  userId = '',
+  limit = 10,
+}) {
+  const resolved = await resolveUserIdentity(userId);
+  const bodyShape = classifyBodyShapeFromMeasurements({
+    chest: resolved.memory?.chestCm,
+    waist: resolved.memory?.waistCm,
+    hip: resolved.memory?.hipCm,
+  });
+  const rules = bodyShapeRules(bodyShape);
+  const products = await Product.find({
+    isActive: true,
+    stock: { $gt: 0 },
+  })
+    .sort({ rating: -1, reviewCount: -1, purchaseCount: -1, createdAt: -1 })
+    .limit(180);
+  const ranked = products
+    .map((product) => {
+      const signal = inferSignals(product);
+      let score = 0.5;
+      score += bodyShapeRuleScore(signal, bodyShape);
+      score += clamp((Number(product.demandScore || 0) / 10), 0, 0.15);
+      score += clamp((Number(product.purchaseCount || 0) / 200), 0, 0.12);
+      return { product, score };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, Math.max(1, Math.min(30, limit)));
+  return {
+    bodyType: bodyShape,
+    recommended: ranked.map((entry) => entry.product._id.toString()),
+    products: ranked.map((entry) => serializeProductSummary(entry.product)),
+    reason: 'Enhances your body shape',
+    detail: rules.reason,
+  };
+}
+
 module.exports = {
   ensureStyleProfile,
   generateOutfitRecommendations,
+  recommendProductsForBodyType,
   resolveUserIdentity,
   trackOutfitInteraction,
   updateStyleProfileFromProducts,

@@ -14,6 +14,7 @@ const {
 const { scheduleFinanceCrons } = require('./services/financeCronService');
 
 const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
 const productRoutes = require('./routes/productRoutes');
 const storeRoutes = require('./routes/storeRoutes');
 const orderRoutes = require('./routes/orderRoutes');
@@ -106,6 +107,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/auth', authLimiter, authRoutes);
+app.use('/user', authLimiter, userRoutes);
 app.use('/products', productRoutes);
 app.use('/stores', storeRoutes);
 app.use('/orders/create-razorpay-order', paymentLimiter);

@@ -71,6 +71,11 @@ const userStyleProfileSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    bodyShape: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     size: {
       type: String,
       trim: true,

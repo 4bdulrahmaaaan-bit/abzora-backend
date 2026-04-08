@@ -163,6 +163,30 @@ function serializeUserMemory(memory, userId) {
   };
 }
 
+function serializeBodyProfile(memory) {
+  if (!memory) {
+    return null;
+  }
+  return {
+    height: memory?.heightCm ?? null,
+    heightCm: memory?.heightCm ?? null,
+    chest: memory?.chestCm ?? null,
+    chestCm: memory?.chestCm ?? null,
+    waist: memory?.waistCm ?? null,
+    waistCm: memory?.waistCm ?? null,
+    hips: memory?.hipCm ?? null,
+    hipCm: memory?.hipCm ?? null,
+    shoulder: memory?.shoulderCm ?? null,
+    shoulderCm: memory?.shoulderCm ?? null,
+    armLengthCm: memory?.armLengthCm ?? null,
+    inseamCm: memory?.inseamCm ?? null,
+    fitPreference: memory?.fitPreference || 'regular',
+    confidence: memory?.confidence ?? null,
+    scanFrameCount: memory?.scanFrameCount ?? null,
+    updatedAt: memory?.updatedAtIso || memory?.updatedAt?.toISOString?.() || '',
+  };
+}
+
 function normalizeCartItems(items) {
   if (!Array.isArray(items)) {
     return [];
@@ -676,6 +700,76 @@ async function saveMemory(req, res, next) {
   }
 }
 
+async function getBodyProfile(req, res, next) {
+  try {
+    const memory = await UserMemory.findOne({ userId: req.user.uid });
+    return res.status(200).json({
+      success: true,
+      data: serializeBodyProfile(memory),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function saveBodyProfile(req, res, next) {
+  try {
+    const nowIso = new Date().toISOString();
+    const payload = {
+      userId: req.user.uid,
+      heightCm:
+        req.body?.heightCm == null && req.body?.height == null
+          ? null
+          : Number(req.body?.heightCm ?? req.body?.height),
+      bodyType: toSafeTrimmedString(req.body?.bodyType),
+      recommendedSize:
+        toSafeTrimmedString(req.body?.recommendedSize) ||
+        toSafeTrimmedString(req.body?.size),
+      pantSize: toSafeTrimmedString(req.body?.pantSize),
+      fitPreference: toSafeTrimmedString(req.body?.fitPreference) || 'regular',
+      shoulderCm:
+        req.body?.shoulderCm == null && req.body?.shoulder == null
+          ? null
+          : Number(req.body?.shoulderCm ?? req.body?.shoulder),
+      chestCm:
+        req.body?.chestCm == null && req.body?.chest == null
+          ? null
+          : Number(req.body?.chestCm ?? req.body?.chest),
+      waistCm:
+        req.body?.waistCm == null && req.body?.waist == null
+          ? null
+          : Number(req.body?.waistCm ?? req.body?.waist),
+      hipCm:
+        req.body?.hipCm == null && req.body?.hips == null && req.body?.hip == null
+          ? null
+          : Number(req.body?.hipCm ?? req.body?.hips ?? req.body?.hip),
+      armLengthCm:
+        req.body?.armLengthCm == null ? null : Number(req.body?.armLengthCm),
+      inseamCm: req.body?.inseamCm == null ? null : Number(req.body?.inseamCm),
+      confidence:
+        req.body?.confidence == null ? null : Number(req.body?.confidence),
+      scanFrameCount:
+        req.body?.scanFrameCount == null ? null : Number(req.body?.scanFrameCount),
+      scanSource: toSafeTrimmedString(req.body?.scanSource),
+      updatedAtIso: toSafeTrimmedString(req.body?.updatedAt) || nowIso,
+    };
+    const memory = await UserMemory.findOneAndUpdate(
+      { userId: req.user.uid },
+      payload,
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    return res.status(200).json({
+      success: true,
+      data: serializeBodyProfile(memory),
+    });
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    return next(error);
+  }
+}
+
 async function listMeasurementProfiles(req, res, next) {
   try {
     const profiles = await MeasurementProfile.find({ userId: req.user.uid }).sort({
@@ -962,6 +1056,8 @@ module.exports = {
   deleteAddress,
   getMemory,
   saveMemory,
+  getBodyProfile,
+  saveBodyProfile,
   listMeasurementProfiles,
   saveMeasurementProfile,
   removeMeasurementProfile,
