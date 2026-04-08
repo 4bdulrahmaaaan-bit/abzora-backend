@@ -899,12 +899,12 @@ async function stylistChat(req, res, next) {
         .trim()
         .toLowerCase();
     const bodyContext = {
-      heightCm: Number(req.body?.heightCm ?? memory?.heightCm || 0),
+      heightCm: Number((req.body?.heightCm ?? memory?.heightCm) || 0),
       bodyType: bodyType || 'unknown',
       preference: (req.body?.preferredStyle || memory?.preferredStyle || '').toString().trim().toLowerCase() || 'casual',
-      chestCm: Number(req.body?.chestCm ?? memory?.chestCm || 0),
-      waistCm: Number(req.body?.waistCm ?? memory?.waistCm || 0),
-      hipCm: Number(req.body?.hipCm ?? memory?.hipCm || 0),
+      chestCm: Number((req.body?.chestCm ?? memory?.chestCm) || 0),
+      waistCm: Number((req.body?.waistCm ?? memory?.waistCm) || 0),
+      hipCm: Number((req.body?.hipCm ?? memory?.hipCm) || 0),
     };
 
     let outfits = [];
@@ -1043,7 +1043,7 @@ async function stylistRecommendations(req, res, next) {
         reason: 'Enhances your body shape',
         contextPrompt: {
           user: {
-            heightCm: Number(req.body?.heightCm ?? memory?.heightCm || 0),
+            heightCm: Number((req.body?.heightCm ?? memory?.heightCm) || 0),
             bodyType: bodyType || 'unknown',
             preference: (req.body?.preferredStyle || memory?.preferredStyle || '').toString().trim().toLowerCase() || 'casual',
           },
