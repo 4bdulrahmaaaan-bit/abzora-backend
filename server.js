@@ -11,6 +11,7 @@ const {
   createRateLimiter,
   securityHeaders,
 } = require('./middleware/securityMiddleware');
+const { scheduleFinanceCrons } = require('./services/financeCronService');
 
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -139,6 +140,7 @@ async function startServer() {
   try {
     await connectDB();
     initializeFirebase();
+    scheduleFinanceCrons();
     app.listen(port, host, () => {
       console.log(`ABZORA backend running on ${host}:${port}`);
     });

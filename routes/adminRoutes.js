@@ -25,7 +25,10 @@ const {
   reviewRiderKycRequest,
 } = require('../controllers/adminController');
 const {
+  approvePendingWithdrawal,
   getAdminFinance,
+  rejectPendingWithdrawal,
+  runScheduledSettlements,
   settleVendorPayouts,
   settleRiderPayouts,
 } = require('../controllers/financeController');
@@ -48,6 +51,9 @@ router.post('/payouts/process', processPayout);
 router.get('/finance', getAdminFinance);
 router.post('/finance/settlements/vendors', settleVendorPayouts);
 router.post('/finance/settlements/riders', settleRiderPayouts);
+router.post('/finance/settlements/run', runScheduledSettlements);
+router.post('/finance/withdrawals/:requestId/approve', approvePendingWithdrawal);
+router.post('/finance/withdrawals/:requestId/reject', rejectPendingWithdrawal);
 router.get('/disputes', listDisputes);
 router.patch('/disputes/:id', updateDispute);
 router.get('/activity-logs', listActivityLogs);

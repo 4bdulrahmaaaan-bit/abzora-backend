@@ -34,6 +34,11 @@ const adminWalletSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    failedSettlements: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
   },
   { timestamps: true }
 );

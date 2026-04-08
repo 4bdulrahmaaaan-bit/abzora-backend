@@ -138,6 +138,21 @@ const orderSchema = new mongoose.Schema(
       enum: ['pending', 'paid', 'failed', 'refunded'],
       default: 'pending',
     },
+    escrowStatus: {
+      type: String,
+      enum: ['held', 'released', 'refunded'],
+      default: 'held',
+    },
+    escrowReleasedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    escrowUpdatedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     payoutStatus: {
       type: String,
       enum: ['none', 'pending', 'processed', 'reversed'],
@@ -177,6 +192,16 @@ const orderSchema = new mongoose.Schema(
     financialReversed: {
       type: Boolean,
       default: false,
+    },
+    settlementFailureCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    lastSettlementError: {
+      type: String,
+      trim: true,
+      default: '',
     },
     refundStatus: {
       type: String,
