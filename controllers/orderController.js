@@ -105,6 +105,8 @@ function serializeRefundRequest(refund) {
     orderId: source.orderId?.toString() || '',
     userId: source.userId || '',
     reason: source.reason || '',
+    requestedAmount: Number(source.requestedAmount || 0),
+    refundedAmount: Number(source.refundedAmount || 0),
     status: source.status || 'pending',
     createdAt: source.createdAt || null,
     processedAt: source.processedAt || '',
@@ -320,14 +322,18 @@ function isReturnEligible(order) {
   return !['requested', 'approved', 'assigned', 'picked', 'completed'].includes(returnStatus);
 }
 
-async function processRazorpayRefund(order, refundRequest) {
+async function processRazorpayRefund(order, refundRequest, amountRupees = null) {
   const paymentId = order?.razorpay?.paymentId || '';
   if (!paymentId) {
     throw new Error('A valid online payment reference is required before refunding.');
   }
 
   const razorpay = getRazorpayClient();
-  const amount = Math.round(Number(order.totalAmount || 0) * 100);
+  const resolvedAmount = Number(amountRupees || order.totalAmount || 0);
+  const amount = Math.round(Math.max(0, resolvedAmount) * 100);
+  if (!amount) {
+    throw new Error('Refund amount must be greater than zero.');
+  }
   const refund = await razorpay.payments.refund(paymentId, {
     amount,
     notes: {
@@ -906,6 +912,7 @@ async function createRefundRequest(req, res, next) {
   try {
     const { id } = req.params;
     const reason = req.body?.reason?.toString().trim() || '';
+    const requestedAmountRaw = Number(req.body?.amount || 0);
     if (!req.user?.uid) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
@@ -934,11 +941,18 @@ async function createRefundRequest(req, res, next) {
 
     const refundFraud = await evaluateRefundRisk({ userId: order.userId });
 
+    const requestedAmount =
+      requestedAmountRaw > 0
+        ? Math.min(requestedAmountRaw, Number(order.totalAmount || 0))
+        : Number(order.totalAmount || 0);
+
     const refund = await RefundRequest.create({
       orderId: order._id,
       userId: order.userId,
       reason,
       status: 'pending',
+      requestedAmount,
+      refundedAmount: 0,
       fraudScore: refundFraud.riskScore,
       fraudDecision: refundFraud.decision === 'clear' ? 'approve' : refundFraud.decision,
       fraudReasons: refundFraud.reasons,
@@ -1001,17 +1015,25 @@ async function approveRefundRequest(req, res, next) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
     }
 
-    const gatewayRefund = await processRazorpayRefund(order, refund);
+    const requestedAmountRaw = Number(req.body?.amount || 0);
+    const refundAmount = requestedAmountRaw > 0
+      ? Math.min(requestedAmountRaw, Number(order.totalAmount || 0))
+      : Number(refund.requestedAmount || order.totalAmount || 0);
+    const gatewayRefund = await processRazorpayRefund(order, refund, refundAmount);
     refund.status = 'approved';
     refund.processedAt = new Date().toISOString();
     refund.processedBy = req.user.uid;
     refund.gatewayRefundId = gatewayRefund?.id || '';
+    refund.refundedAmount = refundAmount;
     await refund.save();
 
-    order.paymentStatus = 'refunded';
-    order.refundStatus = 'refunded';
+    const fullRefund = refundAmount >= Number(order.totalAmount || 0);
+    order.paymentStatus = fullRefund ? 'refunded' : order.paymentStatus;
+    order.refundStatus = fullRefund ? 'refunded' : 'approved';
     order.refundRequestId = refund._id.toString();
-    await reverseOrderSettlement(order, 'Refund approved');
+    if (fullRefund) {
+      await reverseOrderSettlement(order, 'Refund approved');
+    }
     await order.save();
 
     return res.status(200).json({ success: true, data: serializeRefundRequest(refund) });
@@ -1487,6 +1509,22 @@ async function verifyPayment(req, res, next) {
         signature: razorpaySignature,
       };
       await order.save();
+      await Transaction.create({
+        transactionId: `payment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: 'payment',
+        userType: 'admin',
+        userId: order.userId,
+        storeId: order.storeId?.toString() || '',
+        orderId: order._id.toString(),
+        amount: Number(order.totalAmount || 0),
+        status: 'failed',
+        note: 'Payment signature verification failed.',
+        createdAtIso: new Date().toISOString(),
+        metadata: {
+          razorpayOrderId,
+          razorpayPaymentId,
+        },
+      });
       return res.status(400).json({ success: false, message: 'Invalid Razorpay signature.' });
     }
 
@@ -1502,6 +1540,8 @@ async function verifyPayment(req, res, next) {
       paymentId: razorpayPaymentId,
       signature: razorpaySignature,
     };
+    order.escrowStatus = paid ? 'held' : order.escrowStatus;
+    order.escrowUpdatedAt = paid ? new Date().toISOString() : order.escrowUpdatedAt;
     appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
     appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
 
@@ -1515,6 +1555,22 @@ async function verifyPayment(req, res, next) {
       order.financialReversed = false;
     }
     await order.save();
+    await Transaction.create({
+      transactionId: `payment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type: 'payment',
+      userType: 'admin',
+      userId: order.userId,
+      storeId: order.storeId?.toString() || '',
+      orderId: order._id.toString(),
+      amount: Number(order.totalAmount || 0),
+      status: paid ? 'captured' : 'failed',
+      note: paid ? 'Payment captured and escrow held.' : 'Payment verification failed.',
+      createdAtIso: new Date().toISOString(),
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+      },
+    });
     if (paid) {
       await processReferralRewardIfEligible(req.user.uid, order);
     }

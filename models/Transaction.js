@@ -11,7 +11,7 @@ const transactionSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['order', 'commission', 'payout'],
+      enum: ['order', 'commission', 'payout', 'payment', 'escrow', 'refund'],
       required: true,
     },
     userType: {

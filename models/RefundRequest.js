@@ -19,6 +19,16 @@ const refundRequestSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    requestedAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    refundedAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     status: {
       type: String,
       enum: ['pending', 'approved', 'rejected'],

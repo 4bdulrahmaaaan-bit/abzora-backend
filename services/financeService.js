@@ -461,7 +461,8 @@ async function settleDeliveredOrder(order, options = {}) {
       );
     }
 
-    freshOrder.escrowStatus = 'held';
+    freshOrder.escrowStatus = 'released';
+    freshOrder.escrowReleasedAt = freshOrder.escrowReleasedAt || currentIso;
     freshOrder.escrowUpdatedAt = currentIso;
     freshOrder.lastSettlementError = '';
 
@@ -480,7 +481,7 @@ async function settleDeliveredOrder(order, options = {}) {
           riderId: freshOrder.riderId || '',
           orderIds: [freshOrder._id.toString()],
           amount: Number(freshOrder.totalAmount || 0),
-          message: 'Delivered order earnings moved into escrow.',
+          message: 'Escrow released after delivery; earnings moved to pending wallets.',
         },
         session,
       ),
