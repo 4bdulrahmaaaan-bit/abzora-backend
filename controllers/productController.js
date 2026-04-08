@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const { sanitizeAttributes } = require('../config/productAttributeConfig');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
+const { generateArAsset } = require('../services/arAssetService');
 
 function serializeStoreSummary(store) {
   if (!store) {
@@ -51,6 +52,7 @@ function serializeProduct(product, options = {}) {
     outfitType: source.outfitType || '',
     fabric: source.fabric || '',
     attributes: source.attributes ? Object.fromEntries(Object.entries(source.attributes)) : {},
+    arAsset: source.arAsset || {},
     storeId: populatedStore ? populatedStore._id?.toString() || populatedStore.id || '' : source.storeId?.toString() || '',
     store: populatedStore ? serializeStoreSummary(populatedStore) : null,
     isActive: Boolean(source.isActive),
@@ -59,9 +61,13 @@ function serializeProduct(product, options = {}) {
   };
 }
 
+function shouldGenerateArAsset(body) {
+  return body?.disableArAssetGeneration !== true;
+}
+
 async function createProduct(req, res, next) {
   try {
-    const { name, brand, price, images, model3d, storeId, stock, category, subcategory, description, attributes } = req.body || {};
+    const { name, brand, price, images, model3d, storeId, stock, category, subcategory, description, attributes, arAsset } = req.body || {};
     const normalizedName = name?.toString().trim() || '';
     const normalizedCategory = category?.toString().trim() || '';
     const normalizedDescription = description?.toString().trim() || '';
@@ -116,7 +122,12 @@ async function createProduct(req, res, next) {
       subcategory: subcategory?.toString().trim() || '',
       description: normalizedDescription,
       attributes: sanitizeAttributes(subcategory?.toString().trim() || normalizedCategory, attributes),
+      arAsset: arAsset && typeof arAsset === 'object' && !Array.isArray(arAsset) ? arAsset : {},
     });
+    if (shouldGenerateArAsset(req.body) && Array.isArray(product.images) && product.images.length > 0) {
+      product.arAsset = await generateArAsset({ product });
+      await product.save();
+    }
 
     return res.status(201).json({
       success: true,
@@ -191,7 +202,20 @@ async function updateProduct(req, res, next) {
       return res.status(403).json({ success: false, message: 'You can only update products from your own store.' });
     }
 
-    const { name, brand, price, images, model3d, stock, category, subcategory, description, attributes, isActive } = req.body || {};
+    const {
+      name,
+      brand,
+      price,
+      images,
+      model3d,
+      stock,
+      category,
+      subcategory,
+      description,
+      attributes,
+      arAsset,
+      isActive,
+    } = req.body || {};
     const normalizedName = name?.toString().trim() || product.name;
     const normalizedBrand =
       brand == null
@@ -230,11 +254,22 @@ async function updateProduct(req, res, next) {
         attributes,
       );
     }
+    if (arAsset && typeof arAsset === 'object' && !Array.isArray(arAsset)) {
+      product.arAsset = arAsset;
+    }
     if (Array.isArray(images)) {
       product.images = images.map((item) => item?.toString().trim()).filter(Boolean);
     }
     if (typeof isActive === 'boolean') {
       product.isActive = isActive;
+    }
+    if (
+      !arAsset &&
+      shouldGenerateArAsset(req.body) &&
+      Array.isArray(product.images) &&
+      product.images.length > 0
+    ) {
+      product.arAsset = await generateArAsset({ product });
     }
     await product.save();
 
@@ -243,6 +278,52 @@ async function updateProduct(req, res, next) {
     if (error.name === 'ValidationError') {
       return res.status(400).json({ success: false, message: error.message });
     }
+    return next(error);
+  }
+}
+
+async function generateProductArAsset(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid product id.' });
+    }
+
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found.' });
+    }
+    const store = await Store.findById(product.storeId);
+    if (!store) {
+      return res.status(404).json({ success: false, message: 'Store not found.' });
+    }
+    const isAdmin = ['admin', 'super_admin'].includes((req.user?.role || '').toLowerCase());
+    if (store.ownerId !== req.user.uid && !isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only generate AR assets for products in your own store.',
+      });
+    }
+
+    product.arAsset = await generateArAsset({
+      product,
+      category: req.body?.category,
+      imageUrl: req.body?.imageUrl,
+      transparentImageUrl: req.body?.transparentImageUrl,
+    });
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: product._id.toString(),
+        arAsset: product.arAsset || {},
+      },
+    });
+  } catch (error) {
     return next(error);
   }
 }
@@ -283,4 +364,5 @@ module.exports = {
   getProduct,
   updateProduct,
   deleteProduct,
+  generateProductArAsset,
 };

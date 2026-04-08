@@ -406,6 +406,7 @@ function serializeStylistProduct(product) {
     fabric: product.fabric || '',
     subcategory: product.subcategory || '',
     attributes: product.attributes ? Object.fromEntries(Object.entries(product.attributes)) : {},
+    arAsset: product.arAsset || {},
     customizations: product.customizations || {},
     measurements: product.measurements || {},
     addons: Array.isArray(product.addons) ? product.addons : [],

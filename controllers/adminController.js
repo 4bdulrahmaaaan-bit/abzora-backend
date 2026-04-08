@@ -128,6 +128,7 @@ function serializeProduct(item) {
     category: item.category || '',
     subcategory: item.subcategory || '',
     model3d: item.model3d || '',
+    arAsset: item.arAsset || {},
     attributes: item.attributes ? Object.fromEntries(Object.entries(item.attributes)) : {},
     images: item.images || [],
     storeId: item.storeId?._id?.toString?.() || item.storeId?.toString?.() || '',

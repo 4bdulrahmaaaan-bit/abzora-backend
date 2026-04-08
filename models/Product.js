@@ -101,6 +101,96 @@ const productSchema = new mongoose.Schema(
       of: String,
       default: {},
     },
+    arAsset: {
+      type: {
+        status: {
+          type: String,
+          trim: true,
+          default: '',
+        },
+        category: {
+          type: String,
+          trim: true,
+          default: '',
+        },
+        sourceImage: {
+          type: String,
+          trim: true,
+          default: '',
+        },
+        transparentImage: {
+          type: String,
+          trim: true,
+          default: '',
+        },
+        processedImage: {
+          type: String,
+          trim: true,
+          default: '',
+        },
+        anchors: {
+          left_shoulder: {
+            x: { type: Number, default: 0 },
+            y: { type: Number, default: 0 },
+          },
+          right_shoulder: {
+            x: { type: Number, default: 0 },
+            y: { type: Number, default: 0 },
+          },
+          center: {
+            x: { type: Number, default: 0 },
+            y: { type: Number, default: 0 },
+          },
+        },
+        categoryTemplate: {
+          type: String,
+          trim: true,
+          default: '',
+        },
+        scaleFactor: {
+          type: Number,
+          default: 1,
+        },
+        normalization: {
+          type: {
+            widthFactor: { type: Number, default: 1 },
+            heightFactor: { type: Number, default: 1 },
+            maintainAspectRatio: { type: Boolean, default: true },
+            centered: { type: Boolean, default: true },
+            upright: { type: Boolean, default: true },
+          },
+          default: {},
+        },
+        segmentation: {
+          type: {
+            targetRegion: { type: String, default: 'torso' },
+            confidence: { type: Number, default: 0 },
+            method: { type: String, default: '' },
+          },
+          default: {},
+        },
+        fallbackMode: {
+          type: String,
+          trim: true,
+          default: '',
+        },
+        failureReason: {
+          type: String,
+          trim: true,
+          default: '',
+        },
+        pipelineVersion: {
+          type: String,
+          trim: true,
+          default: '',
+        },
+        generatedAt: {
+          type: Date,
+          default: null,
+        },
+      },
+      default: {},
+    },
     isActive: {
       type: Boolean,
       default: true,
