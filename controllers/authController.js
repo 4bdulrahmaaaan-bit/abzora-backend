@@ -144,7 +144,16 @@ function serializeUserMemory(memory, userId) {
     bodyType: memory?.bodyType || '',
     recommendedSize: memory?.recommendedSize || memory?.size || '',
     pantSize: memory?.pantSize || '',
+    fitPreference: memory?.fitPreference || 'regular',
+    shoulderCm: memory?.shoulderCm ?? null,
+    chestCm: memory?.chestCm ?? null,
+    waistCm: memory?.waistCm ?? null,
+    hipCm: memory?.hipCm ?? null,
+    armLengthCm: memory?.armLengthCm ?? null,
+    inseamCm: memory?.inseamCm ?? null,
     confidence: memory?.confidence ?? null,
+    scanFrameCount: memory?.scanFrameCount ?? null,
+    scanSource: memory?.scanSource || '',
     pastIssues: Array.isArray(memory?.pastIssues) ? memory.pastIssues : [],
     lastOrderId: memory?.lastOrderId || '',
     lastConversationSummary: memory?.lastConversationSummary || '',
@@ -590,9 +599,36 @@ async function saveMemory(req, res, next) {
           ? (toSafeTrimmedString(req.body?.recommendedSize) || toSafeTrimmedString(req.body?.size))
           : existingMemory?.recommendedSize || existingMemory?.size || '',
         pantSize: has('pantSize') ? toSafeTrimmedString(req.body?.pantSize) : existingMemory?.pantSize || '',
+        fitPreference: has('fitPreference')
+          ? toSafeTrimmedString(req.body?.fitPreference) || 'regular'
+          : existingMemory?.fitPreference || 'regular',
+        shoulderCm: has('shoulderCm')
+          ? (req.body?.shoulderCm == null ? null : Number(req.body.shoulderCm))
+          : existingMemory?.shoulderCm ?? null,
+        chestCm: has('chestCm')
+          ? (req.body?.chestCm == null ? null : Number(req.body.chestCm))
+          : existingMemory?.chestCm ?? null,
+        waistCm: has('waistCm')
+          ? (req.body?.waistCm == null ? null : Number(req.body.waistCm))
+          : existingMemory?.waistCm ?? null,
+        hipCm: has('hipCm')
+          ? (req.body?.hipCm == null ? null : Number(req.body.hipCm))
+          : existingMemory?.hipCm ?? null,
+        armLengthCm: has('armLengthCm')
+          ? (req.body?.armLengthCm == null ? null : Number(req.body.armLengthCm))
+          : existingMemory?.armLengthCm ?? null,
+        inseamCm: has('inseamCm')
+          ? (req.body?.inseamCm == null ? null : Number(req.body.inseamCm))
+          : existingMemory?.inseamCm ?? null,
         confidence: has('confidence')
           ? (req.body?.confidence == null ? null : Number(req.body.confidence))
           : existingMemory?.confidence ?? null,
+        scanFrameCount: has('scanFrameCount')
+          ? (req.body?.scanFrameCount == null ? null : Number(req.body.scanFrameCount))
+          : existingMemory?.scanFrameCount ?? null,
+        scanSource: has('scanSource')
+          ? toSafeTrimmedString(req.body?.scanSource)
+          : existingMemory?.scanSource || '',
         pastIssues: has('pastIssues')
           ? (Array.isArray(req.body?.pastIssues)
               ? req.body.pastIssues.map((item) => item?.toString?.().trim?.() || '').filter(Boolean)

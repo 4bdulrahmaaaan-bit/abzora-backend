@@ -47,6 +47,129 @@ function confidenceLabel(score) {
   return 'low';
 }
 
+function toMeasurementValue(value) {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+  const text = value.toString().trim();
+  if (!text) {
+    return null;
+  }
+  const rangeMatch = text.match(/(\d+(?:\.\d+)?)\s*[-to]+\s*(\d+(?:\.\d+)?)/i);
+  if (rangeMatch) {
+    const left = Number(rangeMatch[1]);
+    const right = Number(rangeMatch[2]);
+    if (Number.isFinite(left) && Number.isFinite(right)) {
+      return (left + right) / 2;
+    }
+  }
+  const singleMatch = text.match(/(\d+(?:\.\d+)?)/);
+  if (!singleMatch) {
+    return null;
+  }
+  const parsed = Number(singleMatch[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseSizeChart(rawSizeChart, availableSizes = []) {
+  const normalizedAvailable = Array.isArray(availableSizes)
+    ? availableSizes
+        .map((item) => item.toString().trim().toUpperCase())
+        .filter(Boolean)
+    : [];
+  const chartEntries = [];
+
+  if (rawSizeChart && typeof rawSizeChart === 'object' && !Array.isArray(rawSizeChart)) {
+    for (const [key, value] of Object.entries(rawSizeChart)) {
+      const normalizedKey = key.toString().trim().toLowerCase();
+      const sizeMatch = normalizedKey.match(/\b(xs|s|m|l|xl|xxl|xxxl)\b/i);
+      if (!sizeMatch || value == null) {
+        continue;
+      }
+      const size = sizeMatch[1].toUpperCase();
+      const metricKey = normalizedKey.includes('waist')
+        ? 'waist'
+        : normalizedKey.includes('hip')
+          ? 'hip'
+          : normalizedKey.includes('shoulder')
+            ? 'shoulder'
+            : normalizedKey.includes('inseam')
+              ? 'inseam'
+              : normalizedKey.includes('arm')
+                ? 'armLength'
+                : 'chest';
+      const measurement = toMeasurementValue(value);
+      if (measurement == null) {
+        continue;
+      }
+      let entry = chartEntries.find((item) => item.size === size);
+      if (!entry) {
+        entry = { size };
+        chartEntries.push(entry);
+      }
+      entry[metricKey] = measurement;
+    }
+  }
+
+  if (chartEntries.length === 0) {
+    const baseChestBySize = {
+      XS: 86,
+      S: 92,
+      M: 98,
+      L: 104,
+      XL: 112,
+      XXL: 120,
+      XXXL: 128,
+    };
+    const sizes = normalizedAvailable.length > 0 ? normalizedAvailable : SIZE_ORDER;
+    for (const size of sizes) {
+      const chest = baseChestBySize[size];
+      if (!chest) {
+        continue;
+      }
+      chartEntries.push({
+        size,
+        chest,
+        waist: chest * 0.82,
+        hip: chest * 0.9,
+      });
+    }
+  }
+
+  return chartEntries
+    .filter((entry) => !normalizedAvailable.length || normalizedAvailable.includes(entry.size))
+    .sort((left, right) => SIZE_ORDER.indexOf(left.size) - SIZE_ORDER.indexOf(right.size));
+}
+
+function nearestSizeFromChart({ chart, chest, waist, hip }) {
+  if (!Array.isArray(chart) || chart.length === 0) {
+    return null;
+  }
+  const targets = { chest, waist, hip };
+  let best = chart[0];
+  let bestScore = Number.POSITIVE_INFINITY;
+  for (const entry of chart) {
+    let score = 0;
+    if (targets.chest != null && entry.chest != null) {
+      score += Math.abs(entry.chest - targets.chest) * 1.2;
+    }
+    if (targets.waist != null && entry.waist != null) {
+      score += Math.abs(entry.waist - targets.waist) * 1.0;
+    }
+    if (targets.hip != null && entry.hip != null) {
+      score += Math.abs(entry.hip - targets.hip) * 0.9;
+    }
+    if (score < bestScore) {
+      bestScore = score;
+      best = entry;
+    }
+  }
+  return best?.size || null;
+}
+
 function parseNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
@@ -411,7 +534,18 @@ async function rankDirectProducts({
     .map(({ product }) => product);
 }
 
-function buildSizeRecommendation({ height, weight, bodyType, productFit }) {
+function buildSizeRecommendation({
+  height,
+  weight,
+  bodyType,
+  fitPreference,
+  productFit,
+  chest,
+  waist,
+  hip,
+  availableSizes,
+  sizeChart,
+}) {
   let index = 1; // S
   if (weight >= 60 && weight <= 75) {
     index = 2; // M
@@ -445,7 +579,22 @@ function buildSizeRecommendation({ height, weight, bodyType, productFit }) {
     reasons.push('Adjusted down for oversized product');
   }
 
+  if (fitPreference === 'slim') {
+    index += 1;
+    reasons.push('Adjusted up for slim fit preference');
+  } else if (fitPreference === 'loose') {
+    index -= 1;
+    reasons.push('Adjusted down for loose fit preference');
+  }
+
   index = clampSizeIndex(index);
+  let recommendedSize = SIZE_ORDER[index];
+  const chart = parseSizeChart(sizeChart, availableSizes);
+  const chartSize = nearestSizeFromChart({ chart, chest, waist, hip });
+  if (chartSize) {
+    recommendedSize = chartSize;
+    reasons.push('Aligned using product size chart and body measurements');
+  }
   const normalizedConfidence = confidenceLabel(
     Math.max(
       0.62,
@@ -453,14 +602,22 @@ function buildSizeRecommendation({ height, weight, bodyType, productFit }) {
         0.94,
         0.82 -
           ((height < 150 || height > 195) ? 0.06 : 0) -
-          ((weight < 45 || weight > 110) ? 0.05 : 0),
+          ((weight < 45 || weight > 110) ? 0.05 : 0) +
+          ((chest != null && waist != null) ? 0.08 : 0) +
+          (chartSize ? 0.06 : 0),
       ),
     ),
   );
+  const confidenceScore = normalizedConfidence === 'high'
+    ? 0.9
+    : normalizedConfidence === 'medium'
+      ? 0.78
+      : 0.66;
 
   return {
-    recommendedSize: SIZE_ORDER[index],
+    recommendedSize,
     confidence: normalizedConfidence,
+    confidencePercent: Math.round(confidenceScore * 100),
     message: 'Best fit based on your body profile',
     reasoning: reasons.join(', '),
   };
@@ -494,7 +651,18 @@ async function recommendSize(req, res, next) {
     const height = parseNumber(req.body?.height ?? req.body?.heightCm);
     const weight = parseNumber(req.body?.weight ?? req.body?.weightKg);
     const bodyType = (req.body?.bodyType || 'regular').toString().trim().toLowerCase();
+    const fitPreference = (req.body?.fitPreference || 'regular')
+      .toString()
+      .trim()
+      .toLowerCase();
     const productFit = normalizeFit(req.body?.productFit);
+    const chest = parseNumber(req.body?.chest ?? req.body?.chestCm);
+    const waist = parseNumber(req.body?.waist ?? req.body?.waistCm);
+    const hip = parseNumber(req.body?.hip ?? req.body?.hipCm);
+    const availableSizes = Array.isArray(req.body?.availableSizes) ? req.body.availableSizes : [];
+    const sizeChart = req.body?.sizeChart && typeof req.body.sizeChart === 'object'
+      ? req.body.sizeChart
+      : null;
 
     if (height == null || weight == null) {
       return res.status(400).json({
@@ -507,7 +675,13 @@ async function recommendSize(req, res, next) {
       height,
       weight,
       bodyType,
+      fitPreference,
       productFit,
+      chest,
+      waist,
+      hip,
+      availableSizes,
+      sizeChart,
     });
 
     return res.status(200).json({

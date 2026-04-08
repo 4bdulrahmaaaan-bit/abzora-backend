@@ -47,9 +47,47 @@ const userMemorySchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    fitPreference: {
+      type: String,
+      trim: true,
+      default: 'regular',
+    },
+    shoulderCm: {
+      type: Number,
+      default: null,
+    },
+    chestCm: {
+      type: Number,
+      default: null,
+    },
+    waistCm: {
+      type: Number,
+      default: null,
+    },
+    hipCm: {
+      type: Number,
+      default: null,
+    },
+    armLengthCm: {
+      type: Number,
+      default: null,
+    },
+    inseamCm: {
+      type: Number,
+      default: null,
+    },
     confidence: {
       type: Number,
       default: null,
+    },
+    scanFrameCount: {
+      type: Number,
+      default: null,
+    },
+    scanSource: {
+      type: String,
+      trim: true,
+      default: '',
     },
     pastIssues: {
       type: [String],
