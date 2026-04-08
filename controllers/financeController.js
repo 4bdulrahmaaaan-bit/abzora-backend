@@ -267,11 +267,27 @@ async function getVendorDashboard(req, res, next) {
     const lastPayoutTransaction = transactions.find(
       (item) => item.type === 'payout' && ['completed', 'processed'].includes(String(item.status || '').toLowerCase()),
     );
+    const todayRevenue = todayCompleted.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+    const todayEarnings = todayCompleted.reduce((sum, order) => sum + Number(order.vendorEarnings || 0), 0);
+    const todayCommission = todayCompleted.reduce((sum, order) => sum + Number(order.platformCommission || 0), 0);
+    const weeklyCompleted = completedOrders.filter((order) => {
+      const date = order.updatedAt || order.createdAt;
+      return date && date >= weekStart;
+    });
+    const weeklyRevenue = weeklyCompleted.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+    const weeklyEarnings = weeklyCompleted.reduce((sum, order) => sum + Number(order.vendorEarnings || 0), 0);
+    const weeklyCommission = weeklyCompleted.reduce(
+      (sum, order) => sum + Number(order.platformCommission || 0),
+      0,
+    );
 
     return res.status(200).json({
       success: true,
       data: {
-        todayEarnings: todayCompleted.reduce((sum, order) => sum + Number(order.vendorEarnings || 0), 0),
+        todayRevenue,
+        todayGrossRevenue: todayRevenue,
+        todayEarnings,
+        todayCommission,
         totalEarnings: Number(wallet.totalEarnings || 0),
         pendingAmount: Number(wallet.pendingAmount || 0),
         availableBalance: Number(wallet.balance || 0),
@@ -280,12 +296,11 @@ async function getVendorDashboard(req, res, next) {
         lastPayoutAt: lastPayoutTransaction?.createdAtIso || '',
         ordersCompleted: completedOrders.length,
         ordersToday: todayCompleted.length,
-        weeklyEarnings: completedOrders
-          .filter((order) => {
-            const date = order.updatedAt || order.createdAt;
-            return date && date >= weekStart;
-          })
-          .reduce((sum, order) => sum + Number(order.vendorEarnings || 0), 0),
+        totalSales: orders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+        weeklyRevenue,
+        weeklyGrossRevenue: weeklyRevenue,
+        weeklyEarnings,
+        weeklyCommission,
         dailySeries,
         transactions: transactions.map(serializeTransaction),
         wallet: serializeWallet(wallet, {
