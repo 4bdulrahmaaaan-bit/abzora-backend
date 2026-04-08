@@ -24,6 +24,11 @@ const {
   reviewVendorKycRequest,
   reviewRiderKycRequest,
 } = require('../controllers/adminController');
+const {
+  getAdminFinance,
+  settleVendorPayouts,
+  settleRiderPayouts,
+} = require('../controllers/financeController');
 
 const router = express.Router();
 
@@ -40,6 +45,9 @@ router.get('/notifications', listNotifications);
 router.post('/notifications', createNotification);
 router.get('/payouts', listPayouts);
 router.post('/payouts/process', processPayout);
+router.get('/finance', getAdminFinance);
+router.post('/finance/settlements/vendors', settleVendorPayouts);
+router.post('/finance/settlements/riders', settleRiderPayouts);
 router.get('/disputes', listDisputes);
 router.patch('/disputes/:id', updateDispute);
 router.get('/activity-logs', listActivityLogs);

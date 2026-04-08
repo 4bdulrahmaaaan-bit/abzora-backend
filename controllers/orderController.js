@@ -10,7 +10,20 @@ const User = require('../models/User');
 const ReferralRecord = require('../models/ReferralRecord');
 const RefundRequest = require('../models/RefundRequest');
 const ReturnRequest = require('../models/ReturnRequest');
+const Transaction = require('../models/Transaction');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
+const {
+  calculateOrderFinancials,
+  createWithdrawalRequest,
+  financeConfig,
+  getOrCreateAdminWallet,
+  getOrCreateRiderWallet,
+  getOrCreateVendorWallet,
+  reverseOrderSettlement,
+  settleDeliveredOrder,
+  settleRiderWallet,
+  settleVendorWallet,
+} = require('../services/financeService');
 
 function serializeOrder(order) {
   if (!order) {
@@ -34,9 +47,21 @@ function serializeOrder(order) {
         }))
       : [],
     subtotalAmount: Number(source.subtotalAmount || 0),
+    productAmount: Number(source.productAmount || source.subtotalAmount || 0),
+    taxAmount: Number(source.taxAmount || 0),
+    deliveryFee: Number(source.deliveryFee || 0),
+    deliveryDistanceKm: Number(source.deliveryDistanceKm || 0),
     totalAmount: Number(source.totalAmount || 0),
+    platformCommission: Number(source.platformCommission || 0),
+    vendorEarnings: Number(source.vendorEarnings || 0),
+    riderEarnings: Number(source.riderEarnings || 0),
     paymentMethod: source.paymentMethod || '',
     paymentStatus: source.paymentStatus || '',
+    payoutStatus: source.payoutStatus || 'none',
+    riderPayoutStatus: source.riderPayoutStatus || 'none',
+    payoutId: source.payoutId || '',
+    riderPayoutId: source.riderPayoutId || '',
+    payoutProcessed: Boolean(source.payoutProcessed),
     refundStatus: source.refundStatus || 'none',
     returnStatus: source.returnStatus || 'none',
     refundRequestId: source.refundRequestId || '',
@@ -309,9 +334,13 @@ function isOrderAvailableForRider(order) {
   return !closed && !order.riderId && ready;
 }
 
+function canManageFinance(req) {
+  return req.user?.role === 'admin' || req.user?.role === 'super_admin';
+}
+
 async function createOrder(req, res, next) {
   try {
-    const { items, paymentMethod, shippingAddress } = req.body || {};
+    const { items, paymentMethod, shippingAddress, taxAmount, deliveryFee, deliveryDistanceKm } = req.body || {};
     if (!req.user?.uid) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
@@ -384,16 +413,34 @@ async function createOrder(req, res, next) {
       });
     }
 
+    const store = await Store.findById(resolvedStoreId);
+    const financials = calculateOrderFinancials({
+      subtotalAmount,
+      taxAmount,
+      deliveryFee,
+      deliveryDistanceKm,
+      commissionPercent: store?.commissionRate,
+    });
+
     const order = await Order.create({
       userId: req.user.uid,
       storeId: resolvedStoreId,
       items: normalizedItems,
       subtotalAmount,
-      totalAmount: subtotalAmount,
+      productAmount: financials.productAmount,
+      taxAmount: financials.taxAmount,
+      deliveryFee: financials.deliveryFee,
+      deliveryDistanceKm: financials.deliveryDistanceKm,
+      totalAmount: financials.totalAmount,
+      platformCommission: financials.platformCommission,
+      vendorEarnings: financials.vendorEarnings,
+      riderEarnings: financials.riderEarnings,
       paymentMethod: normalizedPaymentMethod,
       paymentStatus: normalizedPaymentMethod === 'COD' ? 'pending' : 'pending',
       orderStatus: normalizedPaymentMethod === 'COD' ? 'confirmed' : 'pending',
       deliveryStatus: normalizedPaymentMethod === 'COD' ? 'Ready for pickup' : 'Pending',
+      payoutStatus: 'none',
+      riderPayoutStatus: 'none',
       trackingId: '',
       trackingTimestamps: {},
       shippingAddress: normalizedShippingAddress,
@@ -547,6 +594,7 @@ async function updateDeliveryStatus(req, res, next) {
     }
     appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(nextStatus));
     appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
+    await settleDeliveredOrder(order);
     await order.save();
 
     return res.status(200).json({ success: true, data: serializeOrder(order) });
@@ -673,6 +721,11 @@ async function updateOrderStatus(req, res, next) {
     }
     appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
     appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
+    if (order.orderStatus === 'delivered') {
+      await settleDeliveredOrder(order);
+    } else if (order.orderStatus === 'cancelled') {
+      await reverseOrderSettlement(order, 'Order cancelled');
+    }
     await order.save();
 
     return res.status(200).json({ success: true, data: serializeOrder(order) });
@@ -719,6 +772,7 @@ async function cancelOrder(req, res, next) {
     order.deliveryStatus = 'Cancelled';
     appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
     appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
+    await reverseOrderSettlement(order, 'Order cancelled by customer');
     await order.save();
 
     return res.status(200).json({ success: true, data: serializeOrder(order) });
@@ -864,6 +918,7 @@ async function approveRefundRequest(req, res, next) {
     order.paymentStatus = 'refunded';
     order.refundStatus = 'refunded';
     order.refundRequestId = refund._id.toString();
+    await reverseOrderSettlement(order, 'Refund approved');
     await order.save();
 
     return res.status(200).json({ success: true, data: serializeRefundRequest(refund) });
@@ -1210,6 +1265,7 @@ async function completeReturnRequest(req, res, next) {
 
     order.returnStatus = 'completed';
     order.returnRequestId = request._id.toString();
+    await reverseOrderSettlement(order, 'Return completed');
     await order.save();
 
     return res.status(200).json({ success: true, data: serializeReturnRequest(request) });
@@ -1361,6 +1417,9 @@ async function verifyPayment(req, res, next) {
         await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.quantity } });
       }
       order.inventoryDeducted = true;
+    }
+    if (paid) {
+      order.financialReversed = false;
     }
     await order.save();
     if (paid) {

@@ -11,6 +11,7 @@ const AdminPayout = require('../models/AdminPayout');
 const AdminDispute = require('../models/AdminDispute');
 const AdminActivityLog = require('../models/AdminActivityLog');
 const { isAllowedAdminEmail } = require('./authController');
+const { settleVendorWallet } = require('../services/financeService');
 
 function ensureAdmin(req, res) {
   const hasPrivilegedRole = req.user?.role === 'admin' || req.user?.role === 'super_admin';
@@ -338,7 +339,9 @@ async function getDashboardSummary(req, res, next) {
       .reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
 
     const totalOrders = orders.length;
-    const commissionRevenue = totalRevenue * 0.12;
+    const commissionRevenue = orders
+      .filter((order) => order.paymentStatus === 'paid')
+      .reduce((sum, order) => sum + Number(order.platformCommission || 0), 0);
     const delivered = orders.filter((order) => order.orderStatus === 'delivered');
     const salesByStore = new Map();
     for (const order of delivered) {
@@ -586,30 +589,29 @@ async function processPayout(req, res, next) {
       return res.status(400).json({ success: false, message: 'storeId is required.' });
     }
 
-    const priorPayouts = await AdminPayout.find({ storeId });
-    const paidOrderIds = new Set(priorPayouts.flatMap((item) => item.orderIds || []));
     const readyOrders = await Order.find({
       storeId,
       paymentStatus: 'paid',
       orderStatus: 'delivered',
+      payoutStatus: 'pending',
     });
-    const eligibleOrders = readyOrders.filter((order) => !paidOrderIds.has(order._id.toString()));
-    if (eligibleOrders.length === 0) {
+    if (readyOrders.length === 0) {
       return res.status(200).json({ success: true, data: null });
     }
 
-    const amount = eligibleOrders.reduce((sum, order) => sum + Number(order.totalAmount || 0) * 0.88, 0);
-    const payoutId = `payout-${Date.now()}`;
-    const payout = await AdminPayout.create({
-      payoutId,
+    const payout = await settleVendorWallet({
       storeId,
       processedBy: req.user.uid,
-      amount,
       periodLabel,
-      createdAtIso: toIsoNow(),
-      orderIds: eligibleOrders.map((order) => order._id.toString()),
-      status: 'Processed',
+      orders: readyOrders,
     });
+    if (!payout) {
+      return res.status(200).json({ success: true, data: null });
+    }
+    await Order.updateMany(
+      { _id: { $in: readyOrders.map((order) => order._id) } },
+      { $set: { payoutStatus: 'processed', payoutProcessed: true, payoutId: payout.payoutId } },
+    );
     return res.status(200).json({ success: true, data: serializePayout(payout) });
   } catch (error) {
     return next(error);

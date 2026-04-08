@@ -88,9 +88,44 @@ const orderSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    productAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    taxAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    deliveryFee: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    deliveryDistanceKm: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     totalAmount: {
       type: Number,
       required: true,
+      min: 0,
+    },
+    platformCommission: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    vendorEarnings: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    riderEarnings: {
+      type: Number,
+      default: 0,
       min: 0,
     },
     paymentMethod: {
@@ -102,6 +137,46 @@ const orderSchema = new mongoose.Schema(
       type: String,
       enum: ['pending', 'paid', 'failed', 'refunded'],
       default: 'pending',
+    },
+    payoutStatus: {
+      type: String,
+      enum: ['none', 'pending', 'processed', 'reversed'],
+      default: 'none',
+    },
+    riderPayoutStatus: {
+      type: String,
+      enum: ['none', 'pending', 'processed', 'reversed'],
+      default: 'none',
+    },
+    payoutId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    riderPayoutId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    payoutProcessed: {
+      type: Boolean,
+      default: false,
+    },
+    vendorCredited: {
+      type: Boolean,
+      default: false,
+    },
+    riderCredited: {
+      type: Boolean,
+      default: false,
+    },
+    commissionRecorded: {
+      type: Boolean,
+      default: false,
+    },
+    financialReversed: {
+      type: Boolean,
+      default: false,
     },
     refundStatus: {
       type: String,

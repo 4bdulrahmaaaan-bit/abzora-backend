@@ -37,6 +37,17 @@ const storeSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    commissionRate: {
+      type: Number,
+      default: 0.12,
+      min: 0,
+      max: 0.5,
+    },
+    walletBalance: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     logoUrl: {
       type: String,
       trim: true,
