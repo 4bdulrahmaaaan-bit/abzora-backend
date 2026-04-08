@@ -5,18 +5,23 @@ const {
   approveWithdrawalRequest,
   createWithdrawalRequest,
   financeConfig,
+  getUserPayoutProfile,
   getOrCreateAdminWallet,
   getOrCreateRiderWallet,
   getOrCreateVendorWallet,
   listWithdrawalRequests,
+  markWithdrawalCompleted,
+  markWithdrawalFailed,
   rejectWithdrawalRequest,
   runAutomaticSettlements,
+  saveUserPayoutProfile,
   settleRiderWallet,
   settleVendorWallet,
 } = require('../services/financeService');
 const Store = require('../models/Store');
 const VendorWallet = require('../models/VendorWallet');
 const RiderWallet = require('../models/RiderWallet');
+const { verifyWebhookSignature } = require('../services/razorpayPayoutService');
 
 function ensureAdmin(req, res) {
   if (!['admin', 'super_admin'].includes(req.user?.role)) {
@@ -42,6 +47,22 @@ function serializeWallet(wallet, extra = {}) {
   };
 }
 
+function serializePayoutProfile(profile) {
+  const source = profile || {};
+  return {
+    methodType: source.methodType || '',
+    accountHolderName: source.accountHolderName || '',
+    upiId: source.upiId || '',
+    bankAccountNumber: source.bankAccountNumber || '',
+    bankIfsc: source.bankIfsc || '',
+    bankName: source.bankName || '',
+    razorpayContactId: source.razorpayContactId || '',
+    razorpayFundAccountId: source.razorpayFundAccountId || '',
+    lastSyncedAt: source.lastSyncedAt || '',
+    isConfigured: Boolean(source.methodType),
+  };
+}
+
 function serializeWithdrawalRequest(item) {
   if (!item) {
     return null;
@@ -59,7 +80,16 @@ function serializeWithdrawalRequest(item) {
     requestedAt: source.requestedAt || source.createdAt || '',
     processedAt: source.processedAt || '',
     processedBy: source.processedBy || '',
+    approvedAt: source.approvedAt || '',
+    completedAt: source.completedAt || '',
     rejectionReason: source.rejectionReason || '',
+    payoutMode: source.payoutMode || '',
+    payoutId: source.payoutId || '',
+    razorpayContactId: source.razorpayContactId || '',
+    razorpayFundAccountId: source.razorpayFundAccountId || '',
+    idempotencyKey: source.idempotencyKey || '',
+    failureReason: source.failureReason || '',
+    retryCount: Number(source.retryCount || 0),
     auditOrderIds: Array.isArray(source.auditOrderIds) ? source.auditOrderIds : [],
     metadata: source.metadata || {},
   };
@@ -96,7 +126,7 @@ async function getVendorWallet(req, res, next) {
     if (!store) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
-    const [wallet, transactions, withdrawalRequests] = await Promise.all([
+    const [wallet, transactions, withdrawalRequests, payoutProfile] = await Promise.all([
       getOrCreateVendorWallet(store._id.toString(), req.user.uid),
       Transaction.find({
         $or: [{ userType: 'vendor', userId: req.user.uid }, { storeId: store._id.toString() }],
@@ -104,6 +134,7 @@ async function getVendorWallet(req, res, next) {
         .sort({ createdAt: -1, _id: -1 })
         .limit(25),
       listWithdrawalRequests({ storeId: store._id.toString() }).then((items) => items.slice(0, 10)),
+      getUserPayoutProfile(req.user.uid).then((result) => result.profile),
     ]);
     return res.status(200).json({
       success: true,
@@ -112,6 +143,7 @@ async function getVendorWallet(req, res, next) {
           storeId: store._id.toString(),
           commissionRate: Number(store.commissionRate || financeConfig().adminCommissionPercent),
         }),
+        payoutProfile: serializePayoutProfile(payoutProfile),
         transactions: transactions.map(serializeTransaction),
         withdrawalRequests: withdrawalRequests.map(serializeWithdrawalRequest),
       },
@@ -153,22 +185,64 @@ async function requestVendorWithdraw(req, res, next) {
   }
 }
 
+async function getVendorPayoutProfile(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const store = await Store.findOne({ ownerId: req.user.uid });
+    if (!store) {
+      return res.status(404).json({ success: false, message: 'Store not found.' });
+    }
+    const { profile } = await getUserPayoutProfile(req.user.uid);
+    return res.status(200).json({ success: true, data: serializePayoutProfile(profile) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function saveVendorPayoutProfile(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const store = await Store.findOne({ ownerId: req.user.uid });
+    if (!store) {
+      return res.status(404).json({ success: false, message: 'Store not found.' });
+    }
+    const profile = await saveUserPayoutProfile({
+      userId: req.user.uid,
+      methodType: req.body?.methodType,
+      accountHolderName: req.body?.accountHolderName,
+      upiId: req.body?.upiId,
+      bankAccountNumber: req.body?.bankAccountNumber,
+      bankIfsc: req.body?.bankIfsc,
+      bankName: req.body?.bankName,
+    });
+    return res.status(200).json({ success: true, data: serializePayoutProfile(profile) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getRiderWallet(req, res, next) {
   try {
     if (!req.user?.uid) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
-    const [wallet, transactions, withdrawalRequests] = await Promise.all([
+    const [wallet, transactions, withdrawalRequests, payoutProfile] = await Promise.all([
       getOrCreateRiderWallet(req.user.uid),
       Transaction.find({ userType: 'rider', userId: req.user.uid })
         .sort({ createdAt: -1, _id: -1 })
         .limit(25),
       listWithdrawalRequests({ riderId: req.user.uid }).then((items) => items.slice(0, 10)),
+      getUserPayoutProfile(req.user.uid).then((result) => result.profile),
     ]);
     return res.status(200).json({
       success: true,
       data: {
         ...serializeWallet(wallet, { riderId: req.user.uid }),
+        payoutProfile: serializePayoutProfile(payoutProfile),
         transactions: transactions.map(serializeTransaction),
         withdrawalRequests: withdrawalRequests.map(serializeWithdrawalRequest),
       },
@@ -204,6 +278,38 @@ async function requestRiderWithdraw(req, res, next) {
   }
 }
 
+async function getRiderPayoutProfile(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const { profile } = await getUserPayoutProfile(req.user.uid);
+    return res.status(200).json({ success: true, data: serializePayoutProfile(profile) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function saveRiderPayoutProfile(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const profile = await saveUserPayoutProfile({
+      userId: req.user.uid,
+      methodType: req.body?.methodType,
+      accountHolderName: req.body?.accountHolderName,
+      upiId: req.body?.upiId,
+      bankAccountNumber: req.body?.bankAccountNumber,
+      bankIfsc: req.body?.bankIfsc,
+      bankName: req.body?.bankName,
+    });
+    return res.status(200).json({ success: true, data: serializePayoutProfile(profile) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getAdminFinance(req, res, next) {
   try {
     if (!ensureAdmin(req, res)) {
@@ -214,7 +320,7 @@ async function getAdminFinance(req, res, next) {
       VendorWallet.find({}).sort({ updatedAt: -1 }).limit(50),
       RiderWallet.find({}).sort({ updatedAt: -1 }).limit(50),
       Transaction.find({}).sort({ createdAt: -1, _id: -1 }).limit(50),
-      listWithdrawalRequests({ status: 'pending' }),
+      listWithdrawalRequests({ status: { $in: ['pending', 'failed', 'processing'] } }),
     ]);
 
     const vendorPending = vendorWallets.reduce((sum, item) => sum + Number(item.pendingAmount || 0), 0);
@@ -407,15 +513,68 @@ async function runScheduledSettlements(req, res, next) {
   }
 }
 
+async function handleRazorpayPayoutWebhook(req, res, next) {
+  try {
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body || {}));
+    const signature = req.headers['x-razorpay-signature'];
+    if (!verifyWebhookSignature(rawBody, signature)) {
+      return res.status(400).json({ success: false, message: 'Invalid webhook signature.' });
+    }
+
+    const payload = JSON.parse(rawBody.toString('utf8'));
+    const event = String(payload?.event || '').trim();
+    const payoutEntity = payload?.payload?.payout?.entity || {};
+    const requestId =
+      payoutEntity?.reference_id ||
+      payoutEntity?.notes?.withdrawalRequestId ||
+      '';
+    const payoutId = payoutEntity?.id || '';
+    const failureReason =
+      payoutEntity?.status_details?.description ||
+      payoutEntity?.status_details?.reason ||
+      payoutEntity?.failure_reason ||
+      'Payout failed.';
+
+    if (event === 'payout.processed') {
+      const request = await markWithdrawalCompleted({ payoutId, requestId });
+      return res.status(200).json({
+        success: true,
+        data: serializeWithdrawalRequest(request),
+      });
+    }
+
+    if (event === 'payout.failed') {
+      const request = await markWithdrawalFailed({
+        payoutId,
+        requestId,
+        reason: failureReason,
+      });
+      return res.status(200).json({
+        success: true,
+        data: serializeWithdrawalRequest(request),
+      });
+    }
+
+    return res.status(200).json({ success: true, ignored: true, event });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   approvePendingWithdrawal,
   getAdminFinance,
   getRiderWallet,
+  getRiderPayoutProfile,
   getVendorWallet,
+  getVendorPayoutProfile,
+  handleRazorpayPayoutWebhook,
   rejectPendingWithdrawal,
   requestRiderWithdraw,
   requestVendorWithdraw,
   runScheduledSettlements,
+  saveRiderPayoutProfile,
+  saveVendorPayoutProfile,
   settleRiderPayouts,
   settleVendorPayouts,
 };

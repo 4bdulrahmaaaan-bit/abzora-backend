@@ -32,6 +32,7 @@ const bookingRoutes = require('./routes/bookingRoutes');
 const bannerRoutes = require('./routes/bannerRoutes');
 const categoryRoutes = require('./routes/category.routes');
 const outfitRoutes = require('./routes/outfitRoutes');
+const webhookRoutes = require('./routes/webhookRoutes');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -40,6 +41,7 @@ app.set('trust proxy', 1);
 
 app.use(cors(createCorsOptions()));
 app.use(securityHeaders);
+app.use('/webhooks/razorpayx', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -122,6 +124,7 @@ app.use('/bookings', bookingRoutes);
 app.use('/banners', bannerRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/outfits', outfitRoutes);
+app.use('/webhooks', webhookRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found.' });

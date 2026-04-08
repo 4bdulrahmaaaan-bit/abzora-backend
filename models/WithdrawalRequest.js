@@ -17,7 +17,7 @@ const withdrawalRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected'],
+      enum: ['pending', 'processing', 'completed', 'failed', 'rejected'],
       default: 'pending',
       index: true,
     },
@@ -64,10 +64,57 @@ const withdrawalRequestSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    approvedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    completedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     rejectionReason: {
       type: String,
       trim: true,
       default: '',
+    },
+    payoutMode: {
+      type: String,
+      enum: ['', 'UPI', 'IMPS'],
+      default: '',
+      trim: true,
+    },
+    payoutId: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true,
+    },
+    razorpayContactId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    razorpayFundAccountId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    idempotencyKey: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    failureReason: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    retryCount: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     auditOrderIds: {
       type: [String],

@@ -7,8 +7,14 @@ const Order = require('../models/Order');
 const RiderWallet = require('../models/RiderWallet');
 const Store = require('../models/Store');
 const Transaction = require('../models/Transaction');
+const User = require('../models/User');
 const VendorWallet = require('../models/VendorWallet');
 const WithdrawalRequest = require('../models/WithdrawalRequest');
+const {
+  createOrUpdateContact,
+  createOrUpdateFundAccount,
+  createPayout,
+} = require('./razorpayPayoutService');
 
 function roundMoney(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
@@ -32,6 +38,10 @@ function financeConfig() {
 
 function buildId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizePayoutMode(methodType) {
+  return methodType === 'vpa' ? 'UPI' : 'IMPS';
 }
 
 async function runWithOptionalSession(work) {
@@ -232,6 +242,113 @@ async function getOrCreateAdminWallet(session = null) {
     },
     withSession({ upsert: true, new: true, setDefaultsOnInsert: true }, session),
   );
+}
+
+function serializePayoutProfile(profile = {}) {
+  return {
+    methodType: profile.methodType || '',
+    accountHolderName: profile.accountHolderName || '',
+    upiId: profile.upiId || '',
+    bankAccountNumber: profile.bankAccountNumber || '',
+    bankIfsc: profile.bankIfsc || '',
+    bankName: profile.bankName || '',
+    razorpayContactId: profile.razorpayContactId || '',
+    razorpayFundAccountId: profile.razorpayFundAccountId || '',
+    lastSyncedAt: profile.lastSyncedAt || '',
+  };
+}
+
+async function getUserPayoutProfile(userId, session = null) {
+  const user = await User.findOne({ uid: userId }).session(session);
+  if (!user) {
+    throw new Error('User not found for payout profile.');
+  }
+  return {
+    user,
+    profile: serializePayoutProfile(user.payoutProfile || {}),
+  };
+}
+
+async function saveUserPayoutProfile({
+  userId,
+  methodType,
+  accountHolderName,
+  upiId,
+  bankAccountNumber,
+  bankIfsc,
+  bankName,
+}) {
+  return runWithOptionalSession(async (session) => {
+    const user = await User.findOne({ uid: userId }).session(session);
+    if (!user) {
+      throw new Error('User not found.');
+    }
+
+    const normalizedMethod = String(methodType || '').trim().toLowerCase();
+    if (!['vpa', 'bank_account'].includes(normalizedMethod)) {
+      throw new Error('methodType must be vpa or bank_account.');
+    }
+
+    const profile = serializePayoutProfile(user.payoutProfile || {});
+    profile.methodType = normalizedMethod;
+    profile.accountHolderName = String(accountHolderName || user.name || '').trim();
+    profile.upiId = normalizedMethod === 'vpa' ? String(upiId || '').trim() : '';
+    profile.bankAccountNumber =
+      normalizedMethod === 'bank_account' ? String(bankAccountNumber || '').trim() : '';
+    profile.bankIfsc =
+      normalizedMethod === 'bank_account' ? String(bankIfsc || '').trim().toUpperCase() : '';
+    profile.bankName = normalizedMethod === 'bank_account' ? String(bankName || '').trim() : '';
+    profile.razorpayFundAccountId = '';
+    profile.lastSyncedAt = '';
+
+    if (normalizedMethod === 'vpa' && !profile.upiId) {
+      throw new Error('UPI ID is required.');
+    }
+    if (normalizedMethod === 'bank_account' && (!profile.bankAccountNumber || !profile.bankIfsc)) {
+      throw new Error('Bank account number and IFSC are required.');
+    }
+
+    user.payoutProfile = profile;
+    await user.save(withSession({}, session));
+    return serializePayoutProfile(user.payoutProfile || {});
+  });
+}
+
+async function ensureUserPayoutRecipient({ userId, walletType, session = null }) {
+  const { user, profile } = await getUserPayoutProfile(userId, session);
+  if (!profile.methodType) {
+    throw new Error('Beneficiary payout details are not configured.');
+  }
+
+  const contact = await createOrUpdateContact({
+    name: profile.accountHolderName || user.name || 'ABZORA Beneficiary',
+    email: user.email || '',
+    phone: user.phone || '',
+    userType: walletType,
+    existingContactId: profile.razorpayContactId || '',
+  });
+
+  const fundAccount = await createOrUpdateFundAccount({
+    contactId: contact.id,
+    methodType: profile.methodType,
+    accountHolderName: profile.accountHolderName || user.name || 'ABZORA Beneficiary',
+    upiId: profile.upiId,
+    bankAccountNumber: profile.bankAccountNumber,
+    bankIfsc: profile.bankIfsc,
+    bankName: profile.bankName,
+    existingFundAccountId: profile.razorpayFundAccountId || '',
+  });
+
+  profile.razorpayContactId = contact.id;
+  profile.razorpayFundAccountId = fundAccount.id;
+  profile.lastSyncedAt = nowIso();
+  user.payoutProfile = profile;
+  await user.save(withSession({}, session));
+
+  return {
+    user,
+    profile: serializePayoutProfile(profile),
+  };
 }
 
 function normalizedOrderIds(orders = []) {
@@ -721,6 +838,7 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
   }
 
   return runWithOptionalSession(async (session) => {
+    const user = await User.findOne({ uid: userId }).session(session);
     const freshWallet = walletType === 'vendor'
       ? await VendorWallet.findById(wallet._id).session(session)
       : await RiderWallet.findById(wallet._id).session(session);
@@ -743,6 +861,10 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
       );
     }
 
+    const payoutProfile = serializePayoutProfile(user?.payoutProfile || {});
+    if (!payoutProfile.methodType) {
+      throw new Error('Configure a payout account before requesting a withdrawal.');
+    }
     const [request] = await WithdrawalRequest.create(
       [
         {
@@ -755,7 +877,12 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
           amount: safeAmount,
           note,
           requestedAt: nowIso(),
-          metadata: { threshold: minimum },
+          payoutMode: normalizePayoutMode(payoutProfile.methodType),
+          metadata: {
+            threshold: minimum,
+            payoutMethodType: payoutProfile.methodType,
+            payoutConfigured: Boolean(payoutProfile.methodType),
+          },
         },
       ],
       withSession({}, session),
@@ -806,8 +933,9 @@ async function approveWithdrawalRequest({ requestId, processedBy, actorRole = 'a
     if (!request) {
       throw new Error('Withdrawal request not found.');
     }
-    if (request.status !== 'pending') {
-      throw new Error('This withdrawal request has already been processed.');
+    const wasFailed = request.status === 'failed';
+    if (!['pending', 'failed'].includes(request.status)) {
+      throw new Error('This withdrawal request cannot be approved again.');
     }
 
     const wallet = request.walletType === 'vendor'
@@ -820,32 +948,46 @@ async function approveWithdrawalRequest({ requestId, processedBy, actorRole = 'a
       throw new Error('Reserved withdrawal balance is inconsistent.');
     }
 
-    wallet.reservedAmount = roundMoney(
-      Number(wallet.reservedAmount || 0) - Number(request.amount || 0),
-    );
-    wallet.totalWithdrawn = roundMoney(
-      Number(wallet.totalWithdrawn || 0) + Number(request.amount || 0),
-    );
-    await wallet.save(withSession({}, session));
+    const { profile } = await ensureUserPayoutRecipient({
+      userId: request.userId,
+      walletType: request.walletType,
+      session,
+    });
 
-    if (request.walletType === 'vendor' && request.storeId) {
-      await Store.findByIdAndUpdate(
-        request.storeId,
-        { $set: { walletBalance: wallet.balance } },
-        withSession({}, session),
-      );
-    }
+    const idempotencyKey = wasFailed
+      ? buildId(`payout-${request.requestId}`)
+      : request.idempotencyKey || buildId(`payout-${request.requestId}`);
+    const payoutMode = request.payoutMode || normalizePayoutMode(profile.methodType);
+    const payout = await createPayout({
+      fundAccountId: profile.razorpayFundAccountId,
+      amount: Number(request.amount || 0),
+      mode: payoutMode,
+      referenceId: request.requestId,
+      idempotencyKey,
+      narration: `${request.walletType} withdrawal`,
+      notes: {
+        withdrawalRequestId: request.requestId,
+        walletType: request.walletType,
+        userId: request.userId,
+        storeId: request.storeId || '',
+        riderId: request.riderId || '',
+      },
+    });
 
-    request.status = 'approved';
+    request.status = 'processing';
     request.processedAt = nowIso();
     request.processedBy = processedBy;
+    request.approvedAt = request.processedAt;
+    request.payoutId = payout.id || request.payoutId || '';
+    request.payoutMode = payoutMode;
+    request.razorpayContactId = profile.razorpayContactId || '';
+    request.razorpayFundAccountId = profile.razorpayFundAccountId || '';
+    request.idempotencyKey = idempotencyKey;
+    request.failureReason = '';
+    if (wasFailed) {
+      request.retryCount = Number(request.retryCount || 0) + 1;
+    }
     await request.save(withSession({}, session));
-
-    const adminWallet = await getOrCreateAdminWallet(session);
-    adminWallet.payoutsDone = roundMoney(
-      Number(adminWallet.payoutsDone || 0) + Number(request.amount || 0),
-    );
-    await adminWallet.save(withSession({}, session));
 
     await Promise.all([
       recordTransaction(
@@ -854,17 +996,22 @@ async function approveWithdrawalRequest({ requestId, processedBy, actorRole = 'a
           userType: request.walletType,
           userId: request.userId,
           amount: Number(request.amount || 0),
-          status: 'approved',
-          payoutId: request.requestId,
+          status: 'processing',
+          payoutId: request.payoutId || request.requestId,
           storeId: request.storeId || '',
           riderId: request.riderId || '',
-          note: 'Withdrawal approved by admin',
+          note: 'Withdrawal approved and sent to RazorpayX',
+          metadata: {
+            withdrawalRequestId: request.requestId,
+            fundAccountId: request.razorpayFundAccountId || '',
+            payoutMode,
+          },
         },
         session,
       ),
       recordFinanceAudit(
         {
-          action: 'withdrawal_approved',
+          action: 'withdrawal_processing',
           actorId: processedBy,
           actorRole,
           status: 'approved',
@@ -872,8 +1019,14 @@ async function approveWithdrawalRequest({ requestId, processedBy, actorRole = 'a
           storeId: request.storeId || '',
           riderId: request.riderId || '',
           withdrawalRequestId: request.requestId,
+          payoutId: request.payoutId || '',
           amount: Number(request.amount || 0),
-          message: 'Withdrawal approved.',
+          message: 'Withdrawal approved and payout initiated.',
+          metadata: {
+            payoutMode,
+            razorpayContactId: request.razorpayContactId || '',
+            razorpayFundAccountId: request.razorpayFundAccountId || '',
+          },
         },
         session,
       ),
@@ -894,8 +1047,8 @@ async function rejectWithdrawalRequest({
     if (!request) {
       throw new Error('Withdrawal request not found.');
     }
-    if (request.status !== 'pending') {
-      throw new Error('This withdrawal request has already been processed.');
+    if (!['pending', 'failed'].includes(request.status)) {
+      throw new Error('This withdrawal request can no longer be rejected.');
     }
 
     const wallet = request.walletType === 'vendor'
@@ -952,6 +1105,165 @@ async function rejectWithdrawalRequest({
           withdrawalRequestId: request.requestId,
           amount: Number(request.amount || 0),
           message: reason || 'Withdrawal rejected.',
+        },
+        session,
+      ),
+    ]);
+
+    return request;
+  });
+}
+
+async function markWithdrawalCompleted({ payoutId, requestId, processedBy = 'razorpay-webhook' }) {
+  return runWithOptionalSession(async (session) => {
+    const request = await WithdrawalRequest.findOne({
+      $or: [{ payoutId }, { requestId }],
+    }).session(session);
+    if (!request) {
+      throw new Error('Withdrawal request not found for payout completion.');
+    }
+    if (request.status === 'completed') {
+      return request;
+    }
+
+    const wallet = request.walletType === 'vendor'
+      ? await VendorWallet.findOne({ storeId: request.storeId }).session(session)
+      : await RiderWallet.findOne({ riderId: request.riderId }).session(session);
+    if (!wallet) {
+      throw new Error('Linked wallet not found for payout completion.');
+    }
+
+    wallet.reservedAmount = roundMoney(
+      Math.max(0, Number(wallet.reservedAmount || 0) - Number(request.amount || 0)),
+    );
+    wallet.totalWithdrawn = roundMoney(
+      Number(wallet.totalWithdrawn || 0) + Number(request.amount || 0),
+    );
+    await wallet.save(withSession({}, session));
+
+    if (request.walletType === 'vendor' && request.storeId) {
+      await Store.findByIdAndUpdate(
+        request.storeId,
+        { $set: { walletBalance: wallet.balance } },
+        withSession({}, session),
+      );
+    }
+
+    request.status = 'completed';
+    request.completedAt = nowIso();
+    request.processedAt = request.completedAt;
+    request.processedBy = processedBy;
+    request.payoutId = payoutId || request.payoutId || '';
+    request.failureReason = '';
+    await request.save(withSession({}, session));
+
+    const adminWallet = await getOrCreateAdminWallet(session);
+    adminWallet.payoutsDone = roundMoney(
+      Number(adminWallet.payoutsDone || 0) + Number(request.amount || 0),
+    );
+    await adminWallet.save(withSession({}, session));
+
+    await Promise.all([
+      recordTransaction(
+        {
+          type: 'payout',
+          userType: request.walletType,
+          userId: request.userId,
+          amount: Number(request.amount || 0),
+          status: 'completed',
+          payoutId: request.payoutId || request.requestId,
+          storeId: request.storeId || '',
+          riderId: request.riderId || '',
+          note: 'Withdrawal paid successfully.',
+          metadata: {
+            withdrawalRequestId: request.requestId,
+            processedBy,
+          },
+        },
+        session,
+      ),
+      recordFinanceAudit(
+        {
+          action: 'withdrawal_completed',
+          actorId: processedBy,
+          actorRole: 'system',
+          status: 'success',
+          walletType: request.walletType,
+          storeId: request.storeId || '',
+          riderId: request.riderId || '',
+          withdrawalRequestId: request.requestId,
+          payoutId: request.payoutId || '',
+          amount: Number(request.amount || 0),
+          message: 'Withdrawal payout completed.',
+        },
+        session,
+      ),
+    ]);
+
+    return request;
+  });
+}
+
+async function markWithdrawalFailed({
+  payoutId,
+  requestId,
+  reason,
+  processedBy = 'razorpay-webhook',
+}) {
+  return runWithOptionalSession(async (session) => {
+    const request = await WithdrawalRequest.findOne({
+      $or: [{ payoutId }, { requestId }],
+    }).session(session);
+    if (!request) {
+      throw new Error('Withdrawal request not found for payout failure.');
+    }
+    if (request.status === 'completed') {
+      return request;
+    }
+
+    request.status = 'failed';
+    request.processedAt = nowIso();
+    request.processedBy = processedBy;
+    request.payoutId = payoutId || request.payoutId || '';
+    request.failureReason = reason || 'Payout failed.';
+    await request.save(withSession({}, session));
+
+    const adminWallet = await getOrCreateAdminWallet(session);
+    adminWallet.failedSettlements = roundMoney(Number(adminWallet.failedSettlements || 0) + 1);
+    await adminWallet.save(withSession({}, session));
+
+    await Promise.all([
+      recordTransaction(
+        {
+          type: 'payout',
+          userType: request.walletType,
+          userId: request.userId,
+          amount: Number(request.amount || 0),
+          status: 'failed',
+          payoutId: request.payoutId || request.requestId,
+          storeId: request.storeId || '',
+          riderId: request.riderId || '',
+          note: reason || 'Withdrawal payout failed.',
+          metadata: {
+            withdrawalRequestId: request.requestId,
+            processedBy,
+          },
+        },
+        session,
+      ),
+      recordFinanceAudit(
+        {
+          action: 'withdrawal_failed',
+          actorId: processedBy,
+          actorRole: 'system',
+          status: 'failed',
+          walletType: request.walletType,
+          storeId: request.storeId || '',
+          riderId: request.riderId || '',
+          withdrawalRequestId: request.requestId,
+          payoutId: request.payoutId || '',
+          amount: Number(request.amount || 0),
+          message: reason || 'Withdrawal payout failed.',
         },
         session,
       ),
@@ -1070,10 +1382,13 @@ module.exports = {
   calculateOrderFinancials,
   createWithdrawalRequest,
   financeConfig,
+  getUserPayoutProfile,
   getOrCreateAdminWallet,
   getOrCreateRiderWallet,
   getOrCreateVendorWallet,
   listWithdrawalRequests,
+  markWithdrawalCompleted,
+  markWithdrawalFailed,
   normalizedOrderIds,
   recordFinanceAudit,
   recordTransaction,
@@ -1081,6 +1396,7 @@ module.exports = {
   reverseOrderSettlement,
   roundMoney,
   runAutomaticSettlements,
+  saveUserPayoutProfile,
   settleDeliveredOrder,
   settleRiderWallet,
   settleVendorWallet,

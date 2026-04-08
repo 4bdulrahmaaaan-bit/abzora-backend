@@ -1,5 +1,58 @@
 const mongoose = require('mongoose');
 
+const payoutProfileSchema = new mongoose.Schema(
+  {
+    methodType: {
+      type: String,
+      enum: ['', 'bank_account', 'vpa'],
+      default: '',
+      trim: true,
+    },
+    accountHolderName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    upiId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    bankAccountNumber: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    bankIfsc: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: '',
+    },
+    bankName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    razorpayContactId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    razorpayFundAccountId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    lastSyncedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema(
   {
     firebaseUid: {
@@ -124,6 +177,10 @@ const userSchema = new mongoose.Schema(
     lastLoginAt: {
       type: Date,
       default: Date.now,
+    },
+    payoutProfile: {
+      type: payoutProfileSchema,
+      default: () => ({}),
     },
   },
   {
