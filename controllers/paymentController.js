@@ -28,8 +28,8 @@ function verifyRazorpayWebhookSignature(rawBody, signature) {
     return false;
   }
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-  const expectedBuffer = Buffer.from(expected);
-  const providedBuffer = Buffer.from(String(signature || ''));
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+  const providedBuffer = Buffer.from(String(signature || ''), 'utf8');
   if (expectedBuffer.length !== providedBuffer.length) {
     return false;
   }
@@ -85,6 +85,12 @@ async function handlePaymentCaptured(paymentEntity) {
   if (!order) {
     return null;
   }
+  if (
+    (order.paymentStatus || '').toLowerCase() === 'paid' &&
+    String(order.razorpay?.paymentId || '') === razorpayPaymentId
+  ) {
+    return order;
+  }
 
   order.razorpay = {
     ...order.razorpay,
@@ -129,6 +135,12 @@ async function handlePaymentFailed(paymentEntity) {
   if (!order) {
     return null;
   }
+  if (
+    (order.paymentStatus || '').toLowerCase() === 'failed' &&
+    String(order.razorpay?.paymentId || '') === razorpayPaymentId
+  ) {
+    return order;
+  }
   order.paymentStatus = 'failed';
   order.razorpay = {
     ...order.razorpay,
@@ -155,6 +167,9 @@ async function handleRefundProcessed(refundEntity) {
   const order = await Order.findOne({ 'razorpay.paymentId': paymentId });
   if (!order) {
     return null;
+  }
+  if ((order.escrowStatus || '').toLowerCase() === 'refunded' && order.financialReversed) {
+    return order;
   }
 
   order.paymentStatus = 'refunded';

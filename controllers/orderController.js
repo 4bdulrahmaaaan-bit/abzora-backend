@@ -265,6 +265,15 @@ function getRazorpayClient() {
   });
 }
 
+function isValidHmacSignature(expectedHex, providedHex) {
+  const expectedBuffer = Buffer.from(String(expectedHex || '').trim(), 'utf8');
+  const providedBuffer = Buffer.from(String(providedHex || '').trim(), 'utf8');
+  if (!expectedBuffer.length || expectedBuffer.length !== providedBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
+}
+
 function buildRazorpayReceipt(orderId) {
   const compactOrderId = orderId.toString().slice(-12);
   const timestamp = Date.now().toString().slice(-8);
@@ -845,10 +854,42 @@ async function cancelOrder(req, res, next) {
     order.deliveryStatus = 'Cancelled';
     appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
     appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
+    let cancellationRefund = null;
+    const shouldAutoRefund =
+      (order.paymentMethod || '').toUpperCase() === 'RAZORPAY' &&
+      (order.paymentStatus || '').toLowerCase() === 'paid';
+    if (shouldAutoRefund) {
+      const refundRequest = await RefundRequest.create({
+        orderId: order._id,
+        userId: order.userId,
+        reason: 'Order cancelled by customer before delivery.',
+        requestedAmount: Number(order.totalAmount || 0),
+        refundedAmount: 0,
+        status: 'pending',
+      });
+      const gatewayRefund = await processRazorpayRefund(order, refundRequest, Number(order.totalAmount || 0));
+      refundRequest.status = 'approved';
+      refundRequest.processedAt = new Date().toISOString();
+      refundRequest.processedBy = req.user.uid;
+      refundRequest.gatewayRefundId = gatewayRefund?.id || '';
+      refundRequest.refundedAmount = Number(order.totalAmount || 0);
+      await refundRequest.save();
+      cancellationRefund = refundRequest;
+      order.paymentStatus = 'refunded';
+      order.refundStatus = 'refunded';
+      order.refundRequestId = refundRequest._id.toString();
+      order.escrowStatus = 'refunded';
+      order.escrowUpdatedAt = new Date().toISOString();
+    }
+
     await reverseOrderSettlement(order, 'Order cancelled by customer');
     await order.save();
 
-    return res.status(200).json({ success: true, data: serializeOrder(order) });
+    return res.status(200).json({
+      success: true,
+      data: serializeOrder(order),
+      refund: serializeRefundRequest(cancellationRefund),
+    });
   } catch (error) {
     return next(error);
   }
@@ -1496,12 +1537,20 @@ async function verifyPayment(req, res, next) {
       return res.status(400).json({ success: false, message: 'No Razorpay order linked to this order.' });
     }
 
+    const secret = process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_SECRET || '';
+    if (!secret) {
+      return res.status(500).json({
+        success: false,
+        message: 'Payment verification is unavailable right now. Please contact support.',
+      });
+    }
+
     const expectedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_SECRET)
+      .createHmac('sha256', secret)
       .update(`${razorpayOrderId}|${razorpayPaymentId}`)
       .digest('hex');
 
-    if (expectedSignature !== razorpaySignature) {
+    if (!isValidHmacSignature(expectedSignature, razorpaySignature)) {
       order.paymentStatus = 'failed';
       order.razorpay = {
         ...order.razorpay,

@@ -373,6 +373,14 @@ async function settleDeliveredOrder(order, options = {}) {
     if (!freshOrder || freshOrder.paymentStatus !== 'paid' || freshOrder.orderStatus !== 'delivered') {
       return freshOrder || order;
     }
+    const alreadyReleased =
+      (freshOrder.escrowStatus || '').toLowerCase() === 'released' &&
+      freshOrder.commissionRecorded &&
+      freshOrder.vendorCredited &&
+      (!freshOrder.riderId || freshOrder.riderCredited);
+    if (alreadyReleased) {
+      return freshOrder;
+    }
 
     const store = await Store.findById(freshOrder.storeId).session(session);
     if (!store) {
@@ -470,6 +478,20 @@ async function settleDeliveredOrder(order, options = {}) {
       vendorWallet.save(withSession({}, session)),
       adminWallet.save(withSession({}, session)),
       freshOrder.save(withSession({}, session)),
+      recordTransaction(
+        {
+          type: 'escrow',
+          userType: 'admin',
+          userId: 'primary',
+          amount: Number(freshOrder.totalAmount || 0),
+          status: 'released',
+          orderId: freshOrder._id.toString(),
+          storeId: freshOrder.storeId.toString(),
+          riderId: freshOrder.riderId || '',
+          note: 'Escrow released to pending earnings wallets after delivery.',
+        },
+        session,
+      ),
       recordFinanceAudit(
         {
           action: 'escrow_hold',
@@ -598,6 +620,20 @@ async function reverseOrderSettlement(order, reason = 'reversed', options = {}) 
     await Promise.all([
       adminWallet.save(withSession({}, session)),
       freshOrder.save(withSession({}, session)),
+      recordTransaction(
+        {
+          type: 'escrow',
+          userType: 'admin',
+          userId: 'primary',
+          amount: -Math.abs(Number(freshOrder.totalAmount || 0)),
+          status: 'reversed',
+          orderId: freshOrder._id.toString(),
+          storeId: freshOrder.storeId.toString(),
+          riderId: freshOrder.riderId || '',
+          note: reason,
+        },
+        session,
+      ),
       recordFinanceAudit(
         {
           action: 'escrow_reverse',

@@ -66,6 +66,12 @@ const paymentLimiter = createRateLimiter({
   message: 'Too many payment requests. Please wait and try again.',
 });
 
+const withdrawalLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  message: 'Too many withdrawal requests. Please wait and try again.',
+});
+
 const adminLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -114,6 +120,8 @@ app.use('/orders/create-razorpay-order', paymentLimiter);
 app.use('/orders/verify-payment', paymentLimiter);
 app.use('/orders', orderLimiter, orderRoutes);
 app.use('/payment', paymentLimiter, paymentRoutes);
+app.use('/vendor/withdraw', withdrawalLimiter);
+app.use('/rider/withdraw', withdrawalLimiter);
 app.use('/upload', uploadLimiter, uploadRoutes);
 app.use('/wishlist', wishlistRoutes);
 app.use('/cards', cardRoutes);

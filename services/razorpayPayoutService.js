@@ -156,14 +156,16 @@ async function createPayout({
 
 function verifyWebhookSignature(rawBody, signature) {
   const secret = getPayoutConfig().webhookSecret;
-  if (!secret) {
-    return true;
-  }
-  if (!signature) {
+  if (!secret || !signature || !rawBody) {
     return false;
   }
   const digest = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-  return digest === signature;
+  const expectedBuffer = Buffer.from(digest, 'utf8');
+  const providedBuffer = Buffer.from(String(signature || ''), 'utf8');
+  if (expectedBuffer.length !== providedBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
 module.exports = {
