@@ -4,6 +4,26 @@ const { sanitizeAttributes } = require('../config/productAttributeConfig');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
 const { generateArAsset } = require('../services/arAssetService');
+const cache = require('../services/redisCacheService');
+
+function productListCacheKey(query = {}) {
+  const normalized = JSON.stringify({
+    storeId: query.storeId || '',
+    category: query.category || '',
+  });
+  return `products:list:${normalized}`;
+}
+
+function singleProductCacheKey(id) {
+  return `products:item:${id}`;
+}
+
+async function invalidateProductCaches(productId = '') {
+  await cache.delPattern('products:list:*');
+  if (productId) {
+    await cache.delPattern(singleProductCacheKey(productId));
+  }
+}
 
 function serializeStoreSummary(store) {
   if (!store) {
@@ -128,6 +148,7 @@ async function createProduct(req, res, next) {
       product.arAsset = await generateArAsset({ product });
       await product.save();
     }
+    await invalidateProductCaches(product._id?.toString() || '');
 
     return res.status(201).json({
       success: true,
@@ -150,12 +171,19 @@ async function listProducts(req, res, next) {
     if (req.query.category) {
       query.category = req.query.category.toString().trim();
     }
+    const cacheKey = productListCacheKey(query);
+    const cached = await cache.getJson(cacheKey);
+    if (Array.isArray(cached)) {
+      return res.status(200).json({ success: true, data: cached });
+    }
 
     const products = await Product.find(query)
       .sort({ createdAt: -1 })
       .populate('storeId', 'name rating logoUrl');
+    const serialized = products.map(serializeProduct);
+    await cache.setJson(cacheKey, serialized, 120);
 
-    return res.status(200).json({ success: true, data: products.map(serializeProduct) });
+    return res.status(200).json({ success: true, data: serialized });
   } catch (error) {
     return next(error);
   }
@@ -168,12 +196,20 @@ async function getProduct(req, res, next) {
       return res.status(400).json({ success: false, message: 'Invalid product id.' });
     }
 
+    const cacheKey = singleProductCacheKey(id);
+    const cached = await cache.getJson(cacheKey);
+    if (cached && typeof cached === 'object') {
+      return res.status(200).json({ success: true, data: cached });
+    }
+
     const product = await Product.findById(id).populate('storeId', 'name rating logoUrl');
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found.' });
     }
+    const serialized = serializeProduct(product);
+    await cache.setJson(cacheKey, serialized, 180);
 
-    return res.status(200).json({ success: true, data: serializeProduct(product) });
+    return res.status(200).json({ success: true, data: serialized });
   } catch (error) {
     return next(error);
   }
@@ -272,6 +308,7 @@ async function updateProduct(req, res, next) {
       product.arAsset = await generateArAsset({ product });
     }
     await product.save();
+    await invalidateProductCaches(product._id?.toString() || id);
 
     return res.status(200).json({ success: true, data: serializeProduct(product, { store }) });
   } catch (error) {
@@ -352,6 +389,7 @@ async function deleteProduct(req, res, next) {
     }
 
     await product.deleteOne();
+    await invalidateProductCaches(id);
     return res.status(200).json({ success: true, data: { id } });
   } catch (error) {
     return next(error);
