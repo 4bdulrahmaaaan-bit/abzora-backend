@@ -26,6 +26,21 @@ const productSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    unityAssetBundleUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    rigProfile: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    materialProfile: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     storeId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Store',

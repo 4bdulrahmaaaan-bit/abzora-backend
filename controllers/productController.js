@@ -62,6 +62,9 @@ function serializeProduct(product, options = {}) {
     subcategory: source.subcategory || '',
     images: Array.isArray(source.images) ? source.images : [],
     model3d: source.model3d || '',
+    unityAssetBundleUrl: source.unityAssetBundleUrl || '',
+    rigProfile: source.rigProfile || '',
+    materialProfile: source.materialProfile || '',
     sizes: Array.isArray(source.sizes) && source.sizes.length > 0 ? source.sizes : ['S', 'M', 'L'],
     demandScore: Number(source.demandScore || 0),
     viewCount: Number(source.viewCount || 0),
@@ -87,7 +90,23 @@ function shouldGenerateArAsset(body) {
 
 async function createProduct(req, res, next) {
   try {
-    const { name, brand, price, images, model3d, storeId, stock, category, subcategory, description, attributes, arAsset } = req.body || {};
+    const {
+      name,
+      brand,
+      price,
+      images,
+      model3d,
+      unityAssetBundleUrl,
+      rigProfile,
+      materialProfile,
+      storeId,
+      stock,
+      category,
+      subcategory,
+      description,
+      attributes,
+      arAsset,
+    } = req.body || {};
     const normalizedName = name?.toString().trim() || '';
     const normalizedCategory = category?.toString().trim() || '';
     const normalizedDescription = description?.toString().trim() || '';
@@ -136,6 +155,9 @@ async function createProduct(req, res, next) {
           ? images.map((item) => item?.toString().trim()).filter(Boolean)
           : [],
       model3d: normalizedModel3d,
+      unityAssetBundleUrl: unityAssetBundleUrl?.toString().trim() || '',
+      rigProfile: rigProfile?.toString().trim() || '',
+      materialProfile: materialProfile?.toString().trim() || '',
       storeId,
       stock: normalizedStock,
       category: normalizedCategory,
@@ -244,6 +266,9 @@ async function updateProduct(req, res, next) {
       price,
       images,
       model3d,
+      unityAssetBundleUrl,
+      rigProfile,
+      materialProfile,
       stock,
       category,
       subcategory,
@@ -283,6 +308,15 @@ async function updateProduct(req, res, next) {
     product.description = description?.toString().trim() ?? product.description;
     if (model3d != null) {
       product.model3d = model3d.toString().trim();
+    }
+    if (unityAssetBundleUrl != null) {
+      product.unityAssetBundleUrl = unityAssetBundleUrl.toString().trim();
+    }
+    if (rigProfile != null) {
+      product.rigProfile = rigProfile.toString().trim();
+    }
+    if (materialProfile != null) {
+      product.materialProfile = materialProfile.toString().trim();
     }
     if (attributes && typeof attributes === 'object' && !Array.isArray(attributes)) {
       product.attributes = sanitizeAttributes(
