@@ -7,6 +7,11 @@ function isAdmin(req) {
   return req.user?.role === 'admin' || req.user?.role === 'super_admin';
 }
 
+function normalizeChatStatus(value) {
+  const normalized = value?.toString().trim().toLowerCase() || '';
+  return ['open', 'closed'].includes(normalized) ? normalized : '';
+}
+
 function serializeSupportChat(chat) {
   const source = typeof chat.toObject === 'function' ? chat.toObject() : chat;
   const participantIds =
@@ -209,7 +214,7 @@ async function sendSupportMessage(req, res, next) {
     let unreadCountAdmin = isAdmin(req) ? 0 : Number(chat.unreadCountAdmin || 0) + 1;
     let unreadCountUser = isAdmin(req) ? Number(chat.unreadCountUser || 0) + 1 : 0;
 
-    const assistantReply = !isAdmin(req) ? req.body?.assistantReplyText?.toString().trim() || '' : '';
+    const assistantReply = isAdmin(req) ? req.body?.assistantReplyText?.toString().trim() || '' : '';
     if (assistantReply) {
       const assistantTimestamp = req.body?.assistantTimestamp?.toString().trim() || new Date(now.getTime() + 450).toISOString();
       await SupportMessage.create({
@@ -236,7 +241,12 @@ async function sendSupportMessage(req, res, next) {
     chat.updatedAt = lastMessageAt;
     chat.unreadCountAdmin = unreadCountAdmin;
     chat.unreadCountUser = unreadCountUser;
-    chat.status = req.body?.status?.toString().trim() || chat.status || 'open';
+    const nextStatus = isAdmin(req) ? normalizeChatStatus(req.body?.status) : '';
+    if (nextStatus) {
+      chat.status = nextStatus;
+    } else {
+      chat.status = chat.status || 'open';
+    }
     await chat.save();
 
     return res.status(201).json({ success: true, data: serializeSupportChat(chat) });

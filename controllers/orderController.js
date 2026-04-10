@@ -1478,6 +1478,13 @@ async function markReturnPicked(req, res, next) {
     if (!['approved', 'assigned'].includes(request.status)) {
       return res.status(400).json({ success: false, message: 'Only approved returns can be marked as picked.' });
     }
+    if (
+      req.user.role === 'rider' &&
+      request.riderId &&
+      request.riderId !== req.user.uid
+    ) {
+      return res.status(403).json({ success: false, message: 'This return is assigned to another rider.' });
+    }
 
     const order = await Order.findById(request.orderId);
     if (!order) {
@@ -1523,6 +1530,9 @@ async function completeReturnRequest(req, res, next) {
     }
     if (!['picked', 'approved', 'assigned'].includes(request.status)) {
       return res.status(400).json({ success: false, message: 'This return is not ready for completion.' });
+    }
+    if (req.user.role === 'rider' && request.riderId !== req.user.uid) {
+      return res.status(403).json({ success: false, message: 'This return is assigned to another rider.' });
     }
 
     const order = await Order.findById(request.orderId);

@@ -3,13 +3,32 @@ const mongoose = require('mongoose');
 const Store = require('../models/Store');
 const { rankCustomVendors } = require('../services/customVendorRankingService');
 
-function serializeStore(store, extras = {}) {
+function sanitizeVendorEditableCustomProfile(profile = {}) {
+  return {
+    experienceYears: Number(profile.experienceYears || 0),
+    specializations: Array.isArray(profile.specializations)
+      ? profile.specializations.map((item) => item?.toString().trim()).filter(Boolean)
+      : [],
+    portfolioImages: Array.isArray(profile.portfolioImages)
+      ? profile.portfolioImages.map((item) => item?.toString().trim()).filter(Boolean)
+      : [],
+    priceRangeMin: Number(profile.priceRangeMin || 0),
+    priceRangeMax: Number(profile.priceRangeMax || 0),
+    productionTimeDays: Number(profile.productionTimeDays || 0),
+    qualityApprovalRequired: Boolean(profile.qualityApprovalRequired),
+    supportsAlterations: profile.supportsAlterations !== false,
+    alterationPolicy: profile.alterationPolicy?.toString().trim() || '',
+  };
+}
+
+function serializeStore(store, extras = {}, options = {}) {
   if (!store) {
     return null;
   }
 
+  const includeInternalFields = options.includeInternalFields === true;
   const source = typeof store.toObject === 'function' ? store.toObject() : store;
-  return {
+  const payload = {
     id: source._id?.toString() || source.id || '',
     vendorId: source.vendorId?._id?.toString?.() || source.vendorId?.toString?.() || '',
     name: source.name || '',
@@ -27,10 +46,7 @@ function serializeStore(store, extras = {}) {
     longitude: source.longitude == null ? null : Number(source.longitude),
     tagline: source.tagline || '',
     category: source.category || '',
-    ownerId: source.ownerId || '',
     isActive: Boolean(source.isActive),
-    commissionRate: Number(source.commissionRate || 0.12),
-    walletBalance: Number(source.walletBalance || 0),
     vendorScore: Number(extras.vendorScore ?? source.vendorScore ?? 0),
     vendorRank: Number(extras.vendorRank ?? source.vendorRank ?? 0),
     vendorVisibility: extras.vendorVisibility || source.vendorVisibility || 'normal',
@@ -47,28 +63,36 @@ function serializeStore(store, extras = {}) {
       ),
       supportsAlterations: source.customVendorProfile?.supportsAlterations !== false,
       alterationPolicy: source.customVendorProfile?.alterationPolicy || '',
-      qualityTier: source.customVendorProfile?.qualityTier || 'normal',
-      penaltyPoints: Number(source.customVendorProfile?.penaltyPoints || 0),
-      activeCustomOrderLimit: Number(
-        source.customVendorProfile?.activeCustomOrderLimit || 0,
-      ),
-      metrics: {
-        orderSuccessRate: Number(
-          source.customVendorProfile?.metrics?.orderSuccessRate || 0,
-        ),
-        delayRate: Number(source.customVendorProfile?.metrics?.delayRate || 0),
-        returnRate: Number(source.customVendorProfile?.metrics?.returnRate || 0),
-        totalCustomOrders: Number(
-          source.customVendorProfile?.metrics?.totalCustomOrders || 0,
-        ),
-        completedCustomOrders: Number(
-          source.customVendorProfile?.metrics?.completedCustomOrders || 0,
-        ),
-      },
     },
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,
   };
+
+  if (includeInternalFields) {
+    payload.ownerId = source.ownerId || '';
+    payload.commissionRate = Number(source.commissionRate || 0.12);
+    payload.walletBalance = Number(source.walletBalance || 0);
+    payload.customVendorProfile.qualityTier = source.customVendorProfile?.qualityTier || 'normal';
+    payload.customVendorProfile.penaltyPoints = Number(source.customVendorProfile?.penaltyPoints || 0);
+    payload.customVendorProfile.activeCustomOrderLimit = Number(
+      source.customVendorProfile?.activeCustomOrderLimit || 0,
+    );
+    payload.customVendorProfile.metrics = {
+      orderSuccessRate: Number(
+        source.customVendorProfile?.metrics?.orderSuccessRate || 0,
+      ),
+      delayRate: Number(source.customVendorProfile?.metrics?.delayRate || 0),
+      returnRate: Number(source.customVendorProfile?.metrics?.returnRate || 0),
+      totalCustomOrders: Number(
+        source.customVendorProfile?.metrics?.totalCustomOrders || 0,
+      ),
+      completedCustomOrders: Number(
+        source.customVendorProfile?.metrics?.completedCustomOrders || 0,
+      ),
+    };
+  }
+
+  return payload;
 }
 
 async function createStore(req, res, next) {
@@ -116,12 +140,15 @@ async function createStore(req, res, next) {
       category: category?.toString().trim() || '',
       customVendorProfile:
         vendorType === 'custom_vendor' && customVendorProfile
-          ? customVendorProfile
+          ? sanitizeVendorEditableCustomProfile(customVendorProfile)
           : undefined,
       ownerId,
     });
 
-    return res.status(201).json({ success: true, data: serializeStore(store) });
+    return res.status(201).json({
+      success: true,
+      data: serializeStore(store, {}, { includeInternalFields: true }),
+    });
   } catch (error) {
     if (error.name === 'ValidationError') {
       return res.status(400).json({ success: false, message: error.message });
@@ -187,7 +214,10 @@ async function getStore(req, res, next) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
 
-    return res.status(200).json({ success: true, data: serializeStore(store) });
+    return res.status(200).json({
+      success: true,
+      data: serializeStore(store, {}, { includeInternalFields: true }),
+    });
   } catch (error) {
     return next(error);
   }
@@ -276,7 +306,7 @@ async function updateStore(req, res, next) {
     if (customVendorProfile && typeof customVendorProfile === 'object') {
       store.customVendorProfile = {
         ...(store.customVendorProfile?.toObject?.() ?? store.customVendorProfile ?? {}),
-        ...customVendorProfile,
+        ...sanitizeVendorEditableCustomProfile(customVendorProfile),
       };
     }
     if (typeof isActive === 'boolean') {
@@ -284,7 +314,10 @@ async function updateStore(req, res, next) {
     }
     await store.save();
 
-    return res.status(200).json({ success: true, data: serializeStore(store) });
+    return res.status(200).json({
+      success: true,
+      data: serializeStore(store, {}, { includeInternalFields: true }),
+    });
   } catch (error) {
     if (error.name === 'ValidationError') {
       return res.status(400).json({ success: false, message: error.message });
