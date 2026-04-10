@@ -1,6 +1,10 @@
 const HomeVisualConfig = require('../models/HomeVisualConfig');
 const { isAllowedAdminEmail } = require('./authController');
 
+const MAX_CATEGORY_VISUALS = 20;
+const MAX_PROMO_BLOCKS = 12;
+const MAX_FEATURED_STORE_BLOCKS = 12;
+
 function ensureAdmin(req, res) {
   const hasPrivilegedRole = req.user?.role === 'admin' || req.user?.role === 'super_admin';
   const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
@@ -9,6 +13,27 @@ function ensureAdmin(req, res) {
     return false;
   }
   return true;
+}
+
+function normalizeOptionalUrl(value) {
+  const normalized = value?.toString().trim() || '';
+  if (!normalized) {
+    return '';
+  }
+  try {
+    const parsed = new URL(normalized);
+    return ['http:', 'https:'].includes(parsed.protocol) ? normalized : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function clampNumber(value, fallback, minimum, maximum) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.min(maximum, Math.max(minimum, numeric));
 }
 
 async function getOrCreateConfig() {
@@ -83,13 +108,14 @@ function serializeConfig(config, { adminView = false } = {}) {
 function normalizeCategoryVisuals(items = []) {
   return items
     .filter((item) => item && typeof item === 'object')
+    .slice(0, MAX_CATEGORY_VISUALS)
     .map((item, index) => ({
       id: item.id?.toString().trim() || `category-${index + 1}`,
       tab: ['All', 'Men', 'Women', 'Kids'].includes(item.tab) ? item.tab : 'All',
-      label: item.label?.toString().trim() || 'Category',
-      imageUrl: item.imageUrl?.toString().trim() || '',
+      label: item.label?.toString().trim().slice(0, 40) || 'Category',
+      imageUrl: normalizeOptionalUrl(item.imageUrl),
       icon: item.icon?.toString().trim() || 'category',
-      sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : index,
+      sortOrder: clampNumber(item.sortOrder, index, 0, 1000),
       isActive: item.isActive !== false,
     }))
     .filter((item) => item.imageUrl);
@@ -98,36 +124,38 @@ function normalizeCategoryVisuals(items = []) {
 function normalizePromoBlocks(items = []) {
   return items
     .filter((item) => item && typeof item === 'object')
+    .slice(0, MAX_PROMO_BLOCKS)
     .map((item, index) => ({
       id: item.id?.toString().trim() || `promo-${index + 1}`,
-      slot: Number.isFinite(Number(item.slot)) ? Number(item.slot) : index + 1,
-      eyebrow: item.eyebrow?.toString().trim() || '',
-      title: item.title?.toString().trim() || 'Promo banner',
-      subtitle: item.subtitle?.toString().trim() || '',
-      ctaText: item.ctaText?.toString().trim() || 'Explore',
-      imageUrl: item.imageUrl?.toString().trim() || '',
+      slot: clampNumber(item.slot, index + 1, 1, 20),
+      eyebrow: item.eyebrow?.toString().trim().slice(0, 40) || '',
+      title: item.title?.toString().trim().slice(0, 80) || 'Promo banner',
+      subtitle: item.subtitle?.toString().trim().slice(0, 140) || '',
+      ctaText: item.ctaText?.toString().trim().slice(0, 24) || 'Explore',
+      imageUrl: normalizeOptionalUrl(item.imageUrl),
       redirectType: ['product', 'store', 'category', 'custom'].includes(item.redirectType)
         ? item.redirectType
         : 'category',
       redirectId: item.redirectId?.toString().trim() || '',
-      sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : index,
+      sortOrder: clampNumber(item.sortOrder, index, 0, 1000),
       isActive: item.isActive !== false,
     }))
-    .filter((item) => item.imageUrl);
+    .filter((item) => item.imageUrl && item.redirectId);
 }
 
 function normalizeFeaturedStoreBlocks(items = []) {
   return items
     .filter((item) => item && typeof item === 'object')
+    .slice(0, MAX_FEATURED_STORE_BLOCKS)
     .map((item, index) => ({
       id: item.id?.toString().trim() || `featured-store-${index + 1}`,
       storeId: item.storeId?.toString().trim() || '',
-      imageUrl: item.imageUrl?.toString().trim() || '',
-      label: item.label?.toString().trim() || '',
-      sortOrder: Number.isFinite(Number(item.sortOrder)) ? Number(item.sortOrder) : index,
+      imageUrl: normalizeOptionalUrl(item.imageUrl),
+      label: item.label?.toString().trim().slice(0, 40) || '',
+      sortOrder: clampNumber(item.sortOrder, index, 0, 1000),
       isActive: item.isActive !== false,
     }))
-    .filter((item) => item.storeId);
+    .filter((item) => item.storeId && item.imageUrl);
 }
 
 async function getHomeVisualConfig(req, res, next) {

@@ -6,6 +6,18 @@ const CustomOrderMessage = require('../models/CustomOrderMessage');
 const VendorTrainingProgress = require('../models/VendorTrainingProgress');
 const VendorSampleReview = require('../models/VendorSampleReview');
 
+const ALLOWED_SPECIALIZATIONS = new Set([
+  'shirts',
+  'blazers',
+  'dresses',
+  'ethnic wear',
+  'ethnic_wear',
+  'kurtas',
+  'gowns',
+  'blouses',
+  'suits',
+]);
+
 const CUSTOM_VENDOR_STATUSES = [
   'new_order',
   'accepted',
@@ -30,6 +42,36 @@ function ensureVendor(req, res) {
     return false;
   }
   return true;
+}
+
+function normalizeOptionalUrl(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  try {
+    const parsed = new URL(normalized);
+    return ['http:', 'https:'].includes(parsed.protocol) ? normalized : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function normalizeVendorSpecializations(items) {
+  const normalized = Array.isArray(items)
+    ? items
+        .map((item) => String(item || '').trim().toLowerCase())
+        .filter((item) => ALLOWED_SPECIALIZATIONS.has(item))
+    : [];
+  return Array.from(new Set(normalized)).slice(0, 8);
+}
+
+function clampNumber(value, fallback, minimum, maximum) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.min(maximum, Math.max(minimum, numeric));
 }
 
 function createDefaultTrainingModules() {
@@ -324,15 +366,26 @@ async function saveOwnCustomVendorProfile(req, res, next) {
     }
     const body = req.body || {};
     const profile = store.customVendorProfile || {};
+    const specializations = normalizeVendorSpecializations(body.specializations);
+    const portfolioImages = Array.isArray(body.portfolioImages)
+      ? body.portfolioImages
+          .map(normalizeOptionalUrl)
+          .filter(Boolean)
+          .slice(0, 10)
+      : (Array.isArray(profile.portfolioImages) ? profile.portfolioImages : []);
+    const alterationPolicy =
+      typeof body.alterationPolicy === 'string'
+        ? body.alterationPolicy.trim().slice(0, 280)
+        : profile.alterationPolicy || '';
     store.vendorType = 'custom_vendor';
     store.customVendorProfile = {
       ...profile.toObject?.(),
-      experienceYears: Number(body.experienceYears || profile.experienceYears || 0),
-      specializations: Array.isArray(body.specializations) ? body.specializations : profile.specializations || [],
-      portfolioImages: Array.isArray(body.portfolioImages) ? body.portfolioImages : profile.portfolioImages || [],
-      priceRangeMin: Number(body.priceRangeMin || profile.priceRangeMin || 0),
-      priceRangeMax: Number(body.priceRangeMax || profile.priceRangeMax || 0),
-      productionTimeDays: Number(body.productionTimeDays || profile.productionTimeDays || 7),
+      experienceYears: clampNumber(body.experienceYears, Number(profile.experienceYears || 0), 0, 60),
+      specializations: specializations.length > 0 ? specializations : profile.specializations || [],
+      portfolioImages,
+      priceRangeMin: clampNumber(body.priceRangeMin, Number(profile.priceRangeMin || 0), 0, 1000000),
+      priceRangeMax: clampNumber(body.priceRangeMax, Number(profile.priceRangeMax || 0), 0, 1000000),
+      productionTimeDays: clampNumber(body.productionTimeDays, Number(profile.productionTimeDays || 7), 1, 365),
       qualityApprovalRequired:
         typeof body.qualityApprovalRequired === 'boolean'
           ? body.qualityApprovalRequired
@@ -341,10 +394,7 @@ async function saveOwnCustomVendorProfile(req, res, next) {
         typeof body.supportsAlterations === 'boolean'
           ? body.supportsAlterations
           : profile.supportsAlterations !== false,
-      alterationPolicy:
-        typeof body.alterationPolicy === 'string'
-          ? body.alterationPolicy.trim()
-          : profile.alterationPolicy || '',
+      alterationPolicy,
       qualityTier: profile.qualityTier || 'normal',
       penaltyPoints: Number(profile.penaltyPoints || 0),
       activeCustomOrderLimit: Number(profile.activeCustomOrderLimit || 0),
@@ -435,16 +485,22 @@ async function submitSampleReview(req, res, next) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
     const sampleImages = Array.isArray(req.body?.sampleImages)
-      ? req.body.sampleImages.map((item) => String(item || '').trim()).filter(Boolean)
+      ? req.body.sampleImages
+          .map(normalizeOptionalUrl)
+          .filter(Boolean)
+          .slice(0, 10)
       : [];
     if (sampleImages.length == 0) {
       return res.status(400).json({ success: false, message: 'Upload at least one sample image.' });
+    }
+    if (sampleImages.length < 3) {
+      return res.status(400).json({ success: false, message: 'Upload at least three valid sample images.' });
     }
     const review = await VendorSampleReview.create({
       vendorId: req.user.uid,
       storeId: store._id,
       sampleImages,
-      notes: typeof req.body?.notes === 'string' ? req.body.notes.trim() : '',
+      notes: typeof req.body?.notes === 'string' ? req.body.notes.trim().slice(0, 500) : '',
       status: 'pending_review',
     });
     return res.status(201).json({

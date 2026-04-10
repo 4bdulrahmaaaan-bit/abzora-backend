@@ -7,6 +7,35 @@ const DEFAULT_DEV_ORIGINS = [
   'http://127.0.0.1:5173',
 ];
 
+let redisLimiterClient = null;
+let redisLimiterAvailable = false;
+
+async function ensureRedisLimiterClient() {
+  if (redisLimiterClient || process.env.REDIS_DISABLED === 'true') {
+    return redisLimiterClient;
+  }
+  const redisUrl = process.env.REDIS_URL || '';
+  if (!redisUrl) {
+    return null;
+  }
+  try {
+    // Lazy require keeps local/dev environments working even without redis package.
+    // eslint-disable-next-line global-require
+    const { createClient } = require('redis');
+    redisLimiterClient = createClient({ url: redisUrl });
+    redisLimiterClient.on('error', () => {
+      redisLimiterAvailable = false;
+    });
+    await redisLimiterClient.connect();
+    redisLimiterAvailable = true;
+    return redisLimiterClient;
+  } catch (_) {
+    redisLimiterClient = null;
+    redisLimiterAvailable = false;
+    return null;
+  }
+}
+
 function buildAllowedOrigins() {
   const configured = (process.env.CLIENT_ORIGIN || '')
     .split(',')
@@ -76,13 +105,42 @@ function createRateLimiter({
     }
   }
 
-  return function rateLimiter(req, res, next) {
+  return async function rateLimiter(req, res, next) {
     const now = Date.now();
     cleanup(now);
 
     const key = keyGenerator
       ? keyGenerator(req)
       : `${req.ip || 'unknown'}:${req.baseUrl || ''}`;
+
+    const redisKey = `rate-limit:${key}`;
+    const redisClient = await ensureRedisLimiterClient();
+    if (redisClient && redisLimiterAvailable) {
+      try {
+        const currentCount = await redisClient.incr(redisKey);
+        if (currentCount === 1) {
+          await redisClient.pExpire(redisKey, windowMs);
+        }
+        if (currentCount > max) {
+          const remainingMs = Number(await redisClient.pTTL(redisKey));
+          const retryAfterSeconds = Math.max(
+            1,
+            Math.ceil((remainingMs > 0 ? remainingMs : windowMs) / 1000)
+          );
+          res.setHeader('Retry-After', retryAfterSeconds.toString());
+          res.status(429).json({
+            success: false,
+            message,
+          });
+          return;
+        }
+        next();
+        return;
+      } catch (_) {
+        redisLimiterAvailable = false;
+      }
+    }
+
     const entry = store.get(key);
 
     if (!entry || entry.resetAt <= now) {
