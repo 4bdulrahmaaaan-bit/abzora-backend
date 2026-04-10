@@ -6,6 +6,65 @@ const Store = require('../models/Store');
 const { generateArAsset } = require('../services/arAssetService');
 const cache = require('../services/redisCacheService');
 
+const ALLOWED_RIG_PROFILES = new Set([
+  '',
+  'male_shirt_v1',
+  'male_blazer_v1',
+  'female_dress_v1',
+  'female_top_v1',
+  'unisex_torso_v1',
+]);
+
+const ALLOWED_MATERIAL_PROFILES = new Set([
+  '',
+  'cotton_matte',
+  'linen_soft',
+  'silk_sheen',
+  'wool_blend',
+  'structured_formal',
+]);
+
+function normalizeOptionalUrl(value) {
+  const normalized = value?.toString().trim() || '';
+  if (!normalized) {
+    return '';
+  }
+  try {
+    const parsed = new URL(normalized);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return '';
+    }
+    return normalized;
+  } catch (_) {
+    return '';
+  }
+}
+
+function validateUnityMetadata({ unityAssetBundleUrl, rigProfile, materialProfile }) {
+  const normalizedBundleUrl = normalizeOptionalUrl(unityAssetBundleUrl);
+  const normalizedRigProfile = rigProfile?.toString().trim() || '';
+  const normalizedMaterialProfile = materialProfile?.toString().trim() || '';
+
+  if (unityAssetBundleUrl != null && !normalizedBundleUrl) {
+    return { error: 'unityAssetBundleUrl must be a valid http/https URL.', data: null };
+  }
+  if (!ALLOWED_RIG_PROFILES.has(normalizedRigProfile)) {
+    return { error: 'Unsupported rigProfile value.', data: null };
+  }
+  if (!ALLOWED_MATERIAL_PROFILES.has(normalizedMaterialProfile)) {
+    return { error: 'Unsupported materialProfile value.', data: null };
+  }
+
+  return {
+    error: '',
+    data: {
+      unityAssetBundleUrl: normalizedBundleUrl,
+      rigProfile: normalizedRigProfile,
+      materialProfile: normalizedMaterialProfile,
+    },
+  };
+}
+
 function productListCacheKey(query = {}) {
   const normalized = JSON.stringify({
     storeId: query.storeId || '',
@@ -146,6 +205,14 @@ async function createProduct(req, res, next) {
 
     const normalizedBrand = brand?.toString().trim() || '';
     const normalizedModel3d = model3d?.toString().trim() || '';
+    const unityValidation = validateUnityMetadata({
+      unityAssetBundleUrl,
+      rigProfile,
+      materialProfile,
+    });
+    if (unityValidation.error) {
+      return res.status(400).json({ success: false, message: unityValidation.error });
+    }
 
     const product = await Product.create({
       name: normalizedName,
@@ -155,9 +222,9 @@ async function createProduct(req, res, next) {
           ? images.map((item) => item?.toString().trim()).filter(Boolean)
           : [],
       model3d: normalizedModel3d,
-      unityAssetBundleUrl: unityAssetBundleUrl?.toString().trim() || '',
-      rigProfile: rigProfile?.toString().trim() || '',
-      materialProfile: materialProfile?.toString().trim() || '',
+      unityAssetBundleUrl: unityValidation.data.unityAssetBundleUrl,
+      rigProfile: unityValidation.data.rigProfile,
+      materialProfile: unityValidation.data.materialProfile,
       storeId,
       stock: normalizedStock,
       category: normalizedCategory,
@@ -285,6 +352,11 @@ async function updateProduct(req, res, next) {
     const normalizedCategory = category?.toString().trim() || product.category;
     const normalizedPrice = price == null ? product.price : Number(price);
     const normalizedStock = stock == null ? product.stock : Number(stock);
+    const unityValidation = validateUnityMetadata({
+      unityAssetBundleUrl: unityAssetBundleUrl == null ? product.unityAssetBundleUrl : unityAssetBundleUrl,
+      rigProfile: rigProfile == null ? product.rigProfile : rigProfile,
+      materialProfile: materialProfile == null ? product.materialProfile : materialProfile,
+    });
 
     if (!normalizedName || !normalizedCategory || Number.isNaN(normalizedPrice)) {
       return res.status(400).json({
@@ -298,6 +370,9 @@ async function updateProduct(req, res, next) {
     if (normalizedStock < 0) {
       return res.status(400).json({ success: false, message: 'Stock cannot be negative.' });
     }
+    if (unityValidation.error) {
+      return res.status(400).json({ success: false, message: unityValidation.error });
+    }
 
     product.name = normalizedName;
     product.brand = normalizedBrand;
@@ -310,13 +385,13 @@ async function updateProduct(req, res, next) {
       product.model3d = model3d.toString().trim();
     }
     if (unityAssetBundleUrl != null) {
-      product.unityAssetBundleUrl = unityAssetBundleUrl.toString().trim();
+      product.unityAssetBundleUrl = unityValidation.data.unityAssetBundleUrl;
     }
     if (rigProfile != null) {
-      product.rigProfile = rigProfile.toString().trim();
+      product.rigProfile = unityValidation.data.rigProfile;
     }
     if (materialProfile != null) {
-      product.materialProfile = materialProfile.toString().trim();
+      product.materialProfile = unityValidation.data.materialProfile;
     }
     if (attributes && typeof attributes === 'object' && !Array.isArray(attributes)) {
       product.attributes = sanitizeAttributes(

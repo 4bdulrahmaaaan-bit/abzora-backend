@@ -28,9 +28,50 @@ function sanitizeNumberMap(input) {
   );
 }
 
+function ensureArAsset(product) {
+  const source = typeof product.toObject === 'function' ? product.toObject() : product;
+  const arAsset =
+    source.arAsset && typeof source.arAsset === 'object' && !Array.isArray(source.arAsset)
+      ? source.arAsset
+      : {};
+  if (arAsset.processedImage || arAsset.transparentImage) {
+    return arAsset;
+  }
+  const fallbackImage = Array.isArray(source.images) ? source.images[0] || '' : '';
+  return {
+    ...arAsset,
+    processedImage: fallbackImage,
+    transparentImage: fallbackImage,
+    categoryTemplate: arAsset.categoryTemplate || 'torso_template',
+    scaleFactor: Number(arAsset.scaleFactor || 1),
+    normalization: {
+      widthFactor: Number(arAsset?.normalization?.widthFactor || 1),
+      heightFactor: Number(arAsset?.normalization?.heightFactor || 1),
+      maintainAspectRatio: true,
+      centered: true,
+      upright: true,
+    },
+    anchors: {
+      left_shoulder: {
+        x: Number(arAsset?.anchors?.left_shoulder?.x || 0.32),
+        y: Number(arAsset?.anchors?.left_shoulder?.y || 0.18),
+      },
+      right_shoulder: {
+        x: Number(arAsset?.anchors?.right_shoulder?.x || 0.68),
+        y: Number(arAsset?.anchors?.right_shoulder?.y || 0.18),
+      },
+      center: {
+        x: Number(arAsset?.anchors?.center?.x || 0.5),
+        y: Number(arAsset?.anchors?.center?.y || 0.44),
+      },
+    },
+    fallbackMode: arAsset.fallbackMode || 'static_preview',
+  };
+}
+
 function serializeTryOnProduct(product, store) {
   const source = typeof product.toObject === 'function' ? product.toObject() : product;
-  const arAsset = source.arAsset && typeof source.arAsset === 'object' ? source.arAsset : {};
+  const arAsset = ensureArAsset(source);
   const alignmentConfig = {
     anchorTemplate: arAsset.categoryTemplate || 'torso_template',
     scaleFactor: Number(arAsset.scaleFactor || 1),
@@ -84,11 +125,6 @@ async function getTryOnProduct(req, res, next) {
     const product = await Product.findById(id).populate('storeId', 'name rating logoUrl');
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found.' });
-    }
-
-    if (!product.arAsset || !product.arAsset.processedImage) {
-      product.arAsset = await generateArAsset({ product });
-      await product.save();
     }
 
     return res.status(200).json({
@@ -176,7 +212,7 @@ async function createTryOnSession(req, res, next) {
     };
 
     const session = await TryOnSession.findOneAndUpdate(
-      { sessionId: normalizedSessionId },
+      { userId: req.user.uid, sessionId: normalizedSessionId },
       payload,
       {
         upsert: true,
@@ -197,7 +233,7 @@ async function createTryOnSession(req, res, next) {
     });
   } catch (error) {
     if (error.code === 11000) {
-      return res.status(409).json({ success: false, message: 'Try-on session already exists.' });
+      return res.status(409).json({ success: false, message: 'Try-on session already exists for this user.' });
     }
     return next(error);
   }

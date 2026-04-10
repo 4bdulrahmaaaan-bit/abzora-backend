@@ -50,7 +50,6 @@ const tryOnSessionSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
-      unique: true,
       index: true,
     },
     platform: {
@@ -146,5 +145,7 @@ const tryOnSessionSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+tryOnSessionSchema.index({ userId: 1, sessionId: 1 }, { unique: true });
 
 module.exports = mongoose.model('TryOnSession', tryOnSessionSchema);
