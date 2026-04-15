@@ -3,6 +3,7 @@ const Store = require('../models/Store');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
 const SupportChat = require('../models/SupportChat');
+const TrialHomeSession = require('../models/TrialHomeSession');
 const VendorKycRequest = require('../models/VendorKycRequest');
 const RiderKycRequest = require('../models/RiderKycRequest');
 const AdminPlatformSettings = require('../models/AdminPlatformSettings');
@@ -199,6 +200,10 @@ function serializeSettings(item) {
     aiDailyCostAlertThreshold: Number(item?.aiDailyCostAlertThreshold || 1.0),
     aiDailyCostLimit: Number(item?.aiDailyCostLimit || 500),
     aiAssistantEnabled: item?.aiAssistantEnabled ?? true,
+    trialHomeEnabled: item?.trialHomeEnabled ?? true,
+    trialHomeFraudDetectionEnabled: item?.trialHomeFraudDetectionEnabled ?? true,
+    trialHomeMinUserScore: Number(item?.trialHomeMinUserScore || 45),
+    trialHomeMaxRiskScore: Number(item?.trialHomeMaxRiskScore || 80),
   };
 }
 
@@ -253,6 +258,57 @@ function serializeActivityLog(item) {
     targetId: item.targetId || '',
     message: item.message || '',
     timestamp: item.timestampIso || item.createdAt?.toISOString?.() || '',
+  };
+}
+
+function serializeTrialHomeSession(item) {
+  return {
+    id: item._id?.toString?.() || '',
+    userId: item.userId || '',
+    status: item.status || 'booked',
+    approvalStatus: item.approvalStatus || 'approved',
+    approvedBy: item.approvedBy || '',
+    approvalReason: item.approvalReason || '',
+    items: Array.isArray(item.items)
+      ? item.items.map((entry) => ({
+          productId: entry.productId || '',
+          name: entry.name || '',
+          imageUrl: entry.imageUrl || '',
+          price: Number(entry.price || 0),
+          recommendedSize: entry.recommendedSize || '',
+          fitConfidence: Number(entry.fitConfidence || 0),
+          styledForYou: entry.styledForYou === true,
+          source: entry.source || 'selected',
+        }))
+      : [],
+    recommendedItems: Array.isArray(item.recommendedItems)
+      ? item.recommendedItems.map((entry) => ({
+          productId: entry.productId || '',
+          name: entry.name || '',
+          imageUrl: entry.imageUrl || '',
+          price: Number(entry.price || 0),
+          recommendedSize: entry.recommendedSize || '',
+          fitConfidence: Number(entry.fitConfidence || 0),
+          styledForYou: entry.styledForYou === true,
+          source: entry.source || 'styled',
+        }))
+      : [],
+    addressLabel: item.addressLabel || '',
+    deliverySlot: item.deliverySlot || '',
+    deliveryWindowLabel: item.deliveryWindowLabel || '',
+    experienceType: item.experienceType || 'premium',
+    trialFee: Number(item.trialFee || 99),
+    trialFeeRefundable: item.trialFeeRefundable !== false,
+    paymentStatus: item.paymentStatus || 'pending',
+    subtotal: Number(item.subtotal || 0),
+    keptItems: item.keptItems || [],
+    returnedItems: item.returnedItems || [],
+    convertedOrderId: item.convertedOrderId || '',
+    tailoringRequest: item.tailoringRequest || '',
+    feedback: item.feedback || {},
+    events: item.events || [],
+    createdAt: item.createdAt?.toISOString?.() || '',
+    updatedAt: item.updatedAt?.toISOString?.() || '',
   };
 }
 
@@ -576,6 +632,11 @@ async function savePlatformSettings(req, res, next) {
       aiDailyCostAlertThreshold: Number(req.body?.aiDailyCostAlertThreshold ?? settings.aiDailyCostAlertThreshold),
       aiDailyCostLimit: Number(req.body?.aiDailyCostLimit ?? settings.aiDailyCostLimit),
       aiAssistantEnabled: req.body?.aiAssistantEnabled ?? settings.aiAssistantEnabled,
+      trialHomeEnabled: req.body?.trialHomeEnabled ?? settings.trialHomeEnabled,
+      trialHomeFraudDetectionEnabled:
+        req.body?.trialHomeFraudDetectionEnabled ?? settings.trialHomeFraudDetectionEnabled,
+      trialHomeMinUserScore: Number(req.body?.trialHomeMinUserScore ?? settings.trialHomeMinUserScore),
+      trialHomeMaxRiskScore: Number(req.body?.trialHomeMaxRiskScore ?? settings.trialHomeMaxRiskScore),
     });
     await settings.save();
     return res.status(200).json({ success: true, data: serializeSettings(settings) });
@@ -1049,6 +1110,123 @@ async function reviewRiderKycRequest(req, res, next) {
   }
 }
 
+async function listTrialHomeSessions(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const status = String(req.query.status || '').trim().toLowerCase();
+    const filter = status ? { status } : {};
+    const sessions = await TrialHomeSession.find(filter)
+      .sort({ updatedAt: -1, _id: -1 })
+      .limit(500);
+    return res.status(200).json({
+      success: true,
+      data: sessions.map(serializeTrialHomeSession),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getTrialHomeSession(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const session = await TrialHomeSession.findById(req.params.id);
+    if (!session) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Trial-home session not found.' });
+    }
+    return res.status(200).json({
+      success: true,
+      data: serializeTrialHomeSession(session),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function updateTrialHomeSession(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const session = await TrialHomeSession.findById(req.params.id);
+    if (!session) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'Trial-home session not found.' });
+    }
+
+    const nextStatus = String(req.body?.status || '').trim();
+    const note = String(req.body?.note || '').trim();
+    const nextPaymentStatus = String(req.body?.paymentStatus || '').trim();
+
+    const allowedStatuses = new Set([
+      'draft',
+      'booked',
+      'confirmed',
+      'out_for_trial_delivery',
+      'trial_in_progress',
+      'completed',
+      'converted_to_order',
+      'converted_to_tailoring',
+      'cancelled',
+    ]);
+    const allowedPaymentStatuses = new Set([
+      'pending',
+      'held',
+      'refunded',
+      'waived',
+    ]);
+
+    if (nextStatus && !allowedStatuses.has(nextStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid trial-home status.',
+      });
+    }
+    if (nextPaymentStatus && !allowedPaymentStatuses.has(nextPaymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid trial-home payment status.',
+      });
+    }
+
+    if (nextStatus) {
+      session.status = nextStatus;
+    }
+    if (nextPaymentStatus) {
+      session.paymentStatus = nextPaymentStatus;
+    }
+
+    session.events = [
+      ...(session.events || []),
+      {
+        type: nextStatus ? 'admin_status_update' : 'admin_note',
+        actorId: req.user?.uid || '',
+        note:
+          note ||
+          (nextStatus
+            ? `Admin updated trial-home status to ${nextStatus}.`
+            : 'Admin update'),
+        createdAt: new Date(),
+      },
+    ];
+
+    await session.save();
+    return res.status(200).json({
+      success: true,
+      data: serializeTrialHomeSession(session),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   getDashboardSummary,
   listUsers,
@@ -1071,4 +1249,7 @@ module.exports = {
   fixVendorStore,
   reviewVendorKycRequest,
   reviewRiderKycRequest,
+  listTrialHomeSessions,
+  getTrialHomeSession,
+  updateTrialHomeSession,
 };

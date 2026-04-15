@@ -213,6 +213,13 @@ const userSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    userTrialScore: {
+      type: Number,
+      default: 60,
+      min: 0,
+      max: 100,
+      index: true,
+    },
   },
   {
     timestamps: true,

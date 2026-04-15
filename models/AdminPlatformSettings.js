@@ -31,6 +31,10 @@ const adminPlatformSettingsSchema = new mongoose.Schema(
     aiDailyCostAlertThreshold: { type: Number, default: 1.0 },
     aiDailyCostLimit: { type: Number, default: 500 },
     aiAssistantEnabled: { type: Boolean, default: true },
+    trialHomeEnabled: { type: Boolean, default: true },
+    trialHomeFraudDetectionEnabled: { type: Boolean, default: true },
+    trialHomeMinUserScore: { type: Number, default: 45 },
+    trialHomeMaxRiskScore: { type: Number, default: 80 },
   },
   { timestamps: true }
 );

@@ -19,6 +19,13 @@ const {
   submitSampleReview,
   updateCustomOrderStatus,
 } = require('../controllers/customVendorController');
+const {
+  getVendorTrialHomeDashboard,
+  listVendorTrialHomeSessions,
+  updateVendorTrialHomeSession,
+  listVendorTrialHomeProductSettings,
+  updateVendorTrialHomeProductSettings,
+} = require('../controllers/trialHomeController');
 
 const router = express.Router();
 
@@ -38,5 +45,10 @@ router.get('/wallet', getVendorWallet);
 router.post('/withdraw', requestVendorWithdraw);
 router.get('/payout-account', getVendorPayoutProfile);
 router.post('/payout-account', saveVendorPayoutProfile);
+router.get('/trial-home/dashboard', getVendorTrialHomeDashboard);
+router.get('/trial-home/sessions', listVendorTrialHomeSessions);
+router.patch('/trial-home/:id/status', updateVendorTrialHomeSession);
+router.get('/trial-home/settings/products', listVendorTrialHomeProductSettings);
+router.patch('/trial-home/settings/products/:productId', updateVendorTrialHomeProductSettings);
 
 module.exports = router;

@@ -1,5 +1,37 @@
 const mongoose = require('mongoose');
 
+const trialHomeConfigSchema = new mongoose.Schema(
+  {
+    trialEnabled: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    allowedLocations: {
+      type: [String],
+      default: [],
+    },
+    trialLimitPerDay: {
+      type: Number,
+      default: 20,
+      min: 1,
+      max: 500,
+    },
+    trialFee: {
+      type: Number,
+      default: 99,
+      min: 0,
+      max: 5000,
+    },
+    approvalMode: {
+      type: String,
+      enum: ['auto', 'manual'],
+      default: 'auto',
+    },
+  },
+  { _id: false },
+);
+
 const productSchema = new mongoose.Schema(
   {
     name: {
@@ -209,6 +241,10 @@ const productSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true,
+    },
+    trialHome: {
+      type: trialHomeConfigSchema,
+      default: () => ({}),
     },
   },
   {

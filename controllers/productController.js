@@ -138,8 +138,52 @@ function serializeProduct(product, options = {}) {
     storeId: populatedStore ? populatedStore._id?.toString() || populatedStore.id || '' : source.storeId?.toString() || '',
     store: populatedStore ? serializeStoreSummary(populatedStore) : null,
     isActive: Boolean(source.isActive),
+    trialHome: {
+      trialEnabled: Boolean(source.trialHome?.trialEnabled),
+      allowedLocations: Array.isArray(source.trialHome?.allowedLocations)
+        ? source.trialHome.allowedLocations
+        : [],
+      trialLimitPerDay: Number(source.trialHome?.trialLimitPerDay || 20),
+      trialFee: Number(source.trialHome?.trialFee || 99),
+      approvalMode: source.trialHome?.approvalMode || 'auto',
+    },
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,
+  };
+}
+
+function normalizeTrialHomeConfig(raw = {}, fallback = {}) {
+  const allowedLocations = Array.isArray(raw.allowedLocations)
+    ? raw.allowedLocations
+        .map((item) => item?.toString().trim())
+        .filter(Boolean)
+    : (Array.isArray(fallback.allowedLocations) ? fallback.allowedLocations : []);
+  const trialLimitPerDayRaw =
+    raw.trialLimitPerDay == null ? fallback.trialLimitPerDay : raw.trialLimitPerDay;
+  const trialLimitPerDay = Number(trialLimitPerDayRaw || 20);
+  const trialFeeRaw = raw.trialFee == null ? fallback.trialFee : raw.trialFee;
+  const trialFee = Number(trialFeeRaw || 99);
+  const approvalModeRaw =
+    raw.approvalMode == null ? fallback.approvalMode : raw.approvalMode;
+  const approvalMode = approvalModeRaw?.toString().trim().toLowerCase() === 'manual'
+    ? 'manual'
+    : 'auto';
+  const trialEnabledRaw =
+    raw.trialEnabled == null ? fallback.trialEnabled : raw.trialEnabled;
+  const trialEnabled = trialEnabledRaw === true;
+
+  return {
+    trialEnabled,
+    allowedLocations,
+    trialLimitPerDay:
+      Number.isFinite(trialLimitPerDay) && trialLimitPerDay > 0
+        ? Math.min(Math.floor(trialLimitPerDay), 500)
+        : 20,
+    trialFee:
+      Number.isFinite(trialFee) && trialFee >= 0
+        ? Math.min(Math.round(trialFee), 5000)
+        : 99,
+    approvalMode,
   };
 }
 
@@ -165,6 +209,7 @@ async function createProduct(req, res, next) {
       description,
       attributes,
       arAsset,
+      trialHome,
     } = req.body || {};
     const normalizedName = name?.toString().trim() || '';
     const normalizedCategory = category?.toString().trim() || '';
@@ -232,6 +277,7 @@ async function createProduct(req, res, next) {
       description: normalizedDescription,
       attributes: sanitizeAttributes(subcategory?.toString().trim() || normalizedCategory, attributes),
       arAsset: arAsset && typeof arAsset === 'object' && !Array.isArray(arAsset) ? arAsset : {},
+      trialHome: normalizeTrialHomeConfig(trialHome),
     });
     if (shouldGenerateArAsset(req.body) && Array.isArray(product.images) && product.images.length > 0) {
       product.arAsset = await generateArAsset({ product });
@@ -343,6 +389,7 @@ async function updateProduct(req, res, next) {
       attributes,
       arAsset,
       isActive,
+      trialHome,
     } = req.body || {};
     const normalizedName = name?.toString().trim() || product.name;
     const normalizedBrand =
@@ -407,6 +454,9 @@ async function updateProduct(req, res, next) {
     }
     if (typeof isActive === 'boolean') {
       product.isActive = isActive;
+    }
+    if (trialHome && typeof trialHome === 'object' && !Array.isArray(trialHome)) {
+      product.trialHome = normalizeTrialHomeConfig(trialHome, product.trialHome || {});
     }
     if (
       !arAsset &&

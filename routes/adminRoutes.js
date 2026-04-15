@@ -23,6 +23,9 @@ const {
   fixVendorStore,
   reviewVendorKycRequest,
   reviewRiderKycRequest,
+  listTrialHomeSessions,
+  getTrialHomeSession,
+  updateTrialHomeSession,
 } = require('../controllers/adminController');
 const {
   approvePendingWithdrawal,
@@ -68,6 +71,9 @@ router.get('/activity-logs', listActivityLogs);
 router.post('/activity-logs', createActivityLog);
 router.get('/kyc/vendors', listVendorKycRequests);
 router.get('/kyc/riders', listRiderKycRequests);
+router.get('/trial-home', listTrialHomeSessions);
+router.get('/trial-home/:id', getTrialHomeSession);
+router.patch('/trial-home/:id', updateTrialHomeSession);
 router.post('/approve-vendor', approveVendor);
 router.post('/fix-vendor-store', fixVendorStore);
 router.patch('/kyc/vendors/:id/review', reviewVendorKycRequest);

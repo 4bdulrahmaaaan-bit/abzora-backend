@@ -40,6 +40,7 @@ const financeRoutes = require('./routes/financeRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const payoutRoutes = require('./routes/payoutRoutes');
 const arRoutes = require('./routes/arRoutes');
+const trialHomeRoutes = require('./routes/trialHomeRoutes');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -115,6 +116,7 @@ app.get('/', (req, res) => {
       finance: '/finance/overview',
       wallet: '/wallet/vendor',
       payouts: '/payouts/vendor/settle',
+      trialHome: '/trial-home/me',
       aiSpecs: '/ai/specs',
       arGenerate: '/ar/generate',
       upload: '/upload',
@@ -152,6 +154,7 @@ app.use('/finance', adminLimiter, financeRoutes);
 app.use('/wallet', withdrawalLimiter, walletRoutes);
 app.use('/payouts', adminLimiter, payoutRoutes);
 app.use('/ar', arRoutes);
+app.use('/trial-home', orderLimiter, trialHomeRoutes);
 app.use('/webhooks', webhookRoutes);
 
 app.use((req, res) => {
