@@ -43,6 +43,10 @@ const walletRoutes = require('./routes/walletRoutes');
 const payoutRoutes = require('./routes/payoutRoutes');
 const arRoutes = require('./routes/arRoutes');
 const trialHomeRoutes = require('./routes/trialHomeRoutes');
+const ctaRoutes = require('./routes/ctaRoutes');
+const experienceRoutes = require('./routes/experienceRoutes');
+const mlRoutes = require('./routes/mlRoutes');
+const analyticsRoutes = require('./routes/analyticsRoutes');
 const debugRoutes = require('./routes/debugRoutes');
 
 const app = express();
@@ -159,6 +163,11 @@ app.use('/wallet', withdrawalLimiter, walletRoutes);
 app.use('/payouts', adminLimiter, payoutRoutes);
 app.use('/ar', arRoutes);
 app.use('/trial-home', orderLimiter, trialHomeRoutes);
+app.use('/cta-decision', ctaRoutes);
+app.use('/experience-config', experienceRoutes);
+app.use('/experience', experienceRoutes);
+app.use('/ml', mlRoutes);
+app.use('/analytics', analyticsRoutes);
 app.use('/webhooks', webhookRoutes);
 app.use('/debug', debugRoutes);
 

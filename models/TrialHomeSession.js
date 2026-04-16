@@ -207,6 +207,16 @@ const trialHomeSessionSchema = new mongoose.Schema(
       default: '',
       trim: true,
     },
+    converted: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    returnObserved: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     tailoringRequest: {
       type: String,
       default: '',

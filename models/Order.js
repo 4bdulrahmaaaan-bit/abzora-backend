@@ -115,6 +115,23 @@ const orderSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    orderType: {
+      type: String,
+      enum: ['standard', 'trial_conversion'],
+      default: 'standard',
+      index: true,
+    },
+    sameDayOrder: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    experienceDecisionId: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true,
+    },
     platformCommission: {
       type: Number,
       default: 0,

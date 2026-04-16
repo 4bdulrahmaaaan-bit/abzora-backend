@@ -860,6 +860,41 @@ async function createOrder(req, res, next) {
   }
 }
 
+async function quickCheckoutOrder(req, res, next) {
+  try {
+    const {
+      productId,
+      size = '',
+      quantity = 1,
+      paymentMethod = 'COD',
+      shippingAddress = {},
+    } = req.body || {};
+
+    if (!productId || !mongoose.Types.ObjectId.isValid(String(productId))) {
+      return res.status(400).json({
+        success: false,
+        message: 'A valid productId is required for quick checkout.',
+      });
+    }
+
+    req.body = {
+      paymentMethod,
+      shippingAddress,
+      items: [
+        {
+          productId: String(productId),
+          quantity: Number(quantity) > 0 ? Number(quantity) : 1,
+          size: String(size || '').trim(),
+        },
+      ],
+    };
+
+    return createOrder(req, res, next);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function listAvailableDeliveryOrders(req, res, next) {
   try {
     if (!req.user?.uid) {
@@ -1978,6 +2013,7 @@ async function verifyPayment(req, res, next) {
 
 module.exports = {
   createOrder,
+  quickCheckoutOrder,
   acceptDelivery,
   listUserOrders,
   listAssignedDeliveryOrders,

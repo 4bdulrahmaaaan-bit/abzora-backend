@@ -133,6 +133,18 @@ const productSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    fitRisk: {
+      type: Number,
+      default: 0.35,
+      min: 0,
+      max: 1,
+      index: true,
+    },
+    sameDayEligible: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
     outfitType: {
       type: String,
       trim: true,

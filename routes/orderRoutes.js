@@ -4,6 +4,7 @@ const authMiddleware = require('../middleware/authMiddleware');
 const {
   acceptDelivery,
   createOrder,
+  quickCheckoutOrder,
   listUserOrders,
   listAssignedDeliveryOrders,
   listAvailableDeliveryOrders,
@@ -36,6 +37,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.post('/', createOrder);
+router.post('/quick-checkout', quickCheckoutOrder);
 router.get('/', listUserOrders);
 router.get('/refund-requests', listRefundRequests);
 router.get('/return-requests', listReturnRequests);

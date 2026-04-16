@@ -220,6 +220,14 @@ const userSchema = new mongoose.Schema(
       max: 100,
       index: true,
     },
+    behaviorMetrics: {
+      conversionRate: { type: Number, default: 0, min: 0, max: 1 },
+      aov: { type: Number, default: 0, min: 0 },
+      returnRate: { type: Number, default: 0, min: 0, max: 1 },
+      ctaClickRate: { type: Number, default: 0, min: 0, max: 1 },
+      trialUsage: { type: Number, default: 0, min: 0, max: 1 },
+      updatedAt: { type: Date, default: Date.now },
+    },
   },
   {
     timestamps: true,
