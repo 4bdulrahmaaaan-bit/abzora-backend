@@ -11,6 +11,8 @@ const {
   createRateLimiter,
   securityHeaders,
 } = require('./middleware/securityMiddleware');
+const authMiddleware = require('./middleware/authMiddleware');
+const { me } = require('./controllers/authController');
 const { scheduleFinanceCrons } = require('./services/financeCronService');
 
 const authRoutes = require('./routes/authRoutes');
@@ -41,6 +43,7 @@ const walletRoutes = require('./routes/walletRoutes');
 const payoutRoutes = require('./routes/payoutRoutes');
 const arRoutes = require('./routes/arRoutes');
 const trialHomeRoutes = require('./routes/trialHomeRoutes');
+const debugRoutes = require('./routes/debugRoutes');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -125,6 +128,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/auth', authLimiter, authRoutes);
+app.get('/profile', authLimiter, authMiddleware, me);
 app.use('/user', authLimiter, userRoutes);
 app.use('/products', productRoutes);
 app.use('/stores', storeRoutes);
@@ -156,6 +160,7 @@ app.use('/payouts', adminLimiter, payoutRoutes);
 app.use('/ar', arRoutes);
 app.use('/trial-home', orderLimiter, trialHomeRoutes);
 app.use('/webhooks', webhookRoutes);
+app.use('/debug', debugRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found.' });

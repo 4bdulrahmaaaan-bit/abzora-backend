@@ -2,6 +2,7 @@ const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
 const {
+  getUserWalletSummary,
   getVendorWallet,
   requestVendorWithdraw,
   getVendorPayoutProfile,
@@ -16,6 +17,7 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
+router.get('/', getUserWalletSummary);
 router.get('/vendor', getVendorWallet);
 router.post('/vendor/withdraw', requestVendorWithdraw);
 router.get('/vendor/payout-account', getVendorPayoutProfile);
@@ -27,4 +29,3 @@ router.get('/rider/payout-account', getRiderPayoutProfile);
 router.post('/rider/payout-account', saveRiderPayoutProfile);
 
 module.exports = router;
-

@@ -226,6 +226,24 @@ async function getVendorWallet(req, res, next) {
   }
 }
 
+async function getUserWalletSummary(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const user = req.dbUser || (await User.findOne({ firebaseUid: req.user.uid }));
+    return res.status(200).json({
+      success: true,
+      data: {
+        userId: req.user.uid,
+        walletBalance: Number(user?.walletBalance || 0),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getVendorDashboard(req, res, next) {
   try {
     if (!req.user?.uid) {
@@ -796,6 +814,7 @@ async function handleRazorpayPayoutWebhook(req, res, next) {
 
 module.exports = {
   approvePendingWithdrawal,
+  getUserWalletSummary,
   getAdminFinance,
   getRiderDashboard,
   getRiderWallet,

@@ -29,6 +29,7 @@ const router = express.Router();
 
 router.post('/test-user', upsertTestUser);
 router.get('/me', authMiddleware, me);
+router.get('/profile', authMiddleware, me);
 router.get('/debug', authMiddleware, debugAuth);
 router.post('/sync-profile', authMiddleware, syncProfile);
 router.get('/addresses', authMiddleware, listAddresses);
