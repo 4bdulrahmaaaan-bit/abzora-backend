@@ -22,6 +22,7 @@ const {
   completeReturnRequest,
   cancelOrder,
   createRazorpayOrder,
+  downloadOrderInvoicePdf,
   requestCustomAlteration,
   submitCustomFitFeedback,
   updateDeliveryStatus,
@@ -47,6 +48,7 @@ router.post('/return-requests/:returnId/complete', completeReturnRequest);
 router.get('/deliveries/available', listAvailableDeliveryOrders);
 router.get('/deliveries/assigned', listAssignedDeliveryOrders);
 router.get('/store/:storeId', listStoreOrders);
+router.get('/:id/invoice.pdf', downloadOrderInvoicePdf);
 router.get('/:id/refund-request', getRefundRequestForOrder);
 router.post('/:id/refund-request', createRefundRequest);
 router.get('/:id/return-request', getReturnRequestForOrder);

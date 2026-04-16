@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ABZORA Invoice</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #111111;
+      --muted: #5a5a5a;
+      --line: #e7e2d8;
+      --gold: #b6935f;
+      --card: #fbfaf8;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    @page {
+      margin: 24mm 18mm;
+      size: A4;
+    }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-family: "Garamond", "Times New Roman", serif;
+      font-size: 13px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .invoice {
+      max-width: 780px;
+      margin: 0 auto;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 32px;
+    }
+
+    .brand {
+      letter-spacing: 0.28em;
+      font-size: 22px;
+      font-weight: 500;
+    }
+
+    .brand-accent {
+      display: block;
+      color: var(--gold);
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      margin-top: 10px;
+      text-transform: uppercase;
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+    }
+
+    .header-meta {
+      text-align: right;
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      font-size: 12px;
+    }
+
+    .meta-row {
+      margin-bottom: 8px;
+    }
+
+    .label {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 10px;
+      margin-bottom: 2px;
+      display: block;
+    }
+
+    .section {
+      margin-bottom: 28px;
+    }
+
+    .section-title {
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--gold);
+      font-size: 11px;
+      margin: 0 0 14px;
+    }
+
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      background: var(--card);
+      padding: 16px 18px;
+    }
+
+    .muted {
+      color: var(--muted);
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      font-size: 12px;
+    }
+
+    .product-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+
+    .product-table th,
+    .product-table td {
+      padding: 11px 8px;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .product-table th {
+      text-align: left;
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 500;
+    }
+
+    .product-table td:last-child,
+    .product-table th:last-child {
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .item-title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .item-sub {
+      color: var(--muted);
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      font-size: 11px;
+      margin-top: 3px;
+    }
+
+    .tailoring-meta {
+      margin-top: 8px;
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .crafted {
+      border: 1px solid var(--line);
+      padding: 20px;
+      margin: 28px 0;
+      position: relative;
+      background: #fff;
+    }
+
+    .crafted::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 4px;
+      height: 100%;
+      background: linear-gradient(180deg, #cfab77 0%, #ad8756 100%);
+    }
+
+    .crafted-title {
+      font-size: 18px;
+      margin: 0 0 8px;
+      letter-spacing: 0.03em;
+    }
+
+    .crafted-copy {
+      margin: 0;
+      color: #2e2e2e;
+      font-size: 13px;
+      max-width: 90%;
+    }
+
+    .totals {
+      margin-left: auto;
+      width: 310px;
+      border: 1px solid var(--line);
+      padding: 14px 16px;
+    }
+
+    .totals-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 8px 0;
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      font-size: 12px;
+    }
+
+    .totals-row.total {
+      margin-top: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 11px;
+      font-size: 15px;
+      font-weight: 700;
+      color: #000;
+    }
+
+    .footer-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 26px;
+    }
+
+    .footer-cell {
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      min-height: 80px;
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      font-size: 12px;
+    }
+
+    .status-pill {
+      display: inline-block;
+      border: 1px solid #d8c39f;
+      color: #7f6237;
+      background: #fff8ef;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 4px;
+    }
+
+    .thankyou {
+      margin-top: 36px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+      text-align: center;
+      color: var(--muted);
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+    }
+  </style>
+</head>
+<body>
+  <main class="invoice">
+    <header class="header">
+      <div>
+        <div class="brand">ABZORA</div>
+        <span class="brand-accent">Luxury Invoice</span>
+      </div>
+      <div class="header-meta">
+        <div class="meta-row">
+          <span class="label">Order ID</span>
+          <div>{{orderId}}</div>
+        </div>
+        <div class="meta-row">
+          <span class="label">Invoice Date</span>
+          <div>{{invoiceDate}}</div>
+        </div>
+      </div>
+    </header>
+
+    <section class="section grid-2">
+      <div class="card">
+        <h2 class="section-title">Customer Details</h2>
+        <div>{{customerName}}</div>
+        <div class="muted">{{customerAddressLine1}}</div>
+        <div class="muted">{{customerAddressLine2}}</div>
+        <div class="muted">{{customerCity}}, {{customerState}} {{customerPostalCode}}</div>
+        <div class="muted">{{customerCountry}}</div>
+        <div class="muted">{{customerPhone}}</div>
+      </div>
+      <div class="card">
+        <h2 class="section-title">Delivery Details</h2>
+        <div class="muted">Estimated Delivery: {{deliveryEstimatedDate}}</div>
+        <div class="muted">Delivery Method: {{deliveryMethod}}</div>
+        <div class="muted">Tracking ID: {{deliveryTrackingId}}</div>
+        <div class="muted">Delivery Address: {{deliveryAddress}}</div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Marketplace Items</h2>
+      <table class="product-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{marketplaceItemsRows}}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Custom Tailoring Items</h2>
+      <table class="product-table">
+        <thead>
+          <tr>
+            <th>Custom Piece</th>
+            <th>Qty</th>
+            <th>Unit Price</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{customTailoringItemsRows}}
+        </tbody>
+      </table>
+      <div class="tailoring-meta">
+        Fabric: {{customFabric}}<br />
+        Fit Profile: {{customFitProfile}} (Fit Confidence: {{fitConfidence}}%)<br />
+        Design Details: {{customDesignDetails}}<br />
+        Personalization Notes: {{personalizationDetails}}
+      </div>
+    </section>
+
+    <section class="crafted">
+      <h3 class="crafted-title">Crafted for you</h3>
+      <p class="crafted-copy">
+        {{craftedForYouMessage}}
+      </p>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Price Breakdown</h2>
+      <div class="totals">
+        <div class="totals-row">
+          <span>Subtotal</span>
+          <span>{{subtotal}}</span>
+        </div>
+        <div class="totals-row">
+          <span>Tax ({{taxLabel}})</span>
+          <span>{{taxAmount}}</span>
+        </div>
+        <div class="totals-row total">
+          <span>Total</span>
+          <span>{{grandTotal}}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="footer-grid">
+      <div class="footer-cell">
+        <div class="label">Payment Info</div>
+        <div>Method: {{paymentMethod}}</div>
+        <div>Status: {{paymentStatus}}</div>
+        <span class="status-pill">{{paymentStatus}}</span>
+        <div class="muted">Transaction ID: {{transactionId}}</div>
+      </div>
+      <div class="footer-cell">
+        <div class="label">Vendor Details</div>
+        <div>{{vendorName}}</div>
+        <div class="muted">{{vendorAddress}}</div>
+        <div class="muted">{{vendorTaxId}}</div>
+        <div class="muted">{{vendorContact}}</div>
+      </div>
+      <div class="footer-cell">
+        <div class="label">Personalization</div>
+        <div>{{stylePersona}}</div>
+        <div class="muted">Preferred Silhouette: {{preferredSilhouette}}</div>
+        <div class="muted">Occasion Intent: {{occasionIntent}}</div>
+      </div>
+    </section>
+
+    <footer class="thankyou">
+      Thank you for choosing ABZORA. Every piece is tailored to elevate your signature style.
+    </footer>
+  </main>
+</body>
+</html>

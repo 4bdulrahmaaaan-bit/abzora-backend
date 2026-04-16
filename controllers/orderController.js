@@ -12,6 +12,7 @@ const RefundRequest = require('../models/RefundRequest');
 const ReturnRequest = require('../models/ReturnRequest');
 const Transaction = require('../models/Transaction');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
+const { generatePremiumInvoicePdf } = require('../services/invoicePdfService');
 const {
   createFraudAlert,
   evaluateOrderRisk,
@@ -518,6 +519,144 @@ function isOrderAvailableForRider(order) {
 
 function canManageFinance(req) {
   return req.user?.role === 'admin' || req.user?.role === 'super_admin';
+}
+
+function toTitleCase(value) {
+  return String(value || '')
+    .replaceAll('_', ' ')
+    .trim()
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatDateLabel(value) {
+  const parsed = new Date(value || Date.now());
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date().toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  }
+
+  return parsed.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
+function addDays(value, days) {
+  const base = new Date(value || Date.now());
+  if (Number.isNaN(base.getTime())) {
+    return '';
+  }
+  base.setDate(base.getDate() + Number(days || 0));
+  return base.toISOString();
+}
+
+function compactObjectSummary(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return '';
+  }
+
+  return Object.entries(payload)
+    .filter(([, value]) => value != null && value !== '' && typeof value !== 'object')
+    .slice(0, 6)
+    .map(([key, value]) => `${toTitleCase(key)}: ${String(value)}`)
+    .join(', ');
+}
+
+function canAccessInvoice(req, order, store) {
+  if (canManageFinance(req)) {
+    return true;
+  }
+  if (req.user?.uid && req.user.uid === order.userId) {
+    return true;
+  }
+  if (req.user?.role === 'vendor' && store?.ownerId && store.ownerId === req.user.uid) {
+    return true;
+  }
+  return req.user?.role === 'rider' && order.riderId && order.riderId === req.user.uid;
+}
+
+function buildInvoiceInput(order, customer, store) {
+  const isCustom = order.fulfillmentType === 'custom_tailoring';
+  const customDesign = order.customDesignOptions || {};
+  const fitConfidence = order.customerFitRating > 0
+    ? Math.min(100, Math.round((Number(order.customerFitRating || 0) / 5) * 100))
+    : 92;
+  const taxPercent = Number(order.subtotalAmount || 0) > 0
+    ? ((Number(order.taxAmount || 0) / Number(order.subtotalAmount || 1)) * 100).toFixed(1)
+    : '';
+
+  const marketplaceItems = !isCustom
+    ? (order.items || []).map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.price,
+        total: Number(item.price || 0) * Number(item.quantity || 0),
+        size: item.size || '',
+      }))
+    : [];
+
+  const customTailoringItems = isCustom
+    ? (order.items || []).map((item) => ({
+        name: item.name,
+        quantity: item.quantity,
+        unitPrice: item.price,
+        total: Number(item.price || 0) * Number(item.quantity || 0),
+        fabric: customDesign.fabricType || customDesign.fabric || '',
+        fit: customDesign.fitType || customDesign.fit || '',
+        designDetails: order.customizationSummary || compactObjectSummary(customDesign),
+      }))
+    : [];
+
+  const etaBase = order.trackingTimestamps?.Delivered
+    || addDays(order.createdAt, order.customProductionTimeDays || 4);
+
+  const shippingAddress = order.shippingAddress || {};
+
+  return {
+    orderId: order._id.toString(),
+    invoiceDate: formatDateLabel(order.createdAt),
+    customerName: shippingAddress.name || customer?.name || 'ABZORA Customer',
+    customerAddressLine1: shippingAddress.addressLine1 || customer?.address || 'N/A',
+    customerAddressLine2: shippingAddress.addressLine2 || customer?.area || '',
+    customerCity: shippingAddress.city || customer?.city || 'N/A',
+    customerState: shippingAddress.state || 'N/A',
+    customerPostalCode: shippingAddress.pincode || 'N/A',
+    customerCountry: 'India',
+    customerPhone: shippingAddress.phone || customer?.phone || '',
+    deliveryEstimatedDate: formatDateLabel(etaBase),
+    deliveryMethod: isCustom ? 'White Glove Delivery' : 'Standard Delivery',
+    deliveryTrackingId: order.trackingId || 'Pending assignment',
+    deliveryAddress: shippingAddressLabel(order) || customer?.address || 'N/A',
+    marketplaceItems,
+    customTailoringItems,
+    customFabric: customDesign.fabricType || customDesign.fabric || 'As selected',
+    customFitProfile: customDesign.fitType || customDesign.fit || 'Personalized fit',
+    fitConfidence,
+    customDesignDetails: order.customizationSummary || compactObjectSummary(customDesign) || 'Tailored to your selected style details.',
+    personalizationDetails: compactObjectSummary(order.customMeasurements) || order.customerFitFeedbackNotes || 'Profile-aligned measurements and style preferences.',
+    craftedForYouMessage: isCustom
+      ? 'Handcrafted with precision based on your measurements and design preferences.'
+      : 'Curated and quality-checked to align with your signature style.',
+    subtotal: Number(order.subtotalAmount || 0),
+    taxLabel: taxPercent ? `GST ${taxPercent}%` : 'Tax',
+    taxAmount: Number(order.taxAmount || 0),
+    grandTotal: Number(order.totalAmount || 0),
+    paymentMethod: order.paymentMethod || 'N/A',
+    paymentStatus: toTitleCase(order.paymentStatus || 'pending'),
+    transactionId: order.razorpay?.paymentId || order.razorpay?.orderId || 'N/A',
+    vendorName: store?.name || 'ABZORA Partner Studio',
+    vendorAddress: [store?.address, store?.city].filter(Boolean).join(', ') || 'N/A',
+    vendorTaxId: 'N/A',
+    vendorContact: customer?.phone || 'N/A',
+    stylePersona: toTitleCase(customDesign.stylePersona || customDesign.style || 'Signature'),
+    preferredSilhouette: toTitleCase(customDesign.silhouette || customDesign.fitType || 'Tailored'),
+    occasionIntent: toTitleCase(customDesign.occasion || 'Elevated everyday'),
+  };
 }
 
 async function createOrder(req, res, next) {
@@ -1654,6 +1793,42 @@ async function createRazorpayOrder(req, res, next) {
   }
 }
 
+async function downloadOrderInvoicePdf(req, res, next) {
+  try {
+    const { id } = req.params;
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id.' });
+    }
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+
+    const [customer, store] = await Promise.all([
+      User.findOne({ uid: order.userId }),
+      Store.findById(order.storeId),
+    ]);
+
+    if (!canAccessInvoice(req, order, store)) {
+      return res.status(403).json({ success: false, message: 'Invoice access denied.' });
+    }
+
+    const invoiceInput = buildInvoiceInput(order, customer, store);
+    const { pdfBuffer } = await generatePremiumInvoicePdf(invoiceInput);
+    const filename = `ABZORA-Invoice-${order._id.toString()}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    return res.status(200).send(pdfBuffer);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function verifyPayment(req, res, next) {
   try {
     const razorpayOrderId =
@@ -1827,5 +2002,6 @@ module.exports = {
   updateOrderStatus,
   cancelOrder,
   updateRiderLocation,
+  downloadOrderInvoicePdf,
   verifyPayment,
 };
