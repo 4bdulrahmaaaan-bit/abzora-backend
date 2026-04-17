@@ -13,6 +13,7 @@ const ReturnRequest = require('../models/ReturnRequest');
 const Transaction = require('../models/Transaction');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
 const { generatePremiumInvoicePdf } = require('../services/invoicePdfService');
+const { recordTrackingEvent } = require('../services/trackingEventService');
 const {
   createFraudAlert,
   evaluateOrderRisk,
@@ -555,6 +556,15 @@ function addDays(value, days) {
   return base.toISOString();
 }
 
+function isSameDayOrderEligible(store) {
+  if (!store?.sameDay?.enabled) {
+    return false;
+  }
+  const cutoffHour = Number(store.sameDay?.cutoffHour ?? 16);
+  const now = new Date();
+  return now.getHours() <= cutoffHour;
+}
+
 function compactObjectSummary(payload) {
   if (!payload || typeof payload !== 'object') {
     return '';
@@ -735,6 +745,10 @@ async function createOrder(req, res, next) {
     }
 
     const store = await Store.findById(resolvedStoreId);
+    if (!store) {
+      return res.status(404).json({ success: false, message: 'Store not found.' });
+    }
+    const sameDayOrder = isSameDayOrderEligible(store);
     const financials = calculateOrderFinancials({
       subtotalAmount,
       taxAmount,
@@ -791,6 +805,7 @@ async function createOrder(req, res, next) {
       escrowUpdatedAt: new Date().toISOString(),
       orderStatus: normalizedPaymentMethod === 'COD' ? 'confirmed' : 'pending',
       deliveryStatus: normalizedPaymentMethod === 'COD' ? 'Ready for pickup' : 'Pending',
+      sameDayOrder,
       payoutStatus: 'none',
       riderPayoutStatus: 'none',
       trackingId: '',
@@ -1005,6 +1020,16 @@ async function updateDeliveryStatus(req, res, next) {
     appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
     await settleDeliveredOrder(order);
     await order.save();
+    await recordTrackingEvent({
+      eventType: 'order_status_update',
+      orderId: order._id.toString(),
+      riderId: order.riderId || '',
+      userId: order.userId || '',
+      payload: {
+        deliveryStatus: nextStatus,
+        orderStatus: order.orderStatus,
+      },
+    });
 
     return res.status(200).json({ success: true, data: serializeOrder(order) });
   } catch (error) {
@@ -1042,6 +1067,17 @@ async function updateRiderLocation(req, res, next) {
     order.riderLongitude = longitude;
     order.riderLocationUpdatedAt = new Date().toISOString();
     await order.save();
+    await recordTrackingEvent({
+      eventType: 'location_update',
+      orderId: order._id.toString(),
+      riderId: order.riderId || req.user.uid,
+      userId: order.userId || '',
+      latitude,
+      longitude,
+      payload: {
+        source: 'order_location_patch',
+      },
+    });
 
     return res.status(200).json({ success: true, data: serializeOrder(order) });
   } catch (error) {

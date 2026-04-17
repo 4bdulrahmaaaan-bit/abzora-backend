@@ -111,6 +111,17 @@ const userSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    liveLocation: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point',
+      },
+      coordinates: {
+        type: [Number],
+        default: [0, 0], // [lng, lat]
+      },
+    },
     deliveryRadiusKm: {
       type: Number,
       default: 10,
@@ -174,6 +185,17 @@ const userSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    riderCapacity: {
+      type: Number,
+      default: 4,
+      min: 1,
+      max: 12,
+    },
+    riderAvailable: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
     lastLoginAt: {
       type: Date,
       default: Date.now,
@@ -233,6 +255,8 @@ const userSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+userSchema.index({ liveLocation: '2dsphere' });
 
 userSchema.pre('validate', function syncFirebaseUid(next) {
   if (!this.firebaseUid && this.uid) {

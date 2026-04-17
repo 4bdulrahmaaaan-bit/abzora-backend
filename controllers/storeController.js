@@ -21,6 +21,22 @@ function sanitizeVendorEditableCustomProfile(profile = {}) {
   };
 }
 
+function normalizeSameDayConfig(raw = {}, fallback = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  return {
+    enabled: source.enabled == null ? Boolean(fallback.enabled) : source.enabled === true,
+    cutoffHour: source.cutoffHour == null
+      ? Number(fallback.cutoffHour ?? 16)
+      : Math.min(23, Math.max(0, Number(source.cutoffHour || 16))),
+    prepTimeMins: source.prepTimeMins == null
+      ? Number(fallback.prepTimeMins ?? 60)
+      : Math.min(600, Math.max(10, Number(source.prepTimeMins || 60))),
+    supportsTrialHome: source.supportsTrialHome == null
+      ? fallback.supportsTrialHome !== false
+      : source.supportsTrialHome !== false,
+  };
+}
+
 function serializeStore(store, extras = {}, options = {}) {
   if (!store) {
     return null;
@@ -47,6 +63,8 @@ function serializeStore(store, extras = {}, options = {}) {
     tagline: source.tagline || '',
     category: source.category || '',
     isActive: Boolean(source.isActive),
+    sameDay: normalizeSameDayConfig(source.sameDay || {}, source.sameDay || {}),
+    operationalSpeedScore: Number(source.operationalSpeedScore || 50),
     vendorScore: Number(extras.vendorScore ?? source.vendorScore ?? 0),
     vendorRank: Number(extras.vendorRank ?? source.vendorRank ?? 0),
     vendorVisibility: extras.vendorVisibility || source.vendorVisibility || 'normal',
@@ -111,6 +129,8 @@ async function createStore(req, res, next) {
       bannerImageUrl,
       category,
       customVendorProfile,
+      sameDay,
+      operationalSpeedScore,
     } = req.body || {};
     const ownerId = req.user?.uid?.toString().trim();
     const normalizedName = name?.toString().trim() || '';
@@ -135,6 +155,13 @@ async function createStore(req, res, next) {
       city: city?.toString().trim() || '',
       latitude: latitude == null ? null : Number(latitude),
       longitude: longitude == null ? null : Number(longitude),
+      geoLocation:
+        latitude != null && longitude != null
+          ? {
+              type: 'Point',
+              coordinates: [Number(longitude), Number(latitude)],
+            }
+          : undefined,
       tagline: tagline?.toString().trim() || '',
       bannerImageUrl: bannerImageUrl?.toString().trim() || '',
       category: category?.toString().trim() || '',
@@ -142,6 +169,8 @@ async function createStore(req, res, next) {
         vendorType === 'custom_vendor' && customVendorProfile
           ? sanitizeVendorEditableCustomProfile(customVendorProfile)
           : undefined,
+      sameDay: normalizeSameDayConfig(sameDay || {}),
+      operationalSpeedScore: Math.min(100, Math.max(0, Number(operationalSpeedScore || 50))),
       ownerId,
     });
 
@@ -280,6 +309,8 @@ async function updateStore(req, res, next) {
       bannerImageUrl,
       category,
       customVendorProfile,
+      sameDay,
+      operationalSpeedScore,
     } = req.body || {};
     const normalizedName = name?.toString().trim() || store.name;
     if (!normalizedName) {
@@ -300,6 +331,12 @@ async function updateStore(req, res, next) {
     if (longitude !== undefined) {
       store.longitude = longitude == null ? null : Number(longitude);
     }
+    if (store.latitude != null && store.longitude != null) {
+      store.geoLocation = {
+        type: 'Point',
+        coordinates: [Number(store.longitude), Number(store.latitude)],
+      };
+    }
     store.tagline = tagline?.toString().trim() ?? store.tagline;
     store.bannerImageUrl = bannerImageUrl?.toString().trim() ?? store.bannerImageUrl;
     store.category = category?.toString().trim() ?? store.category;
@@ -308,6 +345,15 @@ async function updateStore(req, res, next) {
         ...(store.customVendorProfile?.toObject?.() ?? store.customVendorProfile ?? {}),
         ...sanitizeVendorEditableCustomProfile(customVendorProfile),
       };
+    }
+    if (sameDay && typeof sameDay === 'object') {
+      store.sameDay = normalizeSameDayConfig(sameDay, store.sameDay || {});
+    }
+    if (operationalSpeedScore !== undefined) {
+      store.operationalSpeedScore = Math.min(
+        100,
+        Math.max(0, Number(operationalSpeedScore || 0)),
+      );
     }
     if (typeof isActive === 'boolean') {
       store.isActive = isActive;

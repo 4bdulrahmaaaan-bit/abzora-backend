@@ -65,10 +65,14 @@ function validateUnityMetadata({ unityAssetBundleUrl, rigProfile, materialProfil
   };
 }
 
-function productListCacheKey(query = {}) {
+function productListCacheKey(query = {}, options = {}) {
   const normalized = JSON.stringify({
     storeId: query.storeId || '',
     category: query.category || '',
+    sameDayOnly: options.sameDayOnly === true,
+    city: options.city || '',
+    cutoffHour: options.cutoffHour ?? '',
+    ignoreCutoff: options.ignoreCutoff === true,
   });
   return `products:list:${normalized}`;
 }
@@ -94,6 +98,14 @@ function serializeStoreSummary(store) {
     name: store.name || '',
     rating: Number(store.rating || 0),
     logoUrl: store.logoUrl || '',
+    city: store.city || '',
+    operationalSpeedScore: Number(store.operationalSpeedScore || 0),
+    sameDay: {
+      enabled: store.sameDay?.enabled === true,
+      cutoffHour: Number(store.sameDay?.cutoffHour ?? 16),
+      prepTimeMins: Number(store.sameDay?.prepTimeMins ?? 60),
+      supportsTrialHome: store.sameDay?.supportsTrialHome !== false,
+    },
   };
 }
 
@@ -129,6 +141,8 @@ function serializeProduct(product, options = {}) {
     viewCount: Number(source.viewCount || 0),
     cartCount: Number(source.cartCount || 0),
     purchaseCount: Number(source.purchaseCount || 0),
+    fitRisk: Number(source.fitRisk || 0),
+    sameDayEligible: source.sameDayEligible !== false,
     rating: Number(source.rating || 0),
     reviewCount: Number(source.reviewCount || 0),
     outfitType: source.outfitType || '',
@@ -306,7 +320,20 @@ async function listProducts(req, res, next) {
     if (req.query.category) {
       query.category = req.query.category.toString().trim();
     }
-    const cacheKey = productListCacheKey(query);
+    const sameDayOnly = String(req.query.sameDay || '').trim().toLowerCase() === 'true';
+    const cityFilter = req.query.city?.toString().trim() || '';
+    const now = new Date();
+    const hour = now.getHours();
+    const cutoffOverride = req.query.ignoreCutoff === 'true';
+    if (sameDayOnly) {
+      query.sameDayEligible = true;
+    }
+    const cacheKey = productListCacheKey(query, {
+      sameDayOnly,
+      city: cityFilter,
+      cutoffHour: hour,
+      ignoreCutoff: cutoffOverride,
+    });
     const cached = await cache.getJson(cacheKey);
     if (Array.isArray(cached)) {
       return res.status(200).json({ success: true, data: cached });
@@ -314,8 +341,28 @@ async function listProducts(req, res, next) {
 
     const products = await Product.find(query)
       .sort({ createdAt: -1 })
-      .populate('storeId', 'name rating logoUrl');
-    const serialized = products.map(serializeProduct);
+      .populate('storeId', 'name rating logoUrl city sameDay operationalSpeedScore isActive');
+    let serialized = products.map(serializeProduct);
+    if (sameDayOnly) {
+      serialized = serialized
+        .filter((item) => {
+          const sameDayConfig = item.store?.sameDay || {};
+          const enabled = sameDayConfig.enabled === true;
+          const cutoffHour = Number(sameDayConfig.cutoffHour ?? 16);
+          const cityAllowed = !cityFilter ||
+            String(item.store?.city || '').trim().toLowerCase() === cityFilter.toLowerCase();
+          const beforeCutoff = cutoffOverride || hour <= cutoffHour;
+          return enabled && cityAllowed && beforeCutoff;
+        })
+        .sort((left, right) => {
+          const speedLeft = Number(left.store?.operationalSpeedScore || 0);
+          const speedRight = Number(right.store?.operationalSpeedScore || 0);
+          if (speedLeft !== speedRight) {
+            return speedRight - speedLeft;
+          }
+          return Number(right.demandScore || 0) - Number(left.demandScore || 0);
+        });
+    }
     await cache.setJson(cacheKey, serialized, 120);
 
     return res.status(200).json({ success: true, data: serialized });

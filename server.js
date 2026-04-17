@@ -2,6 +2,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
 
 const connectDB = require('./config/db');
 require('./config/cloudinary');
@@ -47,7 +48,15 @@ const ctaRoutes = require('./routes/ctaRoutes');
 const experienceRoutes = require('./routes/experienceRoutes');
 const mlRoutes = require('./routes/mlRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
+const logisticsRoutes = require('./routes/logisticsRoutes');
+const dispatchRoutes = require('./routes/dispatchRoutes');
+const trackingRoutes = require('./routes/trackingRoutes');
+const opsRoutes = require('./routes/opsRoutes');
 const debugRoutes = require('./routes/debugRoutes');
+const { attachTrackingGateway } = require('./services/trackingGateway');
+const { startDispatchScheduler } = require('./services/dispatchSchedulerService');
+const { startOpsRuntime } = require('./services/opsRuntimeService');
+const { getOrderEta } = require('./controllers/dispatchController');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -133,6 +142,7 @@ app.get('/', (req, res) => {
 
 app.use('/auth', authLimiter, authRoutes);
 app.get('/profile', authLimiter, authMiddleware, me);
+app.get('/eta/:orderId', authMiddleware, getOrderEta);
 app.use('/user', authLimiter, userRoutes);
 app.use('/products', productRoutes);
 app.use('/stores', storeRoutes);
@@ -168,6 +178,10 @@ app.use('/experience-config', experienceRoutes);
 app.use('/experience', experienceRoutes);
 app.use('/ml', mlRoutes);
 app.use('/analytics', analyticsRoutes);
+app.use('/', logisticsRoutes);
+app.use('/dispatch', dispatchRoutes);
+app.use('/tracking', trackingRoutes);
+app.use('/ops', adminLimiter, opsRoutes);
 app.use('/webhooks', webhookRoutes);
 app.use('/debug', debugRoutes);
 
@@ -189,7 +203,11 @@ async function startServer() {
     await connectDB();
     initializeFirebase();
     scheduleFinanceCrons();
-    app.listen(port, host, () => {
+    startDispatchScheduler();
+    startOpsRuntime();
+    const server = http.createServer(app);
+    attachTrackingGateway(server);
+    server.listen(port, host, () => {
       console.log(`ABZORA backend running on ${host}:${port}`);
     });
   } catch (error) {

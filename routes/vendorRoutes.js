@@ -26,6 +26,14 @@ const {
   listVendorTrialHomeProductSettings,
   updateVendorTrialHomeProductSettings,
 } = require('../controllers/trialHomeController');
+const {
+  listVendorOperationsOrders,
+  updateVendorOrderFlow,
+  listVendorTrialRequests,
+  updateVendorTrialFlow,
+  getOperationsAnalytics,
+  assignRider,
+} = require('../controllers/logisticsController');
 
 const router = express.Router();
 
@@ -50,5 +58,11 @@ router.get('/trial-home/sessions', listVendorTrialHomeSessions);
 router.patch('/trial-home/:id/status', updateVendorTrialHomeSession);
 router.get('/trial-home/settings/products', listVendorTrialHomeProductSettings);
 router.patch('/trial-home/settings/products/:productId', updateVendorTrialHomeProductSettings);
+router.get('/ops/orders', listVendorOperationsOrders);
+router.patch('/ops/orders/:orderId/status', updateVendorOrderFlow);
+router.get('/ops/trials', listVendorTrialRequests);
+router.patch('/ops/trials/:sessionId/status', updateVendorTrialFlow);
+router.post('/ops/assign-rider', assignRider);
+router.get('/ops/analytics', getOperationsAnalytics);
 
 module.exports = router;

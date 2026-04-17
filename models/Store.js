@@ -157,6 +157,33 @@ const customVendorProfileSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const sameDayConfigSchema = new mongoose.Schema(
+  {
+    enabled: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    cutoffHour: {
+      type: Number,
+      default: 16,
+      min: 0,
+      max: 23,
+    },
+    prepTimeMins: {
+      type: Number,
+      default: 60,
+      min: 10,
+      max: 600,
+    },
+    supportsTrialHome: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  { _id: false },
+);
+
 const storeSchema = new mongoose.Schema(
   {
     vendorId: {
@@ -249,6 +276,17 @@ const storeSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    geoLocation: {
+      type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point',
+      },
+      coordinates: {
+        type: [Number],
+        default: [0, 0],
+      },
+    },
     tagline: {
       type: String,
       trim: true,
@@ -263,6 +301,17 @@ const storeSchema = new mongoose.Schema(
       type: customVendorProfileSchema,
       default: () => ({}),
     },
+    sameDay: {
+      type: sameDayConfigSchema,
+      default: () => ({}),
+    },
+    operationalSpeedScore: {
+      type: Number,
+      default: 50,
+      min: 0,
+      max: 100,
+      index: true,
+    },
     isActive: {
       type: Boolean,
       default: true,
@@ -272,5 +321,7 @@ const storeSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+storeSchema.index({ geoLocation: '2dsphere' });
 
 module.exports = mongoose.model('Store', storeSchema);
