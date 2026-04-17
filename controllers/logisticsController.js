@@ -111,6 +111,7 @@ async function assignRider(req, res, next) {
     const taskType = String(req.body?.taskType || '').trim().toUpperCase();
     const orderId = String(req.body?.orderId || '').trim();
     const trialSessionId = String(req.body?.trialSessionId || '').trim();
+    const preferredRiderId = String(req.body?.riderId || '').trim();
     const supported = ['ORDER_DELIVERY', 'TRIAL_DELIVERY', 'TRIAL_PICKUP'];
 
     if (!supported.includes(taskType)) {
@@ -161,6 +162,7 @@ async function assignRider(req, res, next) {
         dropLng: req.body?.dropLng,
         city: store.city || req.body?.city || '',
         sameDay: req.body?.sameDay === true || order.sameDayOrder === true,
+        preferredRiderId,
         metadata: {
           source: 'manual_assign',
           orderTotal: Number(order.totalAmount || 0),
@@ -215,6 +217,7 @@ async function assignRider(req, res, next) {
         dropLng: req.body?.dropLng,
         city: store?.city || req.body?.city || '',
         sameDay: req.body?.sameDay !== false,
+        preferredRiderId,
         metadata: {
           source: 'manual_assign',
           deliverySlot: trial.deliverySlot || '',

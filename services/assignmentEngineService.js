@@ -61,6 +61,7 @@ async function findBestRider({
   pickupLat,
   pickupLng,
   city = '',
+  preferredRiderId = '',
   excludedRiderIds = [],
   session = null,
 }) {
@@ -83,6 +84,26 @@ async function findBestRider({
 
   const excluded = new Set((excludedRiderIds || []).map((id) => String(id || '').trim()).filter(Boolean));
   const filteredRiders = riders.filter((rider) => !excluded.has(String(rider.uid || '').trim()));
+  const preferred = String(preferredRiderId || '').trim();
+  if (preferred) {
+    const preferredRider = filteredRiders.find((rider) => String(rider.uid || '').trim() === preferred);
+    if (!preferredRider) {
+      const error = new Error('Preferred rider is unavailable for assignment.');
+      error.statusCode = 409;
+      throw error;
+    }
+    const riderLat = toNumber(preferredRider.latitude);
+    const riderLng = toNumber(preferredRider.longitude);
+    const distanceKm = haversineDistanceKm(pickupLat, pickupLng, riderLat, riderLng);
+    const workloadMap = await activeWorkloadByRider([preferredRider.uid]);
+    const workload = workloadMap.get(preferredRider.uid) || 0;
+    return {
+      rider: preferredRider,
+      workload,
+      distanceKm,
+      score: riderScore({ distanceKm, workload }),
+    };
+  }
   const riderIds = filteredRiders.map((rider) => rider.uid).filter(Boolean);
   const workloadMap = await activeWorkloadByRider(riderIds);
 
@@ -119,6 +140,7 @@ async function createAssignedTask({
   dropLng = null,
   city = '',
   sameDay = false,
+  preferredRiderId = '',
   excludedRiderIds = [],
   session = null,
   metadata = {},
@@ -135,7 +157,14 @@ async function createAssignedTask({
     throw error;
   }
 
-  const best = await findBestRider({ pickupLat, pickupLng, city, excludedRiderIds, session });
+  const best = await findBestRider({
+    pickupLat,
+    pickupLng,
+    city,
+    preferredRiderId,
+    excludedRiderIds,
+    session,
+  });
   if (!best?.rider?.uid) {
     const error = new Error('No available rider found for assignment.');
     error.statusCode = 409;
