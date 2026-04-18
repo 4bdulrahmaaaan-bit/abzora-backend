@@ -1,3 +1,5 @@
+const crypto = require('crypto');
+
 const User = require('../models/User');
 const Store = require('../models/Store');
 const Product = require('../models/Product');
@@ -26,6 +28,54 @@ function ensureAdmin(req, res) {
 
 function toIsoNow() {
   return new Date().toISOString();
+}
+
+function clampNumber(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function normalizeBooleanMap(value, fallback = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return fallback;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([key, enabled]) => [String(key || '').trim(), Boolean(enabled)])
+      .filter(([key]) => key),
+  );
+}
+
+function normalizeStringList(value, fallback = []) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+
+  return [...new Set(
+    value
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean)
+      .slice(0, 20),
+  )];
+}
+
+function normalizeAdminPin(value) {
+  const pin = String(value || '').trim();
+  if (!pin) {
+    return null;
+  }
+  if (!/^\d{4,12}$/.test(pin)) {
+    throw new Error('Admin PIN must be 4 to 12 digits.');
+  }
+  return pin;
+}
+
+function hashAdminPin(pin) {
+  return crypto.createHash('sha256').update(`abzio-admin-pin:${pin}`).digest('hex');
 }
 
 function serializeVendorKyc(item) {
@@ -196,7 +246,7 @@ function serializeSettings(item) {
     allowedAdminDevices: item?.allowedAdminDevices || ['web-chrome', 'windows-desktop'],
     adminIdleTimeoutMinutes: Number(item?.adminIdleTimeoutMinutes || 10),
     adminPinEnabled: item?.adminPinEnabled ?? false,
-    adminPin: item?.adminPin || '1234',
+    adminPinConfigured: Boolean(item?.adminPin),
     aiDailyCostAlertThreshold: Number(item?.aiDailyCostAlertThreshold || 1.0),
     aiDailyCostLimit: Number(item?.aiDailyCostLimit || 500),
     aiAssistantEnabled: item?.aiAssistantEnabled ?? true,
@@ -616,6 +666,10 @@ async function savePlatformSettings(req, res, next) {
       return;
     }
     const settings = await getOrCreateSettings();
+    const nextPin = Object.prototype.hasOwnProperty.call(req.body || {}, 'adminPin')
+      ? normalizeAdminPin(req.body?.adminPin)
+      : null;
+
     Object.assign(settings, {
       customTailoringEnabled: req.body?.customTailoringEnabled ?? settings.customTailoringEnabled,
       reelsEnabled: req.body?.reelsEnabled ?? settings.reelsEnabled,
@@ -623,20 +677,48 @@ async function savePlatformSettings(req, res, next) {
       checkoutEnabled: req.body?.checkoutEnabled ?? settings.checkoutEnabled,
       marketplaceEnabled: req.body?.marketplaceEnabled ?? settings.marketplaceEnabled,
       riderDispatchEnabled: req.body?.riderDispatchEnabled ?? settings.riderDispatchEnabled,
-      cities: req.body?.cities || settings.cities,
-      regionVendorAvailability: req.body?.regionVendorAvailability || settings.regionVendorAvailability,
-      allowedAdminDevices: req.body?.allowedAdminDevices || settings.allowedAdminDevices,
-      adminIdleTimeoutMinutes: Number(req.body?.adminIdleTimeoutMinutes ?? settings.adminIdleTimeoutMinutes),
+      cities: normalizeBooleanMap(req.body?.cities, settings.cities),
+      regionVendorAvailability: normalizeBooleanMap(
+        req.body?.regionVendorAvailability,
+        settings.regionVendorAvailability,
+      ),
+      allowedAdminDevices: normalizeStringList(req.body?.allowedAdminDevices, settings.allowedAdminDevices),
+      adminIdleTimeoutMinutes: clampNumber(
+        req.body?.adminIdleTimeoutMinutes,
+        settings.adminIdleTimeoutMinutes,
+        1,
+        120,
+      ),
       adminPinEnabled: req.body?.adminPinEnabled ?? settings.adminPinEnabled,
-      adminPin: req.body?.adminPin ?? settings.adminPin,
-      aiDailyCostAlertThreshold: Number(req.body?.aiDailyCostAlertThreshold ?? settings.aiDailyCostAlertThreshold),
-      aiDailyCostLimit: Number(req.body?.aiDailyCostLimit ?? settings.aiDailyCostLimit),
+      adminPin: nextPin ? hashAdminPin(nextPin) : settings.adminPin,
+      aiDailyCostAlertThreshold: clampNumber(
+        req.body?.aiDailyCostAlertThreshold,
+        settings.aiDailyCostAlertThreshold,
+        0,
+        100000,
+      ),
+      aiDailyCostLimit: clampNumber(
+        req.body?.aiDailyCostLimit,
+        settings.aiDailyCostLimit,
+        0,
+        1000000,
+      ),
       aiAssistantEnabled: req.body?.aiAssistantEnabled ?? settings.aiAssistantEnabled,
       trialHomeEnabled: req.body?.trialHomeEnabled ?? settings.trialHomeEnabled,
       trialHomeFraudDetectionEnabled:
         req.body?.trialHomeFraudDetectionEnabled ?? settings.trialHomeFraudDetectionEnabled,
-      trialHomeMinUserScore: Number(req.body?.trialHomeMinUserScore ?? settings.trialHomeMinUserScore),
-      trialHomeMaxRiskScore: Number(req.body?.trialHomeMaxRiskScore ?? settings.trialHomeMaxRiskScore),
+      trialHomeMinUserScore: clampNumber(
+        req.body?.trialHomeMinUserScore,
+        settings.trialHomeMinUserScore,
+        0,
+        100,
+      ),
+      trialHomeMaxRiskScore: clampNumber(
+        req.body?.trialHomeMaxRiskScore,
+        settings.trialHomeMaxRiskScore,
+        0,
+        100,
+      ),
     });
     await settings.save();
     return res.status(200).json({ success: true, data: serializeSettings(settings) });

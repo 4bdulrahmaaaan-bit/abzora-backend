@@ -1,6 +1,6 @@
 const express = require('express');
 
-const authMiddleware = require('../middleware/authMiddleware');
+const { requireRider, requireVendor } = require('../middleware/authorizationMiddleware');
 const {
   getUserWalletSummary,
   getVendorWallet,
@@ -15,17 +15,15 @@ const {
 
 const router = express.Router();
 
-router.use(authMiddleware);
-
 router.get('/', getUserWalletSummary);
-router.get('/vendor', getVendorWallet);
-router.post('/vendor/withdraw', requestVendorWithdraw);
-router.get('/vendor/payout-account', getVendorPayoutProfile);
-router.post('/vendor/payout-account', saveVendorPayoutProfile);
+router.get('/vendor', requireVendor, getVendorWallet);
+router.post('/vendor/withdraw', requireVendor, requestVendorWithdraw);
+router.get('/vendor/payout-account', requireVendor, getVendorPayoutProfile);
+router.post('/vendor/payout-account', requireVendor, saveVendorPayoutProfile);
 
-router.get('/rider', getRiderWallet);
-router.post('/rider/withdraw', requestRiderWithdraw);
-router.get('/rider/payout-account', getRiderPayoutProfile);
-router.post('/rider/payout-account', saveRiderPayoutProfile);
+router.get('/rider', requireRider, getRiderWallet);
+router.post('/rider/withdraw', requireRider, requestRiderWithdraw);
+router.get('/rider/payout-account', requireRider, getRiderPayoutProfile);
+router.post('/rider/payout-account', requireRider, saveRiderPayoutProfile);
 
 module.exports = router;

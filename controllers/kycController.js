@@ -5,6 +5,51 @@ function toIsoNow() {
   return new Date().toISOString();
 }
 
+function normalizeText(value, maxLength = 120) {
+  return String(value || '').trim().slice(0, maxLength);
+}
+
+function normalizePhone(value) {
+  return String(value || '').replace(/[^\d+]/g, '').slice(0, 16);
+}
+
+function normalizeOptionalUrl(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  try {
+    const parsed = new URL(normalized);
+    return ['http:', 'https:'].includes(parsed.protocol) ? normalized : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function normalizeCoordinate(value, minimum, maximum) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(minimum, Math.min(maximum, numeric));
+}
+
+function normalizeKycDocuments(payload = {}) {
+  const additionalUrls = Array.isArray(payload.additionalUrls)
+    ? payload.additionalUrls.map(normalizeOptionalUrl).filter(Boolean).slice(0, 10)
+    : [];
+  return {
+    ownerPhotoUrl: normalizeOptionalUrl(payload.ownerPhotoUrl),
+    storeImageUrl: normalizeOptionalUrl(payload.storeImageUrl),
+    profilePhotoUrl: normalizeOptionalUrl(payload.profilePhotoUrl),
+    aadhaarUrl: normalizeOptionalUrl(payload.aadhaarUrl),
+    panUrl: normalizeOptionalUrl(payload.panUrl),
+    selfieUrl: normalizeOptionalUrl(payload.selfieUrl),
+    licenseUrl: normalizeOptionalUrl(payload.licenseUrl),
+    additionalUrls,
+  };
+}
+
 function serializeVendorKyc(item) {
   return {
     id: item.requestId,
@@ -93,14 +138,14 @@ async function submitVendorKycRequest(req, res, next) {
       {
         requestId,
         userId,
-        storeName: payload.storeName || '',
-        ownerName: payload.ownerName || req.user?.name || req.dbUser?.name || '',
-        phone: payload.phone || req.user?.phone || req.dbUser?.phone || '',
-        address: payload.address || '',
-        city: payload.city || '',
-        latitude: Number(payload.latitude || 0),
-        longitude: Number(payload.longitude || 0),
-        kyc: payload.kyc || {},
+        storeName: normalizeText(payload.storeName, 120),
+        ownerName: normalizeText(payload.ownerName || req.user?.name || req.dbUser?.name || '', 120),
+        phone: normalizePhone(payload.phone || req.user?.phone || req.dbUser?.phone || ''),
+        address: normalizeText(payload.address, 240),
+        city: normalizeText(payload.city, 80),
+        latitude: normalizeCoordinate(payload.latitude, -90, 90),
+        longitude: normalizeCoordinate(payload.longitude, -180, 180),
+        kyc: normalizeKycDocuments(payload.kyc),
         status: 'pending',
         rejectionReason: '',
         reviewedBy: '',
@@ -162,11 +207,11 @@ async function submitRiderKycRequest(req, res, next) {
       {
         requestId,
         userId,
-        name: payload.name || req.user?.name || req.dbUser?.name || '',
-        phone: payload.phone || req.user?.phone || req.dbUser?.phone || '',
-        vehicle: payload.vehicle || '',
-        city: payload.city || '',
-        kyc: payload.kyc || {},
+        name: normalizeText(payload.name || req.user?.name || req.dbUser?.name || '', 120),
+        phone: normalizePhone(payload.phone || req.user?.phone || req.dbUser?.phone || ''),
+        vehicle: normalizeText(payload.vehicle, 80),
+        city: normalizeText(payload.city, 80),
+        kyc: normalizeKycDocuments(payload.kyc),
         status: 'pending',
         rejectionReason: '',
         reviewedBy: '',

@@ -25,9 +25,12 @@ const Store = require('../models/Store');
 const VendorWallet = require('../models/VendorWallet');
 const RiderWallet = require('../models/RiderWallet');
 const { verifyWebhookSignature } = require('../services/razorpayPayoutService');
+const { isAllowedAdminEmail } = require('./authController');
 
 function ensureAdmin(req, res) {
-  if (!['admin', 'super_admin'].includes(req.user?.role)) {
+  const privileged = ['admin', 'super_admin'].includes(req.user?.role);
+  const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
+  if (!privileged || !emailAllowed) {
     res.status(403).json({ success: false, message: 'Admin access denied.' });
     return false;
   }

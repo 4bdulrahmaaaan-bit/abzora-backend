@@ -8,7 +8,7 @@ const savedCardSchema = new mongoose.Schema(
       index: true,
       trim: true,
     },
-    token: {
+    cardRef: {
       type: String,
       required: true,
       trim: true,
@@ -35,6 +35,6 @@ const savedCardSchema = new mongoose.Schema(
   }
 );
 
-savedCardSchema.index({ userId: 1, token: 1 }, { unique: true });
+savedCardSchema.index({ userId: 1, cardRef: 1 }, { unique: true });
 
 module.exports = mongoose.model('SavedCard', savedCardSchema);

@@ -53,6 +53,18 @@ function fingerprintFromRequest(req) {
   };
 }
 
+function normalizeReasons(reasons = []) {
+  return [...new Set(
+    (Array.isArray(reasons) ? reasons : [])
+      .map((reason) => toTrimmed(reason))
+      .filter(Boolean),
+  )];
+}
+
+function dedupeWindowStart(hours = 24) {
+  return new Date(Date.now() - hours * 60 * 60 * 1000);
+}
+
 async function createFraudAlert({
   type,
   severity,
@@ -70,27 +82,75 @@ async function createFraudAlert({
   relatedOrderIds = [],
   metadata = {},
 }) {
+  const normalizedReasons = normalizeReasons(reasons);
+  const normalizedMessage = toTrimmed(message);
+  const normalizedIpAddress = toTrimmed(ipAddress);
+  const normalizedDeviceId = toTrimmed(deviceId);
+  const normalizedRelatedOrderIds = [...new Set(
+    (Array.isArray(relatedOrderIds) ? relatedOrderIds : [])
+      .map((value) => toTrimmed(value))
+      .filter(Boolean),
+  )];
+  const normalizedMetadata = Object.fromEntries(
+    Object.entries(metadata).map(([key, value]) => [key, String(value ?? '')]),
+  );
+
+  const existing = await FraudAlert.findOne({
+    type,
+    status: { $in: ['open', 'reviewing'] },
+    userId: toTrimmed(userId),
+    storeId: toTrimmed(storeId),
+    riderId: toTrimmed(riderId),
+    orderId: toTrimmed(orderId),
+    withdrawalRequestId: toTrimmed(withdrawalRequestId),
+    refundRequestId: toTrimmed(refundRequestId),
+    ipAddress: normalizedIpAddress,
+    deviceId: normalizedDeviceId,
+    reasons: normalizedReasons,
+    createdAt: { $gte: dedupeWindowStart() },
+  }).sort({ createdAt: -1, _id: -1 });
+
+  if (existing) {
+    existing.severity = severity;
+    existing.riskScore = Math.max(Number(existing.riskScore || 0), Number(riskScore || 0));
+    existing.message = normalizedMessage || existing.message;
+    existing.relatedOrderIds = [...new Set([
+      ...(Array.isArray(existing.relatedOrderIds) ? existing.relatedOrderIds : []),
+      ...normalizedRelatedOrderIds,
+    ])].slice(-20);
+    existing.metadata = {
+      ...(existing.metadata instanceof Map ? Object.fromEntries(existing.metadata.entries()) : (existing.metadata || {})),
+      ...normalizedMetadata,
+      dedupeHits: String(Number(
+        existing.metadata instanceof Map
+          ? existing.metadata.get('dedupeHits') || 1
+          : existing.metadata?.dedupeHits || 1,
+      ) + 1),
+      lastDedupedAt: now().toISOString(),
+    };
+    await existing.save();
+    return existing;
+  }
+
   const [alert] = await FraudAlert.create([
     {
       alertId: buildId(`fraud-${type}`),
       type,
       severity,
       status: 'open',
-      userId,
-      storeId,
-      riderId,
-      orderId,
-      withdrawalRequestId,
-      refundRequestId,
+      userId: toTrimmed(userId),
+      storeId: toTrimmed(storeId),
+      riderId: toTrimmed(riderId),
+      orderId: toTrimmed(orderId),
+      withdrawalRequestId: toTrimmed(withdrawalRequestId),
+      refundRequestId: toTrimmed(refundRequestId),
       riskScore,
-      reasons,
-      message,
-      ipAddress,
-      deviceId,
-      relatedOrderIds,
-      metadata: Object.fromEntries(
-        Object.entries(metadata).map(([key, value]) => [key, String(value ?? '')]),
-      ),
+      reasons: normalizedReasons,
+      message: normalizedMessage,
+      ipAddress: normalizedIpAddress,
+      deviceId: normalizedDeviceId,
+      relatedOrderIds: normalizedRelatedOrderIds,
+      metadata: normalizedMetadata,
     },
   ]);
   return alert;

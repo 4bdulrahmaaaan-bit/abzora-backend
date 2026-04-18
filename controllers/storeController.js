@@ -245,7 +245,7 @@ async function getStore(req, res, next) {
 
     return res.status(200).json({
       success: true,
-      data: serializeStore(store, {}, { includeInternalFields: true }),
+      data: serializeStore(store),
     });
   } catch (error) {
     return next(error);

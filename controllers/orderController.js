@@ -14,6 +14,8 @@ const Transaction = require('../models/Transaction');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
 const { generatePremiumInvoicePdf } = require('../services/invoicePdfService');
 const { recordTrackingEvent } = require('../services/trackingEventService');
+const { calculateOrderPricing, toPricingEngineConfig } = require('../services/pricingService');
+const { getPricingConfig } = require('../services/pricingConfigService');
 const {
   createFraudAlert,
   evaluateOrderRisk,
@@ -22,9 +24,6 @@ const {
   toSeverity,
 } = require('../services/fraudDetectionService');
 const {
-  calculateOrderFinancials,
-  createWithdrawalRequest,
-  financeConfig,
   getOrCreateAdminWallet,
   getOrCreateRiderWallet,
   getOrCreateVendorWallet,
@@ -60,10 +59,20 @@ function serializeOrder(order) {
     taxAmount: Number(source.taxAmount || 0),
     deliveryFee: Number(source.deliveryFee || 0),
     deliveryDistanceKm: Number(source.deliveryDistanceKm || 0),
+    discountAmount: Number(source.discountAmount || 0),
+    discountPercent: Number(source.discountPercent || 0),
+    tryAtHomeFee: Number(source.tryAtHomeFee || 0),
+    tryAtHomeFeeRefundable: Boolean(source.tryAtHomeFeeRefundable),
     totalAmount: Number(source.totalAmount || 0),
+    commissionPercent: Number(source.commissionPercent || 0),
     platformCommission: Number(source.platformCommission || 0),
     vendorEarnings: Number(source.vendorEarnings || 0),
     riderEarnings: Number(source.riderEarnings || 0),
+    paymentGatewayFee: Number(source.paymentGatewayFee || 0),
+    platformRevenue: Number(source.platformRevenue || 0),
+    platformCost: Number(source.platformCost || 0),
+    platformProfit: Number(source.platformProfit || 0),
+    pricingBreakdown: source.pricingBreakdown || {},
     paymentMethod: source.paymentMethod || '',
     paymentStatus: source.paymentStatus || '',
     escrowStatus: source.escrowStatus || 'held',
@@ -565,6 +574,190 @@ function isSameDayOrderEligible(store) {
   return now.getHours() <= cutoffHour;
 }
 
+function sanitizeDistanceKm(rawDistance) {
+  const numeric = Number(rawDistance);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.min(25, Math.max(0, numeric));
+}
+
+function haversineDistanceKm(fromLat, fromLng, toLat, toLng) {
+  const values = [fromLat, fromLng, toLat, toLng].map(Number);
+  if (values.some((value) => !Number.isFinite(value))) {
+    return null;
+  }
+
+  const [lat1, lon1, lat2, lon2] = values;
+  const toRadians = (value) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+}
+
+function resolveDeliveryDistanceKm({ requestedDistanceKm, store, user }) {
+  const explicitDistance = sanitizeDistanceKm(requestedDistanceKm);
+  if (explicitDistance > 0) {
+    return explicitDistance;
+  }
+
+  const computedDistance = haversineDistanceKm(
+    user?.latitude,
+    user?.longitude,
+    store?.latitude,
+    store?.longitude,
+  );
+  return computedDistance == null ? 0 : sanitizeDistanceKm(computedDistance);
+}
+
+function sanitizeTaxAmount(rawTaxAmount) {
+  const numeric = Number(rawTaxAmount);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  return Math.max(0, numeric);
+}
+
+async function buildNormalizedOrderDraft(items) {
+  const normalizedItems = [];
+  const products = [];
+  let subtotalAmount = 0;
+  let resolvedStoreId = '';
+
+  for (const item of items) {
+    if (!mongoose.Types.ObjectId.isValid(item.productId)) {
+      throw new Error('Invalid productId in order items.');
+    }
+
+    const product = await Product.findById(item.productId);
+    if (!product || !product.isActive) {
+      throw new Error(`Product not found for item ${item.productId}.`);
+    }
+
+    const productStoreId = product.storeId?.toString() || '';
+    if (!productStoreId) {
+      throw new Error('Product is not linked to a valid store.');
+    }
+    if (!resolvedStoreId) {
+      resolvedStoreId = productStoreId;
+    } else if (resolvedStoreId !== productStoreId) {
+      throw new Error('Checkout currently supports one store per order.');
+    }
+
+    const quantity = Number(item.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error(`Valid quantity is required for product ${item.productId}.`);
+    }
+    if (product.stock < quantity) {
+      throw new Error(`${product.name} is out of stock for quantity ${quantity}.`);
+    }
+
+    subtotalAmount += Number(product.price || 0) * quantity;
+    products.push(product);
+    normalizedItems.push({
+      productId: product._id,
+      name: product.name,
+      price: product.price,
+      quantity,
+      size: item.size?.toString().trim() || '',
+      image: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : '',
+    });
+  }
+
+  return {
+    products,
+    normalizedItems,
+    subtotalAmount,
+    resolvedStoreId,
+  };
+}
+
+async function buildPricingSnapshot({
+  user,
+  store,
+  products,
+  subtotalAmount,
+  taxAmount,
+  paymentMethod,
+  requestedDistanceKm,
+  tryAtHomeRequested = false,
+  fulfillmentType = 'marketplace',
+}) {
+  const deliveryDistanceKm = resolveDeliveryDistanceKm({
+    requestedDistanceKm,
+    store,
+    user,
+  });
+  const existingOrderCount = await Order.countDocuments({
+    userId: user.uid,
+    orderStatus: { $ne: 'cancelled' },
+  });
+  const riderCity = (store?.city || user?.city || '').trim();
+  const riderFilter = {
+    role: 'rider',
+    riderAvailable: true,
+    riderApprovalStatus: 'approved',
+  };
+  if (riderCity) {
+    riderFilter.riderCity = riderCity;
+  }
+
+  const [availableRiderCount, activeDemandCount] = await Promise.all([
+    User.countDocuments(riderFilter),
+    Order.countDocuments({
+      sameDayOrder: true,
+      orderStatus: { $in: ['pending', 'created', 'confirmed', 'processing', 'shipped'] },
+    }),
+  ]);
+
+  const avgDemandScore =
+    products.length > 0
+      ? products.reduce((sum, product) => sum + Number(product.demandScore || 0), 0) / products.length
+      : 0;
+  const avgFitRisk =
+    products.length > 0
+      ? products.reduce((sum, product) => sum + Number(product.fitRisk || 0), 0) / products.length
+      : 0;
+  const trialHomeSupported =
+    Boolean(store?.sameDay?.supportsTrialHome) &&
+    products.some((product) => product?.trialHome?.trialEnabled);
+  const trialHomeFee =
+    products
+      .filter((product) => product?.trialHome?.trialEnabled)
+      .reduce((maxFee, product) => Math.max(maxFee, Number(product?.trialHome?.trialFee || 0)), 99) || 99;
+  const livePricingConfig = await getPricingConfig();
+
+  return calculateOrderPricing({
+    orderValue: subtotalAmount,
+    taxAmount,
+    distanceKm: deliveryDistanceKm,
+    paymentMethod,
+    existingOrderCount,
+    userBehaviorMetrics: user.behaviorMetrics || {},
+    fulfillmentType,
+    vendorType: store.vendorType || 'standard_vendor',
+    vendorId: store.ownerId || '',
+    userId: user.uid,
+    storeCommissionRate: store.commissionRate,
+    storeRating: store.rating,
+    storeReviewCount: store.reviewCount,
+    customVendorProfile: store.customVendorProfile || {},
+    availableRiderCount,
+    activeDemandCount,
+    avgDemandScore,
+    avgFitRisk,
+    tryAtHomeRequested,
+    tryAtHomeSupported,
+    trialFee: trialHomeFee,
+    config: toPricingEngineConfig(livePricingConfig),
+  });
+}
+
 function compactObjectSummary(payload) {
   if (!payload || typeof payload !== 'object') {
     return '';
@@ -671,7 +864,14 @@ function buildInvoiceInput(order, customer, store) {
 
 async function createOrder(req, res, next) {
   try {
-    const { items, paymentMethod, shippingAddress, taxAmount, deliveryFee, deliveryDistanceKm } = req.body || {};
+    const {
+      items,
+      paymentMethod,
+      shippingAddress,
+      taxAmount,
+      deliveryDistanceKm,
+      tryAtHomeRequested,
+    } = req.body || {};
     if (!req.user?.uid) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
@@ -679,10 +879,8 @@ async function createOrder(req, res, next) {
       return res.status(400).json({ success: false, message: 'Order items are required.' });
     }
 
-    const normalizedItems = [];
-    let subtotalAmount = 0;
-    let resolvedStoreId = '';
     const normalizedPaymentMethod = (paymentMethod || 'COD').toString().trim().toUpperCase() === 'COD' ? 'COD' : 'RAZORPAY';
+    const safeTaxAmount = sanitizeTaxAmount(taxAmount);
     const normalizedShippingAddress = {
       name: shippingAddress?.name?.toString().trim() || '',
       phone: shippingAddress?.phone?.toString().trim() || '',
@@ -692,75 +890,48 @@ async function createOrder(req, res, next) {
       state: shippingAddress?.state?.toString().trim() || '',
       pincode: shippingAddress?.pincode?.toString().trim() || '',
     };
-
-    for (const item of items) {
-      if (!mongoose.Types.ObjectId.isValid(item.productId)) {
-        return res.status(400).json({ success: false, message: 'Invalid productId in order items.' });
-      }
-
-      const product = await Product.findById(item.productId);
-      if (!product || !product.isActive) {
-        return res.status(404).json({
-          success: false,
-          message: `Product not found for item ${item.productId}.`,
-        });
-      }
-
-      const productStoreId = product.storeId?.toString() || '';
-      if (!productStoreId) {
-        return res.status(400).json({ success: false, message: 'Product is not linked to a valid store.' });
-      }
-      if (!resolvedStoreId) {
-        resolvedStoreId = productStoreId;
-      } else if (resolvedStoreId !== productStoreId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Checkout currently supports one store per order.',
-        });
-      }
-
-      const quantity = Number(item.quantity);
-      if (!Number.isInteger(quantity) || quantity <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: `Valid quantity is required for product ${item.productId}.`,
-        });
-      }
-      if (product.stock < quantity) {
-        return res.status(400).json({
-          success: false,
-          message: `${product.name} is out of stock for quantity ${quantity}.`,
-        });
-      }
-
-      subtotalAmount += product.price * quantity;
-      normalizedItems.push({
-        productId: product._id,
-        name: product.name,
-        price: product.price,
-        quantity,
-        size: item.size?.toString().trim() || '',
-        image: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : '',
-      });
+    const user = await User.findOne({ uid: req.user.uid });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
     }
+
+    let draft;
+    try {
+      draft = await buildNormalizedOrderDraft(items);
+    } catch (draftError) {
+      const message = String(draftError.message || 'Invalid order items.');
+      const status =
+        message.includes('not found')
+          ? 404
+          : message.includes('out of stock') || message.includes('supports one store')
+            ? 400
+            : 400;
+      return res.status(status).json({ success: false, message });
+    }
+
+    const {
+      products,
+      normalizedItems,
+      subtotalAmount,
+      resolvedStoreId,
+    } = draft;
 
     const store = await Store.findById(resolvedStoreId);
     if (!store) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
     const sameDayOrder = isSameDayOrderEligible(store);
-    const financials = calculateOrderFinancials({
+    const financials = await buildPricingSnapshot({
+      user,
+      store,
+      products,
       subtotalAmount,
-      taxAmount,
-      deliveryFee,
-      deliveryDistanceKm,
-      commissionPercent: store?.commissionRate,
+      taxAmount: safeTaxAmount,
+      paymentMethod: normalizedPaymentMethod,
+      requestedDistanceKm: deliveryDistanceKm,
+      tryAtHomeRequested: Boolean(tryAtHomeRequested),
+      fulfillmentType: store.vendorType === 'custom_vendor' ? 'custom_tailoring' : 'marketplace',
     });
-
-    const user = await User.findOne({ uid: req.user.uid });
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found.' });
-    }
 
     const risk = await evaluateOrderRisk({
       user,
@@ -795,10 +966,20 @@ async function createOrder(req, res, next) {
       taxAmount: financials.taxAmount,
       deliveryFee: financials.deliveryFee,
       deliveryDistanceKm: financials.deliveryDistanceKm,
+      discountAmount: financials.discountAmount,
+      discountPercent: financials.discountPercent,
+      tryAtHomeFee: financials.tryAtHomeFee,
+      tryAtHomeFeeRefundable: financials.tryAtHomeFeeRefundable,
       totalAmount: financials.totalAmount,
+      commissionPercent: financials.commissionPercent,
       platformCommission: financials.platformCommission,
       vendorEarnings: financials.vendorEarnings,
       riderEarnings: financials.riderEarnings,
+      paymentGatewayFee: financials.paymentGatewayFee,
+      platformRevenue: financials.platformRevenue,
+      platformCost: financials.platformCost,
+      platformProfit: financials.platformProfit,
+      pricingBreakdown: financials.pricingBreakdown,
       paymentMethod: normalizedPaymentMethod,
       paymentStatus: normalizedPaymentMethod === 'COD' ? 'pending' : 'pending',
       escrowStatus: 'held',
@@ -905,6 +1086,85 @@ async function quickCheckoutOrder(req, res, next) {
     };
 
     return createOrder(req, res, next);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getOrderPricingQuote(req, res, next) {
+  try {
+    const {
+      items,
+      productId,
+      size = '',
+      quantity = 1,
+      paymentMethod = 'RAZORPAY',
+      taxAmount = 0,
+      deliveryDistanceKm = 0,
+      tryAtHomeRequested = false,
+    } = req.body || {};
+
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const quoteItems = Array.isArray(items) && items.length > 0
+      ? items
+      : productId
+        ? [
+            {
+              productId: String(productId),
+              quantity: Number(quantity) > 0 ? Number(quantity) : 1,
+              size: String(size || '').trim(),
+            },
+          ]
+        : [];
+
+    if (quoteItems.length === 0) {
+      return res.status(400).json({ success: false, message: 'Order items are required for pricing quote.' });
+    }
+
+    const user = await User.findOne({ uid: req.user.uid });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    let draft;
+    try {
+      draft = await buildNormalizedOrderDraft(quoteItems);
+    } catch (draftError) {
+      const message = String(draftError.message || 'Invalid order items.');
+      const status = message.includes('not found') ? 404 : 400;
+      return res.status(status).json({ success: false, message });
+    }
+
+    const { products, normalizedItems, subtotalAmount, resolvedStoreId } = draft;
+    const store = await Store.findById(resolvedStoreId);
+    if (!store) {
+      return res.status(404).json({ success: false, message: 'Store not found.' });
+    }
+
+    const quote = await buildPricingSnapshot({
+      user,
+      store,
+      products,
+      subtotalAmount,
+      taxAmount: sanitizeTaxAmount(taxAmount),
+      paymentMethod: (paymentMethod || 'RAZORPAY').toString().trim().toUpperCase() === 'COD' ? 'COD' : 'RAZORPAY',
+      requestedDistanceKm: deliveryDistanceKm,
+      tryAtHomeRequested: Boolean(tryAtHomeRequested),
+      fulfillmentType: store.vendorType === 'custom_vendor' ? 'custom_tailoring' : 'marketplace',
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        storeId: resolvedStoreId,
+        items: normalizedItems,
+        pricing: quote,
+        sameDayEligible: isSameDayOrderEligible(store),
+      },
+    });
   } catch (error) {
     return next(error);
   }
@@ -1988,7 +2248,8 @@ async function verifyPayment(req, res, next) {
 
     const razorpay = getRazorpayClient();
     const payment = await razorpay.payments.fetch(razorpayPaymentId);
-    const paid = payment && (payment.status === 'captured' || payment.status === 'authorized');
+    const paymentOrderId = String(payment?.order_id || '').trim();
+    const paid = payment && payment.status === 'captured' && paymentOrderId === razorpayOrderId;
 
     order.paymentStatus = paid ? 'paid' : 'failed';
     order.orderStatus = paid ? 'confirmed' : 'pending';
@@ -2050,6 +2311,7 @@ async function verifyPayment(req, res, next) {
 module.exports = {
   createOrder,
   quickCheckoutOrder,
+  getOrderPricingQuote,
   acceptDelivery,
   listUserOrders,
   listAssignedDeliveryOrders,

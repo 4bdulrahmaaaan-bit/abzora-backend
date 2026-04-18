@@ -7,6 +7,7 @@ Production backend for ABZORA using:
 - Cloudinary
 - Razorpay
 - Firebase Auth only
+- Redis-backed rate limiting recommended in production
 
 ## Setup
 
@@ -62,6 +63,10 @@ npm start
    - `FIREBASE_PROJECT_ID`
    - `FIREBASE_CLIENT_EMAIL`
    - `FIREBASE_PRIVATE_KEY`
+6. Set `ENFORCE_HTTPS=true` in production and terminate TLS at the load balancer or platform edge
+7. Set `REQUIRE_EMAIL_VERIFICATION=true` for password-based Firebase sign-ins
+8. Set `AUTH_MAX_SESSION_AGE_MINUTES` so users must re-authenticate periodically
+9. Keep `ENABLE_TEST_AUTH_ROUTES=false` in every non-local environment
 
 ### MongoDB Atlas
 
@@ -69,6 +74,7 @@ npm start
 2. Create a database user
 3. Whitelist Render outbound IPs or allow trusted access
 4. Set `MONGO_URI`
+5. Never expose MongoDB to the public internet without strict IP allowlisting and strong credentials
 
 ## Firebase Auth Integration
 
@@ -79,3 +85,9 @@ Authorization: Bearer <firebase-id-token>
 ```
 
 Backend verifies the token and creates the user in MongoDB on first authenticated request.
+
+## Security Notes
+
+- Do not deploy `serviceAccountKey.json`; production only loads Firebase credentials from environment variables.
+- Do not expose OpenAI, Razorpay secret keys, database credentials, or admin service credentials to Flutter/web builds.
+- Authentication, authorization failures, API errors, rate-limit events, and suspicious traffic are logged as structured security events.

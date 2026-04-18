@@ -5,6 +5,8 @@ const Store = require('../models/Store');
 const TryOnSession = require('../models/TryOnSession');
 const { generateArAsset } = require('../services/arAssetService');
 
+const ALLOWED_TRYON_STATUSES = new Set(['active', 'completed', 'abandoned']);
+
 function serializeStore(store) {
   if (!store) {
     return null;
@@ -26,6 +28,27 @@ function sanitizeNumberMap(input) {
       .map(([key, value]) => [key.toString(), Number(value)])
       .filter(([, value]) => Number.isFinite(value))
   );
+}
+
+function normalizeOptionalUrl(value) {
+  const normalized = value?.toString().trim() || '';
+  if (!normalized) {
+    return '';
+  }
+  try {
+    const parsed = new URL(normalized);
+    return ['http:', 'https:'].includes(parsed.protocol) ? normalized : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function clampNumber(value, fallback, minimum, maximum) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.max(minimum, Math.min(maximum, numeric));
 }
 
 function ensureArAsset(product) {
@@ -185,30 +208,32 @@ async function createTryOnSession(req, res, next) {
       deviceModel: deviceModel?.toString().trim() || '',
       cameraFacing: cameraFacing?.toString().trim() || 'front',
       mode: mode?.toString().trim() || 'live_overlay',
-      captureCount: Math.max(0, Number(captureCount || 0)),
-      outfitSwitchCount: Math.max(0, Number(outfitSwitchCount || 0)),
-      averageFps: Number(averageFps || 0),
-      peakFps: Number(peakFps || 0),
-      averagePoseConfidence: Number(averagePoseConfidence || 0),
+      captureCount: clampNumber(captureCount, 0, 0, 10000),
+      outfitSwitchCount: clampNumber(outfitSwitchCount, 0, 0, 10000),
+      averageFps: clampNumber(averageFps, 0, 0, 240),
+      peakFps: clampNumber(peakFps, 0, 0, 240),
+      averagePoseConfidence: clampNumber(averagePoseConfidence, 0, 0, 1),
       bodyProfileSnapshot: sanitizeNumberMap(bodyProfileSnapshot),
       measurements: sanitizeNumberMap(measurements),
       renderStats: {
         renderer: renderStats?.renderer?.toString().trim() || 'hybrid_2d',
         occlusionEnabled: Boolean(renderStats?.occlusionEnabled),
         physicsEnabled: Boolean(renderStats?.physicsEnabled),
-        frameSkipCount: Math.max(0, Number(renderStats?.frameSkipCount || 0)),
+        frameSkipCount: clampNumber(renderStats?.frameSkipCount, 0, 0, 100000),
       },
       events: Array.isArray(events)
         ? events.slice(-120).map((event) => ({
-            timestampMs: Number(event?.timestampMs || 0),
-            fps: Number(event?.fps || 0),
-            poseConfidence: Number(event?.poseConfidence || 0),
+            timestampMs: clampNumber(event?.timestampMs, 0, 0, 86400000),
+            fps: clampNumber(event?.fps, 0, 0, 240),
+            poseConfidence: clampNumber(event?.poseConfidence, 0, 0, 1),
             bodyVisible: Boolean(event?.bodyVisible),
-            lightingScore: Number(event?.lightingScore || 0),
+            lightingScore: clampNumber(event?.lightingScore, 0, 0, 1),
           }))
         : [],
-      previewImageUrl: previewImageUrl?.toString().trim() || '',
-      status: status?.toString().trim() || 'active',
+      previewImageUrl: normalizeOptionalUrl(previewImageUrl),
+      status: ALLOWED_TRYON_STATUSES.has(status?.toString().trim())
+        ? status.toString().trim()
+        : 'active',
     };
 
     const session = await TryOnSession.findOneAndUpdate(

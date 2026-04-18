@@ -4,6 +4,7 @@ const { sanitizeAttributes } = require('../config/productAttributeConfig');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
 const { generateArAsset } = require('../services/arAssetService');
+const { isAllowedAdminEmail } = require('./authController');
 const cache = require('../services/redisCacheService');
 
 const ALLOWED_RIG_PROFILES = new Set([
@@ -543,7 +544,9 @@ async function generateProductArAsset(req, res, next) {
     if (!store) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
-    const isAdmin = ['admin', 'super_admin'].includes((req.user?.role || '').toLowerCase());
+    const isAdmin =
+      ['admin', 'super_admin'].includes((req.user?.role || '').toLowerCase()) &&
+      isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
     if (store.ownerId !== req.user.uid && !isAdmin) {
       return res.status(403).json({
         success: false,

@@ -2,9 +2,26 @@ const mongoose = require('mongoose');
 
 const SupportChat = require('../models/SupportChat');
 const SupportMessage = require('../models/SupportMessage');
+const { isAllowedAdminEmail } = require('./authController');
 
 function isAdmin(req) {
-  return req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  return (
+    (req.user?.role === 'admin' || req.user?.role === 'super_admin') &&
+    isAllowedAdminEmail(req.user?.email || req.dbUser?.email)
+  );
+}
+
+function normalizeOptionalUrl(value) {
+  const normalized = value?.toString().trim() || '';
+  if (!normalized) {
+    return '';
+  }
+  try {
+    const parsed = new URL(normalized);
+    return ['http:', 'https:'].includes(parsed.protocol) ? normalized : '';
+  } catch (_) {
+    return '';
+  }
 }
 
 function normalizeChatStatus(value) {
@@ -188,13 +205,15 @@ async function sendSupportMessage(req, res, next) {
     }
 
     const text = req.body?.text?.toString().trim() || '';
-    const imageUrl = req.body?.imageUrl?.toString().trim() || '';
+    const imageUrl = normalizeOptionalUrl(req.body?.imageUrl);
+    if (req.body?.imageUrl && !imageUrl) {
+      return res.status(400).json({ success: false, message: 'imageUrl must be a valid http/https URL.' });
+    }
     if (!text && !imageUrl) {
       return res.status(400).json({ success: false, message: 'Message text or image is required.' });
     }
 
-    const now = new Date();
-    const nowIso = now.toISOString();
+    const nowIso = new Date().toISOString();
     const senderRole = isAdmin(req) ? 'admin' : 'user';
 
     await SupportMessage.create({
@@ -214,9 +233,9 @@ async function sendSupportMessage(req, res, next) {
     let unreadCountAdmin = isAdmin(req) ? 0 : Number(chat.unreadCountAdmin || 0) + 1;
     let unreadCountUser = isAdmin(req) ? Number(chat.unreadCountUser || 0) + 1 : 0;
 
-    const assistantReply = isAdmin(req) ? req.body?.assistantReplyText?.toString().trim() || '' : '';
+    const assistantReply = isAdmin(req) ? req.body?.assistantReplyText?.toString().trim().slice(0, 4000) || '' : '';
     if (assistantReply) {
-      const assistantTimestamp = req.body?.assistantTimestamp?.toString().trim() || new Date(now.getTime() + 450).toISOString();
+      const assistantTimestamp = new Date(Date.now() + 450).toISOString();
       await SupportMessage.create({
         chatId: chat._id,
         senderId: 'abzora-assistant',

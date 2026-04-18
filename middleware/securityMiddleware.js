@@ -7,6 +7,8 @@ const DEFAULT_DEV_ORIGINS = [
   'http://127.0.0.1:5173',
 ];
 
+const { clientIp, logSecurityEvent, logSecurityWarning, requestId, safeString } = require('../services/auditLogger');
+
 let redisLimiterClient = null;
 let redisLimiterAvailable = false;
 
@@ -78,8 +80,14 @@ function securityHeaders(req, res, next) {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self';",
+  );
   if (process.env.NODE_ENV === 'production') {
     res.setHeader(
       'Strict-Transport-Security',
@@ -87,6 +95,70 @@ function securityHeaders(req, res, next) {
     );
   }
   next();
+}
+
+function enforceHttps(req, res, next) {
+  if (process.env.NODE_ENV !== 'production' || process.env.ENFORCE_HTTPS === 'false') {
+    return next();
+  }
+  const proto = String(req.headers['x-forwarded-proto'] || req.protocol || '').trim().toLowerCase();
+  if (proto === 'https') {
+    return next();
+  }
+  return res.status(403).json({
+    success: false,
+    message: 'HTTPS is required.',
+  });
+}
+
+function requestContext(req, res, next) {
+  req.requestId = requestId();
+  req.requestStartedAt = Date.now();
+  res.setHeader('X-Request-Id', req.requestId);
+  return next();
+}
+
+function requestAuditLogger(req, res, next) {
+  const startedAt = Date.now();
+  const contentLength = Number(req.headers['content-length'] || 0);
+  if (contentLength > 2 * 1024 * 1024) {
+    logSecurityWarning('unusual_large_request', {
+      requestId: req.requestId,
+      method: req.method,
+      path: req.originalUrl,
+      ip: clientIp(req),
+      contentLength,
+    });
+  }
+
+  res.on('finish', () => {
+    const durationMs = Date.now() - startedAt;
+    const payload = {
+      requestId: req.requestId,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs,
+      ip: clientIp(req),
+      userId: safeString(req.user?.uid || req.dbUser?.uid || ''),
+      userRole: safeString(req.user?.role || ''),
+    };
+    if (res.statusCode >= 500) {
+      logSecurityWarning('api_error', payload);
+      return;
+    }
+    if (res.statusCode === 401 || res.statusCode === 403 || res.statusCode === 429) {
+      logSecurityWarning('security_sensitive_response', payload);
+      return;
+    }
+    if (durationMs > 5000) {
+      logSecurityWarning('slow_request', payload);
+      return;
+    }
+    logSecurityEvent('api_request', payload);
+  });
+
+  return next();
 }
 
 function createRateLimiter({
@@ -132,6 +204,12 @@ function createRateLimiter({
             success: false,
             message,
           });
+          logSecurityWarning('rate_limit_blocked', {
+            requestId: req.requestId,
+            key,
+            path: req.originalUrl,
+            ip: clientIp(req),
+          });
           return;
         }
         next();
@@ -159,6 +237,12 @@ function createRateLimiter({
         success: false,
         message,
       });
+      logSecurityWarning('rate_limit_blocked', {
+        requestId: req.requestId,
+        key,
+        path: req.originalUrl,
+        ip: clientIp(req),
+      });
       return;
     }
 
@@ -170,5 +254,8 @@ function createRateLimiter({
 module.exports = {
   createCorsOptions,
   createRateLimiter,
+  enforceHttps,
+  requestAuditLogger,
+  requestContext,
   securityHeaders,
 };

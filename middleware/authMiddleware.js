@@ -1,5 +1,6 @@
 const initializeFirebase = require('../config/firebase');
 const User = require('../models/User');
+const { clientIp, logSecurityWarning } = require('../services/auditLogger');
 
 const VALID_ROLES = new Set(['user', 'customer', 'vendor', 'rider', 'admin', 'super_admin']);
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
@@ -136,8 +137,46 @@ async function authMiddleware(req, res, next) {
       return unauthorized(res);
     }
 
-    const decoded = await admin.auth().verifyIdToken(token);
+    const decoded = await admin.auth().verifyIdToken(token, true);
+    const maxSessionAgeMinutes = Number(process.env.AUTH_MAX_SESSION_AGE_MINUTES || 480);
+    const authTimeMs = Number(decoded.auth_time || 0) * 1000;
+    if (
+      Number.isFinite(maxSessionAgeMinutes) &&
+      maxSessionAgeMinutes > 0 &&
+      authTimeMs > 0 &&
+      (Date.now() - authTimeMs) > maxSessionAgeMinutes * 60 * 1000
+    ) {
+      logSecurityWarning('stale_session_rejected', {
+        requestId: req.requestId,
+        uid: decoded.uid,
+        ip: clientIp(req),
+      });
+      return res.status(401).json({
+        success: false,
+        message: 'Session expired. Please sign in again.',
+      });
+    }
+
+    const requireVerifiedEmail = process.env.REQUIRE_EMAIL_VERIFICATION !== 'false';
+    if (
+      requireVerifiedEmail &&
+      decoded.email &&
+      decoded.firebase?.sign_in_provider === 'password' &&
+      decoded.email_verified !== true
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Verify your email address before continuing.',
+      });
+    }
+
     const user = await upsertFirebaseUser(decoded);
+    if (user?.isActive === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been disabled.',
+      });
+    }
 
     if (process.env.NODE_ENV === 'development') {
       console.log('Authenticated UID:', decoded.uid);
@@ -150,12 +189,19 @@ async function authMiddleware(req, res, next) {
       firebaseUid: decoded.uid,
       email: decoded.email || null,
       phone: decoded.phone_number || null,
+      emailVerified: decoded.email_verified === true,
+      authTime: decoded.auth_time || null,
       ...serializeUser(user),
     };
 
     return next();
   } catch (error) {
-    console.error('Auth middleware error:', error.message);
+    logSecurityWarning('auth_failed', {
+      requestId: req.requestId,
+      path: req.originalUrl,
+      ip: clientIp(req),
+      message: error.message,
+    });
     return unauthorized(res);
   }
 }

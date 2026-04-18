@@ -5,7 +5,7 @@ function serializeCard(card) {
   return {
     id: source._id?.toString() || source.id || '',
     userId: source.userId || '',
-    token: source.token || '',
+    cardRef: source.cardRef || '',
     last4: source.last4 || '0000',
     cardType: source.cardType || 'Card',
     gatewayCustomerId: source.gatewayCustomerId || '',
@@ -27,23 +27,23 @@ async function listSavedCards(req, res, next) {
 
 async function saveCard(req, res, next) {
   try {
-    const token = req.body?.token?.toString().trim() || '';
+    const cardRef = req.body?.cardRef?.toString().trim() || req.body?.id?.toString().trim() || '';
     const last4 = req.body?.last4?.toString().trim() || '';
     const cardType = req.body?.cardType?.toString().trim() || 'Card';
     const gatewayCustomerId = req.body?.gatewayCustomerId?.toString().trim() || '';
 
-    if (!token || !last4) {
+    if (!cardRef || !last4) {
       return res.status(400).json({
         success: false,
-        message: 'token and last4 are required.',
+        message: 'cardRef and last4 are required.',
       });
     }
 
     const card = await SavedCard.findOneAndUpdate(
-      { userId: req.user.uid, token },
+      { userId: req.user.uid, cardRef },
       {
         userId: req.user.uid,
-        token,
+        cardRef,
         last4,
         cardType,
         gatewayCustomerId,
@@ -65,8 +65,8 @@ async function deleteCard(req, res, next) {
   try {
     const cardId = req.params.id?.toString() || '';
     await SavedCard.findOneAndDelete({
-      _id: cardId,
       userId: req.user.uid,
+      $or: [{ _id: cardId }, { cardRef: cardId }],
     });
     return res.status(200).json({ success: true, data: { id: cardId } });
   } catch (error) {

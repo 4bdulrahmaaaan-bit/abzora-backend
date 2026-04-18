@@ -10,11 +10,20 @@ const initializeFirebase = require('./config/firebase');
 const {
   createCorsOptions,
   createRateLimiter,
+  enforceHttps,
+  requestAuditLogger,
+  requestContext,
   securityHeaders,
 } = require('./middleware/securityMiddleware');
 const authMiddleware = require('./middleware/authMiddleware');
+const {
+  requireAdmin,
+  requireRider,
+  requireVendor,
+} = require('./middleware/authorizationMiddleware');
 const { me } = require('./controllers/authController');
 const { scheduleFinanceCrons } = require('./services/financeCronService');
+const { clientIp, logSecurityError } = require('./services/auditLogger');
 
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -54,6 +63,7 @@ const trackingRoutes = require('./routes/trackingRoutes');
 const opsRoutes = require('./routes/opsRoutes');
 const debugRoutes = require('./routes/debugRoutes');
 const { attachTrackingGateway } = require('./services/trackingGateway');
+const { attachPricingGateway } = require('./services/pricingGateway');
 const { startDispatchScheduler } = require('./services/dispatchSchedulerService');
 const { startOpsRuntime } = require('./services/opsRuntimeService');
 const { getOrderEta } = require('./controllers/dispatchController');
@@ -64,6 +74,9 @@ const host = process.env.HOST || '0.0.0.0';
 app.set('trust proxy', 1);
 
 app.use(cors(createCorsOptions()));
+app.use(requestContext);
+app.use(requestAuditLogger);
+app.use(enforceHttps);
 app.use(securityHeaders);
 app.use('/webhooks/razorpayx', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use('/webhooks/razorpay', express.raw({ type: 'application/json', limit: '1mb' }));
@@ -72,8 +85,13 @@ app.use(express.urlencoded({ extended: true }));
 
 const authLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 80,
+  max: 25,
   message: 'Too many authentication requests. Please wait and try again.',
+  keyGenerator: (req) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const phone = String(req.body?.phone || '').trim();
+    return `auth:${clientIp(req)}:${email || phone || 'anon'}`;
+  },
 });
 
 const orderLimiter = createRateLimiter({
@@ -112,6 +130,20 @@ const uploadLimiter = createRateLimiter({
   message: 'Too many upload requests. Please wait and try again.',
 });
 
+const aiLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 40,
+  message: 'Too many AI requests. Please slow down and try again.',
+  keyGenerator: (req) => `ai:${req.user?.uid || clientIp(req)}`,
+});
+
+const accountCreationLimiter = createRateLimiter({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: 'Too many account setup attempts. Please try again later.',
+  keyGenerator: (req) => `account:${clientIp(req)}:${String(req.body?.phone || req.body?.email || '').trim()}`,
+});
+
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'ok',
@@ -140,6 +172,7 @@ app.get('/', (req, res) => {
   });
 });
 
+app.use('/auth/test-user', accountCreationLimiter);
 app.use('/auth', authLimiter, authRoutes);
 app.get('/profile', authLimiter, authMiddleware, me);
 app.get('/eta/:orderId', authMiddleware, getOrderEta);
@@ -157,31 +190,31 @@ app.use('/wishlist', wishlistRoutes);
 app.use('/cards', cardRoutes);
 app.use('/chats', chatRoutes);
 app.use('/support', supportLimiter, supportRoutes);
-app.use('/ai', aiRoutes);
-app.use('/admin', adminLimiter, adminRoutes);
-app.use('/vendor', vendorRoutes);
-app.use('/rider', riderRoutes);
+app.use('/ai', aiLimiter, aiRoutes);
+app.use('/admin', adminLimiter, authMiddleware, requireAdmin, adminRoutes);
+app.use('/vendor', authMiddleware, requireVendor, vendorRoutes);
+app.use('/rider', authMiddleware, requireRider, riderRoutes);
 app.use('/kyc', kycRoutes);
 app.use('/reviews', reviewRoutes);
 app.use('/bookings', bookingRoutes);
 app.use('/banners', bannerRoutes);
 app.use('/home-visuals', homeVisualRoutes);
 app.use('/api/categories', categoryRoutes);
-app.use('/api/outfits', outfitRoutes);
-app.use('/finance', adminLimiter, financeRoutes);
-app.use('/wallet', withdrawalLimiter, walletRoutes);
-app.use('/payouts', adminLimiter, payoutRoutes);
+app.use('/api/outfits', aiLimiter, outfitRoutes);
+app.use('/finance', adminLimiter, authMiddleware, financeRoutes);
+app.use('/wallet', withdrawalLimiter, authMiddleware, walletRoutes);
+app.use('/payouts', adminLimiter, authMiddleware, requireAdmin, payoutRoutes);
 app.use('/ar', arRoutes);
 app.use('/trial-home', orderLimiter, trialHomeRoutes);
 app.use('/cta-decision', ctaRoutes);
 app.use('/experience-config', experienceRoutes);
 app.use('/experience', experienceRoutes);
-app.use('/ml', mlRoutes);
-app.use('/analytics', analyticsRoutes);
+app.use('/ml', aiLimiter, mlRoutes);
+app.use('/analytics', supportLimiter, analyticsRoutes);
 app.use('/', logisticsRoutes);
 app.use('/dispatch', dispatchRoutes);
 app.use('/tracking', trackingRoutes);
-app.use('/ops', adminLimiter, opsRoutes);
+app.use('/ops', adminLimiter, authMiddleware, requireAdmin, opsRoutes);
 app.use('/webhooks', webhookRoutes);
 app.use('/debug', debugRoutes);
 
@@ -190,7 +223,14 @@ app.use((req, res) => {
 });
 
 app.use((error, req, res, next) => {
-  console.error('Backend error:', error);
+  logSecurityError('backend_error', {
+    requestId: req.requestId,
+    path: req.originalUrl,
+    method: req.method,
+    ip: clientIp(req),
+    message: error.message,
+    stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+  });
   const status = error.statusCode || error.status || 500;
   res.status(status).json({
     success: false,
@@ -207,6 +247,7 @@ async function startServer() {
     startOpsRuntime();
     const server = http.createServer(app);
     attachTrackingGateway(server);
+    attachPricingGateway(server);
     server.listen(port, host, () => {
       console.log(`ABZORA backend running on ${host}:${port}`);
     });

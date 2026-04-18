@@ -62,6 +62,7 @@ const razorpaySchema = new mongoose.Schema(
 const trackingTimestampSchema = new mongoose.Schema({}, { _id: false, strict: false });
 const customMeasurementsSchema = new mongoose.Schema({}, { _id: false, strict: false });
 const customDesignSchema = new mongoose.Schema({}, { _id: false, strict: false });
+const pricingBreakdownSchema = new mongoose.Schema({}, { _id: false, strict: false });
 
 const orderSchema = new mongoose.Schema(
   {
@@ -110,6 +111,25 @@ const orderSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    discountAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    discountPercent: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    tryAtHomeFee: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    tryAtHomeFeeRefundable: {
+      type: Boolean,
+      default: false,
+    },
     totalAmount: {
       type: Number,
       required: true,
@@ -137,6 +157,12 @@ const orderSchema = new mongoose.Schema(
       default: 0,
       min: 0,
     },
+    commissionPercent: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 0.3,
+    },
     vendorEarnings: {
       type: Number,
       default: 0,
@@ -146,6 +172,27 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: 0,
+    },
+    paymentGatewayFee: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    platformRevenue: {
+      type: Number,
+      default: 0,
+    },
+    platformCost: {
+      type: Number,
+      default: 0,
+    },
+    platformProfit: {
+      type: Number,
+      default: 0,
+    },
+    pricingBreakdown: {
+      type: pricingBreakdownSchema,
+      default: () => ({}),
     },
     paymentMethod: {
       type: String,

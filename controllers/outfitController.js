@@ -15,13 +15,13 @@ function normalizeLimit(value, fallback = 6) {
   return Math.max(1, Math.min(12, Math.floor(parsed)));
 }
 
+function getAuthenticatedUserId(req) {
+  return req.user?.uid || req.user?.firebaseUid || req.user?.id || '';
+}
+
 async function getOutfits(req, res, next) {
   try {
-    const userId =
-      req.query.userId?.toString().trim() ||
-      req.user?.uid ||
-      req.user?.firebaseUid ||
-      '';
+    const userId = getAuthenticatedUserId(req);
     const productId = req.query.productId?.toString().trim() || '';
     const occasion = req.query.occasion?.toString().trim() || '';
     const budget = req.query.budget?.toString().trim() || '';
@@ -113,11 +113,7 @@ async function getCompleteLook(req, res, next) {
     }
 
     const outfits = await generateOutfitRecommendations({
-      userId:
-        req.query.userId?.toString().trim() ||
-        req.user?.uid ||
-        req.user?.firebaseUid ||
-        '',
+      userId: getAuthenticatedUserId(req),
       productId,
       occasion: req.query.occasion?.toString().trim() || '',
       budget: req.query.budget?.toString().trim() || '',
@@ -136,11 +132,7 @@ async function getCompleteLook(req, res, next) {
 
 async function getBodyTypeRecommendations(req, res, next) {
   try {
-    const userId =
-      req.query.userId?.toString().trim() ||
-      req.user?.uid ||
-      req.user?.firebaseUid ||
-      '';
+    const userId = getAuthenticatedUserId(req);
     const limit = normalizeLimit(req.query.limit, 10);
     const data = await recommendProductsForBodyType({
       userId,

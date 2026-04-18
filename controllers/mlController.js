@@ -2,6 +2,10 @@ const ExperienceControl = require('../models/ExperienceControl');
 const ExperienceLog = require('../models/ExperienceLog');
 const { decideAction, updateReward } = require('../services/mlBanditService');
 
+function getAuthenticatedUserId(req) {
+  return req.user?.uid || req.user?.firebaseUid || req.user?.id || '';
+}
+
 function rewardFromEvent(eventType) {
   const event = String(eventType || '').trim().toLowerCase();
   if (event === 'purchase') return 1;
@@ -25,7 +29,7 @@ async function getMlDecision(req, res, next) {
     const decision = await decideAction({
       features,
       epsilon,
-      seed: `${req.query?.userId || ''}:${req.query?.productId || ''}:${Date.now()}`,
+      seed: `${getAuthenticatedUserId(req) || req.query?.sessionId || req.ip || ''}:${req.query?.productId || ''}:${Date.now()}`,
     });
 
     return res.status(200).json({ success: true, data: decision });
@@ -49,6 +53,14 @@ async function postMlReward(req, res, next) {
     const decisionLog = decisionId
       ? await ExperienceLog.findOne({ decisionId }).lean()
       : null;
+
+    if (decisionId && !decisionLog) {
+      return res.status(404).json({ success: false, message: 'Decision not found.' });
+    }
+    if (decisionLog && decisionLog.userId && decisionLog.userId !== getAuthenticatedUserId(req)) {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+
     const features = req.body?.features && typeof req.body.features === 'object'
       ? req.body.features
       : (decisionLog?.features || {});

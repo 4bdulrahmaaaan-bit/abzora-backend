@@ -27,7 +27,7 @@ const adminPlatformSettingsSchema = new mongoose.Schema(
     },
     adminIdleTimeoutMinutes: { type: Number, default: 10 },
     adminPinEnabled: { type: Boolean, default: false },
-    adminPin: { type: String, default: '1234', trim: true },
+    adminPin: { type: String, default: '', trim: true },
     aiDailyCostAlertThreshold: { type: Number, default: 1.0 },
     aiDailyCostLimit: { type: Number, default: 500 },
     aiAssistantEnabled: { type: Boolean, default: true },

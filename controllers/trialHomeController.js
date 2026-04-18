@@ -19,9 +19,21 @@ const {
   updateTrialHomeSessionForVendor,
 } = require('../services/trialHomeService');
 const TrialHomeSession = require('../models/TrialHomeSession');
+const { isAllowedAdminEmail } = require('./authController');
 
 function unauthorized(res) {
   return res.status(401).json({ success: false, message: 'Unauthorized' });
+}
+
+function isPrivilegedApprover(req) {
+  const role = req.user?.role;
+  if (role === 'vendor') {
+    return true;
+  }
+  if (role === 'admin' || role === 'super_admin') {
+    return isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
+  }
+  return false;
 }
 
 async function bookTrialHome(req, res, next) {
@@ -265,9 +277,7 @@ async function approveTrialHome(req, res, next) {
       sessionId: req.params.id,
       userId: req.user.uid,
     }) || (
-      req.user?.role === 'admin' ||
-      req.user?.role === 'super_admin' ||
-      req.user?.role === 'vendor'
+      isPrivilegedApprover(req)
         ? await TrialHomeSession.findById(req.params.id)
         : null
     );
@@ -309,9 +319,7 @@ async function rejectTrialHome(req, res, next) {
       sessionId: req.params.id,
       userId: req.user.uid,
     }) || (
-      req.user?.role === 'admin' ||
-      req.user?.role === 'super_admin' ||
-      req.user?.role === 'vendor'
+      isPrivilegedApprover(req)
         ? await TrialHomeSession.findById(req.params.id)
         : null
     );

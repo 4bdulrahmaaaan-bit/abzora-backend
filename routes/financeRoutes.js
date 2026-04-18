@@ -1,6 +1,6 @@
 const express = require('express');
 
-const authMiddleware = require('../middleware/authMiddleware');
+const { requireAdmin, requireRider, requireVendor } = require('../middleware/authorizationMiddleware');
 const {
   getAdminFinance,
   getVendorDashboard,
@@ -11,13 +11,10 @@ const {
 
 const router = express.Router();
 
-router.use(authMiddleware);
-
-router.get('/overview', getAdminFinance);
-router.get('/vendor/dashboard', getVendorDashboard);
-router.get('/rider/dashboard', getRiderDashboard);
-router.post('/settlements/run', runScheduledSettlements);
-router.patch('/fraud-alerts/:alertId', updateFraudAlertStatus);
+router.get('/overview', requireAdmin, getAdminFinance);
+router.get('/vendor/dashboard', requireVendor, getVendorDashboard);
+router.get('/rider/dashboard', requireRider, getRiderDashboard);
+router.post('/settlements/run', requireAdmin, runScheduledSettlements);
+router.patch('/fraud-alerts/:alertId', requireAdmin, updateFraudAlertStatus);
 
 module.exports = router;
-

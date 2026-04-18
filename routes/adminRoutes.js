@@ -40,6 +40,17 @@ const {
   getAdminHomeVisualConfig,
   saveAdminHomeVisualConfig,
 } = require('../controllers/homeVisualController');
+const {
+  getAdminPricing,
+  simulateAdminPricing,
+  updateAdminPricing,
+  updateAdminPricingCommission,
+  updateAdminPricingDelivery,
+  updateAdminPricingDiscount,
+  updateAdminPricingRider,
+  updateAdminPricingScope,
+  updateAdminPricingTrial,
+} = require('../controllers/pricingAdminController');
 
 const router = express.Router();
 
@@ -57,6 +68,15 @@ router.post('/notifications', createNotification);
 router.get('/payouts', listPayouts);
 router.post('/payouts/process', processPayout);
 router.get('/finance', getAdminFinance);
+router.get('/pricing', getAdminPricing);
+router.post('/pricing/update', updateAdminPricing);
+router.post('/pricing', updateAdminPricingScope);
+router.post('/pricing/commission', updateAdminPricingCommission);
+router.post('/pricing/delivery', updateAdminPricingDelivery);
+router.post('/pricing/trial', updateAdminPricingTrial);
+router.post('/pricing/discount', updateAdminPricingDiscount);
+router.post('/pricing/rider', updateAdminPricingRider);
+router.post('/pricing/simulate', simulateAdminPricing);
 router.post('/finance/settlements/vendors', settleVendorPayouts);
 router.post('/finance/settlements/riders', settleRiderPayouts);
 router.post('/finance/settlements/run', runScheduledSettlements);

@@ -79,7 +79,7 @@ async function sendMessage(req, res, next) {
       return res.status(400).json({ success: false, message: 'Message text is required.' });
     }
 
-    const timestamp = req.body?.timestamp?.toString().trim() || new Date().toISOString();
+    const timestamp = new Date().toISOString();
     const message = await ChatMessage.create({
       chatId,
       senderId: req.user.uid,

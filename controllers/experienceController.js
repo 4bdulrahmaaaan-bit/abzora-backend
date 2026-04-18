@@ -4,6 +4,10 @@ const {
   updateExperienceControl,
 } = require('../services/adaptiveExperienceService');
 
+function getAuthenticatedUserId(req) {
+  return req.user?.uid || req.user?.firebaseUid || req.user?.id || '';
+}
+
 async function fetchExperienceConfig(req, res, next) {
   try {
     const productId = String(req.params?.productId || '').trim();
@@ -13,7 +17,7 @@ async function fetchExperienceConfig(req, res, next) {
 
     const payload = await getExperienceConfig({
       productId,
-      userId: String(req.query?.userId || '').trim(),
+      userId: getAuthenticatedUserId(req),
       fitConfidence: req.query?.fitConfidence,
       returnRate: req.query?.returnRate ?? req.query?.returnHistory,
       sessionDepth: req.query?.sessionDepth,
@@ -44,7 +48,7 @@ async function saveExperienceControl(req, res, next) {
       thresholds: req.body?.thresholds,
       toggles: req.body?.toggles,
       ml: req.body?.ml,
-      updatedBy: req.user?.uid || req.body?.updatedBy || 'system',
+      updatedBy: getAuthenticatedUserId(req) || 'system',
     });
     return res.status(200).json({ success: true, data: payload });
   } catch (error) {

@@ -5,13 +5,16 @@ const DispatchBatch = require('../models/DispatchBatch');
 const { assignSingleOrder, assignBatches } = require('../services/dispatchEngineService');
 const { getEtaForOrder } = require('../services/etaService');
 const { riderSlaScore, vendorSlaScore } = require('../services/slaScoringService');
+const { isAllowedAdminEmail } = require('./authController');
 
-function ensureDispatcher(req, res) {
+function ensureDispatchAdmin(req, res) {
   if (!req.user?.uid) {
     res.status(401).json({ success: false, message: 'Unauthorized' });
     return false;
   }
-  if (!['admin', 'super_admin', 'vendor', 'rider'].includes(req.user.role)) {
+  const privileged = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
+  if (!privileged || !emailAllowed) {
     res.status(403).json({ success: false, message: 'Dispatch access denied.' });
     return false;
   }
@@ -39,7 +42,7 @@ function serializeBatch(batch) {
 
 async function dispatchAssign(req, res, next) {
   try {
-    if (!ensureDispatcher(req, res)) return;
+    if (!ensureDispatchAdmin(req, res)) return;
     const orderId = String(req.body?.orderId || '').trim();
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({ success: false, message: 'Valid orderId is required.' });
@@ -57,7 +60,7 @@ async function dispatchAssign(req, res, next) {
 
 async function dispatchBatchAssign(req, res, next) {
   try {
-    if (!ensureDispatcher(req, res)) return;
+    if (!ensureDispatchAdmin(req, res)) return;
     const city = String(req.body?.city || '').trim();
     const result = await assignBatches({
       city,
@@ -78,7 +81,7 @@ async function dispatchBatchAssign(req, res, next) {
 
 async function getOrderEta(req, res, next) {
   try {
-    if (!ensureDispatcher(req, res)) return;
+    if (!ensureDispatchAdmin(req, res)) return;
     const orderId = String(req.params?.orderId || '').trim();
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({ success: false, message: 'Invalid orderId.' });
@@ -92,7 +95,7 @@ async function getOrderEta(req, res, next) {
 
 async function listDispatchBatches(req, res, next) {
   try {
-    if (!ensureDispatcher(req, res)) return;
+    if (!ensureDispatchAdmin(req, res)) return;
     const filter = {};
     if (req.query?.riderId) {
       filter.riderId = String(req.query.riderId).trim();
@@ -112,7 +115,7 @@ async function listDispatchBatches(req, res, next) {
 
 async function triggerDispatchRebalance(req, res, next) {
   try {
-    if (!ensureDispatcher(req, res)) return;
+    if (!ensureDispatchAdmin(req, res)) return;
     const stuckTasks = await DeliveryTask.find({
       status: { $in: ['assigned', 'accepted'] },
       updatedAt: { $lte: new Date(Date.now() - 30 * 60 * 1000) },
@@ -150,7 +153,7 @@ async function triggerDispatchRebalance(req, res, next) {
 
 async function getSlaOverview(req, res, next) {
   try {
-    if (!ensureDispatcher(req, res)) return;
+    if (!ensureDispatchAdmin(req, res)) return;
     const riderId = String(req.query?.riderId || '').trim();
     const vendorId = String(req.query?.vendorId || '').trim();
     const storeId = String(req.query?.storeId || '').trim();

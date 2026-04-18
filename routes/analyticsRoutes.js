@@ -1,6 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { requireAdmin } = require('../middleware/authorizationMiddleware');
 const {
   createAnalyticsEvent,
   fetchAnalyticsDashboard,
@@ -9,6 +10,6 @@ const {
 const router = express.Router();
 
 router.post('/event', createAnalyticsEvent);
-router.get('/dashboard', authMiddleware, fetchAnalyticsDashboard);
+router.get('/dashboard', authMiddleware, requireAdmin, fetchAnalyticsDashboard);
 
 module.exports = router;

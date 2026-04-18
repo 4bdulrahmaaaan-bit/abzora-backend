@@ -25,6 +25,9 @@ function getServiceAccountFromEnv() {
 }
 
 function getServiceAccountFromFile() {
+  if (process.env.NODE_ENV === 'production') {
+    return null;
+  }
   if (!fs.existsSync(serviceAccountPath)) {
     return null;
   }

@@ -638,8 +638,21 @@ async function getOperationsAnalytics(req, res, next) {
       return;
     }
 
+    let storeFilter = {};
+    let vendorStoreIds = [];
+    let vendorProductIds = [];
+    if (req.user.role === 'vendor') {
+      const stores = await Store.find({ ownerId: req.user.uid }).select('_id').lean();
+      vendorStoreIds = stores.map((store) => store._id.toString());
+      vendorProductIds = (
+        await Product.find({ storeId: { $in: vendorStoreIds } }).select('_id').lean()
+      ).map((product) => product._id.toString());
+      storeFilter = vendorStoreIds.length > 0 ? { storeId: { $in: vendorStoreIds } } : { storeId: { $in: [] } };
+    }
+
     const [deliveryStats, vendorStats, trialStats] = await Promise.all([
       DeliveryTask.aggregate([
+        ...(req.user.role === 'vendor' ? [{ $match: storeFilter }] : []),
         {
           $group: {
             _id: null,
@@ -657,6 +670,7 @@ async function getOperationsAnalytics(req, res, next) {
         },
       ]),
       Order.aggregate([
+        ...(req.user.role === 'vendor' ? [{ $match: storeFilter }] : []),
         {
           $group: {
             _id: '$storeId',
@@ -670,6 +684,9 @@ async function getOperationsAnalytics(req, res, next) {
         { $limit: 20 },
       ]),
       TrialHomeSession.aggregate([
+        ...(req.user.role === 'vendor'
+          ? [{ $match: { 'items.productId': { $in: vendorProductIds } } }]
+          : []),
         {
           $group: {
             _id: null,

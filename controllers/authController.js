@@ -34,6 +34,43 @@ function toSafeTrimmedString(value) {
   return value == null ? '' : value.toString().trim();
 }
 
+function normalizeOptionalUrl(value) {
+  const normalized = toSafeTrimmedString(value);
+  if (!normalized) {
+    return '';
+  }
+  try {
+    const parsed = new URL(normalized);
+    return ['http:', 'https:'].includes(parsed.protocol) ? normalized : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function clampNumber(value, fallback, minimum, maximum) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.max(minimum, Math.min(maximum, parsed));
+}
+
+function normalizeCoordinate(value, minimum, maximum) {
+  if (value == null || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.max(minimum, Math.min(maximum, parsed));
+}
+
+function normalizeAddressType(value) {
+  const normalized = toSafeTrimmedString(value).toLowerCase();
+  return ['home', 'work', 'other'].includes(normalized) ? normalized : 'home';
+}
+
 function sanitizeRoles(input, fallbackRole) {
   const candidate = input && typeof input === 'object' ? input : {};
   const roles = {};
@@ -413,6 +450,15 @@ function normalizePhone(value) {
 
 async function upsertTestUser(req, res, next) {
   try {
+    if (process.env.NODE_ENV === 'production') {
+      return res.status(404).json({ success: false, message: 'Route not found.' });
+    }
+    if (process.env.ENABLE_TEST_AUTH_ROUTES !== 'true') {
+      return res.status(403).json({
+        success: false,
+        message: 'Test auth routes are disabled.',
+      });
+    }
     const phone = normalizePhone(req.body?.phone);
     if (!phone) {
       return res.status(400).json({
@@ -455,41 +501,30 @@ async function syncProfile(req, res, next) {
       });
     }
 
-    const requestedRole = normalizeRole(req.body?.role, req.dbUser.role || 'user');
-    if (PRIVILEGED_ROLES.has(requestedRole) && !PRIVILEGED_ROLES.has(req.dbUser.role)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid role update.',
-      });
-    }
-
     req.dbUser.name = toSafeTrimmedString(req.body?.name) || req.dbUser.name || 'ABZORA Member';
     req.dbUser.phone = toSafeTrimmedString(req.body?.phone) || req.dbUser.phone;
     req.dbUser.email = toSafeTrimmedString(req.body?.email) || req.dbUser.email;
-    req.dbUser.profileImageUrl = toSafeTrimmedString(req.body?.profileImageUrl);
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'profileImageUrl')) {
+      const nextProfileImageUrl = normalizeOptionalUrl(req.body?.profileImageUrl);
+      if (toSafeTrimmedString(req.body?.profileImageUrl) && !nextProfileImageUrl) {
+        return res.status(400).json({
+          success: false,
+          message: 'profileImageUrl must be a valid http/https URL.',
+        });
+      }
+      req.dbUser.profileImageUrl = nextProfileImageUrl;
+    }
+
     req.dbUser.address = toSafeTrimmedString(req.body?.address);
     req.dbUser.area = toSafeTrimmedString(req.body?.area);
     req.dbUser.city = toSafeTrimmedString(req.body?.city);
-    req.dbUser.latitude = req.body?.latitude == null ? null : Number(req.body.latitude);
-    req.dbUser.longitude = req.body?.longitude == null ? null : Number(req.body.longitude);
+    req.dbUser.latitude = normalizeCoordinate(req.body?.latitude, -90, 90);
+    req.dbUser.longitude = normalizeCoordinate(req.body?.longitude, -180, 180);
     req.dbUser.deliveryRadiusKm = req.body?.deliveryRadiusKm == null
       ? req.dbUser.deliveryRadiusKm || 10
-      : Number(req.body.deliveryRadiusKm);
-    req.dbUser.locationUpdatedAt = toSafeTrimmedString(req.body?.locationUpdatedAt);
-    req.dbUser.isActive = req.body?.isActive ?? req.dbUser.isActive;
-    req.dbUser.role = requestedRole;
-    req.dbUser.roles = sanitizeRoles(req.body?.roles, requestedRole);
-    const requestedStoreId = toSafeTrimmedString(req.body?.storeId);
-    req.dbUser.storeId = requestedStoreId || req.dbUser.storeId || '';
-    req.dbUser.walletBalance = req.body?.walletBalance == null
-      ? req.dbUser.walletBalance || 0
-      : Number(req.body.walletBalance);
-    req.dbUser.riderApprovalStatus = APPROVAL_STATUSES.has(req.body?.riderApprovalStatus)
-      ? req.body.riderApprovalStatus
-      : req.dbUser.riderApprovalStatus || 'pending';
-    req.dbUser.riderVehicleType = toSafeTrimmedString(req.body?.riderVehicleType);
-    req.dbUser.riderLicenseNumber = toSafeTrimmedString(req.body?.riderLicenseNumber);
-    req.dbUser.riderCity = toSafeTrimmedString(req.body?.riderCity);
+      : clampNumber(req.body.deliveryRadiusKm, req.dbUser.deliveryRadiusKm || 10, 1, 100);
+    req.dbUser.locationUpdatedAt = new Date().toISOString();
     req.dbUser.lastLoginAt = new Date();
 
     await req.dbUser.save();
@@ -547,9 +582,9 @@ async function saveAddress(req, res, next) {
         houseDetails: toSafeTrimmedString(req.body?.houseDetails),
         landmark: toSafeTrimmedString(req.body?.landmark),
         locality: toSafeTrimmedString(req.body?.locality),
-        latitude: req.body?.latitude == null ? null : Number(req.body.latitude),
-        longitude: req.body?.longitude == null ? null : Number(req.body.longitude),
-        type: toSafeTrimmedString(req.body?.type) || 'home',
+        latitude: normalizeCoordinate(req.body?.latitude, -90, 90),
+        longitude: normalizeCoordinate(req.body?.longitude, -180, 180),
+        type: normalizeAddressType(req.body?.type),
         createdAtIso,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -611,10 +646,10 @@ async function saveMemory(req, res, next) {
           : existingMemory?.preferredStyle || '',
         size: has('size') ? toSafeTrimmedString(req.body?.size) : existingMemory?.size || '',
         heightCm: has('heightCm')
-          ? (req.body?.heightCm == null ? null : Number(req.body.heightCm))
+          ? normalizeCoordinate(req.body?.heightCm, 50, 300)
           : existingMemory?.heightCm ?? null,
         weightKg: has('weightKg')
-          ? (req.body?.weightKg == null ? null : Number(req.body.weightKg))
+          ? normalizeCoordinate(req.body?.weightKg, 10, 500)
           : existingMemory?.weightKg ?? null,
         bodyType: has('bodyType')
           ? toSafeTrimmedString(req.body?.bodyType)
@@ -627,28 +662,28 @@ async function saveMemory(req, res, next) {
           ? toSafeTrimmedString(req.body?.fitPreference) || 'regular'
           : existingMemory?.fitPreference || 'regular',
         shoulderCm: has('shoulderCm')
-          ? (req.body?.shoulderCm == null ? null : Number(req.body.shoulderCm))
+          ? normalizeCoordinate(req.body?.shoulderCm, 10, 200)
           : existingMemory?.shoulderCm ?? null,
         chestCm: has('chestCm')
-          ? (req.body?.chestCm == null ? null : Number(req.body.chestCm))
+          ? normalizeCoordinate(req.body?.chestCm, 20, 300)
           : existingMemory?.chestCm ?? null,
         waistCm: has('waistCm')
-          ? (req.body?.waistCm == null ? null : Number(req.body.waistCm))
+          ? normalizeCoordinate(req.body?.waistCm, 20, 300)
           : existingMemory?.waistCm ?? null,
         hipCm: has('hipCm')
-          ? (req.body?.hipCm == null ? null : Number(req.body.hipCm))
+          ? normalizeCoordinate(req.body?.hipCm, 20, 300)
           : existingMemory?.hipCm ?? null,
         armLengthCm: has('armLengthCm')
-          ? (req.body?.armLengthCm == null ? null : Number(req.body.armLengthCm))
+          ? normalizeCoordinate(req.body?.armLengthCm, 10, 150)
           : existingMemory?.armLengthCm ?? null,
         inseamCm: has('inseamCm')
-          ? (req.body?.inseamCm == null ? null : Number(req.body.inseamCm))
+          ? normalizeCoordinate(req.body?.inseamCm, 10, 150)
           : existingMemory?.inseamCm ?? null,
         confidence: has('confidence')
-          ? (req.body?.confidence == null ? null : Number(req.body.confidence))
+          ? normalizeCoordinate(req.body?.confidence, 0, 1)
           : existingMemory?.confidence ?? null,
         scanFrameCount: has('scanFrameCount')
-          ? (req.body?.scanFrameCount == null ? null : Number(req.body.scanFrameCount))
+          ? normalizeCoordinate(req.body?.scanFrameCount, 0, 100000)
           : existingMemory?.scanFrameCount ?? null,
         scanSource: has('scanSource')
           ? toSafeTrimmedString(req.body?.scanSource)
@@ -720,7 +755,7 @@ async function saveBodyProfile(req, res, next) {
       heightCm:
         req.body?.heightCm == null && req.body?.height == null
           ? null
-          : Number(req.body?.heightCm ?? req.body?.height),
+          : normalizeCoordinate(req.body?.heightCm ?? req.body?.height, 50, 300),
       bodyType: toSafeTrimmedString(req.body?.bodyType),
       recommendedSize:
         toSafeTrimmedString(req.body?.recommendedSize) ||
@@ -730,26 +765,26 @@ async function saveBodyProfile(req, res, next) {
       shoulderCm:
         req.body?.shoulderCm == null && req.body?.shoulder == null
           ? null
-          : Number(req.body?.shoulderCm ?? req.body?.shoulder),
+          : normalizeCoordinate(req.body?.shoulderCm ?? req.body?.shoulder, 10, 200),
       chestCm:
         req.body?.chestCm == null && req.body?.chest == null
           ? null
-          : Number(req.body?.chestCm ?? req.body?.chest),
+          : normalizeCoordinate(req.body?.chestCm ?? req.body?.chest, 20, 300),
       waistCm:
         req.body?.waistCm == null && req.body?.waist == null
           ? null
-          : Number(req.body?.waistCm ?? req.body?.waist),
+          : normalizeCoordinate(req.body?.waistCm ?? req.body?.waist, 20, 300),
       hipCm:
         req.body?.hipCm == null && req.body?.hips == null && req.body?.hip == null
           ? null
-          : Number(req.body?.hipCm ?? req.body?.hips ?? req.body?.hip),
+          : normalizeCoordinate(req.body?.hipCm ?? req.body?.hips ?? req.body?.hip, 20, 300),
       armLengthCm:
-        req.body?.armLengthCm == null ? null : Number(req.body?.armLengthCm),
-      inseamCm: req.body?.inseamCm == null ? null : Number(req.body?.inseamCm),
+        req.body?.armLengthCm == null ? null : normalizeCoordinate(req.body?.armLengthCm, 10, 150),
+      inseamCm: req.body?.inseamCm == null ? null : normalizeCoordinate(req.body?.inseamCm, 10, 150),
       confidence:
-        req.body?.confidence == null ? null : Number(req.body?.confidence),
+        req.body?.confidence == null ? null : normalizeCoordinate(req.body?.confidence, 0, 1),
       scanFrameCount:
-        req.body?.scanFrameCount == null ? null : Number(req.body?.scanFrameCount),
+        req.body?.scanFrameCount == null ? null : normalizeCoordinate(req.body?.scanFrameCount, 0, 100000),
       scanSource: toSafeTrimmedString(req.body?.scanSource),
       updatedAtIso: toSafeTrimmedString(req.body?.updatedAt) || nowIso,
     };
@@ -793,11 +828,11 @@ async function saveMeasurementProfile(req, res, next) {
       label: toSafeTrimmedString(req.body?.label) || 'Saved Fit',
       method: toSafeTrimmedString(req.body?.method) || 'manual',
       unit: toSafeTrimmedString(req.body?.unit) || 'cm',
-      chest: Number(req.body?.chest || 0),
-      shoulder: Number(req.body?.shoulder || 0),
-      waist: Number(req.body?.waist || 0),
-      sleeve: Number(req.body?.sleeve || 0),
-      length: Number(req.body?.length || 0),
+      chest: clampNumber(req.body?.chest, 0, 0, 300),
+      shoulder: clampNumber(req.body?.shoulder, 0, 0, 200),
+      waist: clampNumber(req.body?.waist, 0, 0, 300),
+      sleeve: clampNumber(req.body?.sleeve, 0, 0, 150),
+      length: clampNumber(req.body?.length, 0, 0, 300),
       standardSize: toSafeTrimmedString(req.body?.standardSize),
       recommendedSize: toSafeTrimmedString(req.body?.recommendedSize),
       sourceProfileId: toSafeTrimmedString(req.body?.sourceProfileId),

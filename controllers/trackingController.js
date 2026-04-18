@@ -119,6 +119,46 @@ function ensureTrackingAccess(req, res) {
   return true;
 }
 
+async function resolveTrackingScope({ orderId, taskId }) {
+  let order = null;
+  let task = null;
+  if (taskId && mongoose.Types.ObjectId.isValid(taskId)) {
+    task = await DeliveryTask.findById(taskId);
+  }
+  if (orderId && mongoose.Types.ObjectId.isValid(orderId)) {
+    order = await Order.findById(orderId);
+  } else if (task?.orderId && mongoose.Types.ObjectId.isValid(task.orderId)) {
+    order = await Order.findById(task.orderId);
+  }
+  return { order, task };
+}
+
+function canReadTracking(req, order) {
+  if (!order || !req.user?.uid) {
+    return false;
+  }
+  if (['admin', 'super_admin'].includes(req.user.role)) {
+    return true;
+  }
+  if (req.user.uid === order.userId || req.user.uid === order.riderId) {
+    return true;
+  }
+  return req.user.role === 'vendor' && String(req.user.storeId || '') === String(order.storeId || '');
+}
+
+function canWriteTracking(req, order, task, riderId) {
+  if (!req.user?.uid) {
+    return false;
+  }
+  if (['admin', 'super_admin'].includes(req.user.role)) {
+    return true;
+  }
+  if (req.user.role === 'rider') {
+    return String(req.user.uid) === String(riderId || order?.riderId || task?.riderId || '');
+  }
+  return false;
+}
+
 async function postLocationUpdate(req, res, next) {
   try {
     if (!ensureTrackingAccess(req, res)) return;
@@ -134,6 +174,14 @@ async function postLocationUpdate(req, res, next) {
     if (req.user.role === 'rider') {
       riderId = req.user.uid;
     }
+    const { order, task } = await resolveTrackingScope({ orderId, taskId });
+    if ((orderId && !order) || (taskId && !task)) {
+      return res.status(404).json({ success: false, message: 'Tracking target not found.' });
+    }
+    if (!canWriteTracking(req, order, task, riderId)) {
+      return res.status(403).json({ success: false, message: 'Location update access denied.' });
+    }
+    riderId = String(riderId || task?.riderId || order?.riderId || '').trim();
 
     const requestedSpeedKmph = Number(req.body?.speedKmph || 0);
     const gate = await shouldAcceptLocationUpdate({
@@ -267,6 +315,13 @@ async function getOrderEtaLive(req, res, next) {
     const orderId = String(req.params?.orderId || '').trim();
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
       return res.status(400).json({ success: false, message: 'Invalid orderId.' });
+    }
+    const order = await Order.findById(orderId).select('userId riderId storeId');
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+    if (!canReadTracking(req, order)) {
+      return res.status(403).json({ success: false, message: 'ETA access denied.' });
     }
     const eta = await getEtaForOrder(orderId);
     await recordTrackingEvent({

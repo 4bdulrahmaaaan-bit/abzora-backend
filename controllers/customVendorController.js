@@ -35,6 +35,8 @@ const DEFAULT_TRAINING_MODULES = [
   { key: 'stitching_standards', title: 'Stitching Standards' },
   { key: 'quality_checklist', title: 'Quality Checklist' },
 ];
+const ALLOWED_QUALITY_APPROVAL_STATUSES = new Set(['not_required', 'pending', 'approved', 'rejected']);
+const ALLOWED_ALTERATION_STATUSES = new Set(['none', 'requested', 'accepted', 'in_progress', 'completed', 'rejected']);
 
 function ensureVendor(req, res) {
   if (!req.user?.uid) {
@@ -72,6 +74,10 @@ function clampNumber(value, fallback, minimum, maximum) {
     return fallback;
   }
   return Math.min(maximum, Math.max(minimum, numeric));
+}
+
+function normalizeShortText(value, maxLength = 120) {
+  return String(value || '').trim().slice(0, maxLength);
 }
 
 function createDefaultTrainingModules() {
@@ -377,14 +383,22 @@ async function saveOwnCustomVendorProfile(req, res, next) {
       typeof body.alterationPolicy === 'string'
         ? body.alterationPolicy.trim().slice(0, 280)
         : profile.alterationPolicy || '';
+    const nextMin = clampNumber(body.priceRangeMin, Number(profile.priceRangeMin || 0), 0, 1000000);
+    const nextMax = clampNumber(body.priceRangeMax, Number(profile.priceRangeMax || 0), 0, 1000000);
+    if (nextMax > 0 && nextMax < nextMin) {
+      return res.status(400).json({
+        success: false,
+        message: 'priceRangeMax must be greater than or equal to priceRangeMin.',
+      });
+    }
     store.vendorType = 'custom_vendor';
     store.customVendorProfile = {
       ...profile.toObject?.(),
       experienceYears: clampNumber(body.experienceYears, Number(profile.experienceYears || 0), 0, 60),
       specializations: specializations.length > 0 ? specializations : profile.specializations || [],
       portfolioImages,
-      priceRangeMin: clampNumber(body.priceRangeMin, Number(profile.priceRangeMin || 0), 0, 1000000),
-      priceRangeMax: clampNumber(body.priceRangeMax, Number(profile.priceRangeMax || 0), 0, 1000000),
+      priceRangeMin: nextMin,
+      priceRangeMax: nextMax,
       productionTimeDays: clampNumber(body.productionTimeDays, Number(profile.productionTimeDays || 7), 1, 365),
       qualityApprovalRequired:
         typeof body.qualityApprovalRequired === 'boolean'
@@ -608,22 +622,46 @@ async function updateCustomOrderStatus(req, res, next) {
       return res.status(404).json({ success: false, message: 'Custom order not found.' });
     }
     if (typeof req.body?.vendorFinalImageUrl === 'string') {
-      order.vendorFinalImageUrl = req.body.vendorFinalImageUrl.trim();
+      const normalizedImageUrl = normalizeOptionalUrl(req.body.vendorFinalImageUrl);
+      if (req.body.vendorFinalImageUrl.trim() && !normalizedImageUrl) {
+        return res.status(400).json({
+          success: false,
+          message: 'vendorFinalImageUrl must be a valid http/https URL.',
+        });
+      }
+      order.vendorFinalImageUrl = normalizedImageUrl;
     }
     if (typeof req.body?.qualityApprovalStatus === 'string') {
-      order.qualityApprovalStatus = req.body.qualityApprovalStatus.trim().toLowerCase();
+      const nextApprovalStatus = req.body.qualityApprovalStatus.trim().toLowerCase();
+      if (!ALLOWED_QUALITY_APPROVAL_STATUSES.has(nextApprovalStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid quality approval status.',
+        });
+      }
+      order.qualityApprovalStatus = nextApprovalStatus;
     }
     if (typeof req.body?.measurementsConfirmedByVendor === 'boolean') {
       order.measurementsConfirmedByVendor = req.body.measurementsConfirmedByVendor;
     }
     if (typeof req.body?.alterationStatus === 'string') {
-      order.alterationStatus = req.body.alterationStatus.trim().toLowerCase();
+      const nextAlterationStatus = req.body.alterationStatus.trim().toLowerCase();
+      if (!ALLOWED_ALTERATION_STATUSES.has(nextAlterationStatus)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid alteration status.',
+        });
+      }
+      order.alterationStatus = nextAlterationStatus;
       if (
         order.alterationStatus === 'completed' ||
         order.alterationStatus === 'rejected'
       ) {
         order.alterationResolvedAt = new Date().toISOString();
       }
+    }
+    if (typeof req.body?.alterationNotes === 'string') {
+      order.alterationNotes = normalizeShortText(req.body.alterationNotes, 500);
     }
 
     const requiresPreDispatchProof =

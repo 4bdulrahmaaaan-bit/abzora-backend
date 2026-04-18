@@ -21,6 +21,7 @@ const {
   createOrUpdateFundAccount,
   createPayout,
 } = require('./razorpayPayoutService');
+const { calculateOrderPricing } = require('./pricingService');
 
 function roundMoney(value) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
@@ -165,33 +166,34 @@ function calculateOrderFinancials({
   deliveryDistanceKm = 0,
   commissionPercent,
 }) {
-  const config = financeConfig();
+  const calculated = calculateOrderPricing({
+    orderValue: subtotalAmount,
+    taxAmount,
+    distanceKm: deliveryDistanceKm,
+    storeCommissionRate:
+      commissionPercent == null || Number.isNaN(Number(commissionPercent))
+        ? financeConfig().adminCommissionPercent
+        : Number(commissionPercent),
+  });
+
+  if (deliveryFee == null) {
+    return calculated;
+  }
+
+  const safeDeliveryFee = roundMoney(deliveryFee);
   const safeSubtotal = roundMoney(subtotalAmount);
   const safeTax = roundMoney(taxAmount);
-  const safeDistance = Math.max(0, Number(deliveryDistanceKm || 0));
-  const resolvedDeliveryFee =
-    deliveryFee == null
-      ? roundMoney(config.baseDeliveryFee + safeDistance * config.distanceRate)
-      : roundMoney(deliveryFee);
-  const resolvedCommissionPercent =
-    commissionPercent == null || Number.isNaN(Number(commissionPercent))
-      ? config.adminCommissionPercent
-      : Number(commissionPercent);
+  const resolvedCommissionPercent = Number(calculated.commissionPercent || 0);
   const platformCommission = roundMoney(safeSubtotal * resolvedCommissionPercent);
-  const vendorEarnings = roundMoney(Math.max(0, safeSubtotal - platformCommission));
-  const riderEarnings = roundMoney(resolvedDeliveryFee);
-  const totalAmount = roundMoney(safeSubtotal + safeTax + resolvedDeliveryFee);
 
   return {
-    productAmount: safeSubtotal,
-    subtotalAmount: safeSubtotal,
-    taxAmount: safeTax,
-    deliveryFee: resolvedDeliveryFee,
-    deliveryDistanceKm: safeDistance,
+    ...calculated,
+    deliveryFee: safeDeliveryFee,
     platformCommission,
-    vendorEarnings,
-    riderEarnings,
-    totalAmount,
+    vendorEarnings: roundMoney(Math.max(0, safeSubtotal - platformCommission)),
+    totalAmount: roundMoney(
+      Math.max(0, safeSubtotal + safeTax + safeDeliveryFee + Number(calculated.tryAtHomeFee || 0) - Number(calculated.discountAmount || 0)),
+    ),
   };
 }
 

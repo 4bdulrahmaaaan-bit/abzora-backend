@@ -13,12 +13,20 @@ function isAuthorized(req) {
   return providedKey === expectedKey;
 }
 
+function debugWritesEnabled() {
+  const explicitEnable = String(process.env.DEBUG_ENDPOINTS_ENABLED || '').trim().toLowerCase() === 'true';
+  if ((process.env.NODE_ENV || '').trim().toLowerCase() === 'production') {
+    return explicitEnable;
+  }
+  return explicitEnable || Boolean(process.env.DEBUG_WRITE_KEY);
+}
+
 router.post('/create-test-doc', async (req, res, next) => {
   try {
-    if (!process.env.DEBUG_WRITE_KEY) {
+    if (!debugWritesEnabled() || !process.env.DEBUG_WRITE_KEY) {
       return res.status(503).json({
         success: false,
-        message: 'Debug endpoint disabled. Set DEBUG_WRITE_KEY to enable.',
+        message: 'Debug endpoint disabled. Explicitly enable debug writes to use this route.',
       });
     }
 
@@ -63,4 +71,3 @@ router.post('/create-test-doc', async (req, res, next) => {
 });
 
 module.exports = router;
-
