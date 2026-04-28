@@ -87,6 +87,27 @@ function sanitizeRoles(input, fallbackRole) {
   return roles;
 }
 
+function hasOperationsCapability(user) {
+  if (!user) {
+    return false;
+  }
+  const role = normalizeRole(user.role, '');
+  if (role === 'vendor' || role === 'rider') {
+    return true;
+  }
+  const roles =
+    user.roles instanceof Map
+      ? Object.fromEntries(user.roles.entries())
+      : { ...(user.roles || {}) };
+  if (Boolean(roles.vendor) || Boolean(roles.rider)) {
+    return true;
+  }
+  if (toSafeTrimmedString(user.storeId)) {
+    return true;
+  }
+  return toSafeTrimmedString(user.riderApprovalStatus).toLowerCase() === 'approved';
+}
+
 function serializeUserResponse(user) {
   return {
     id: user?._id?.toString?.() || null,
@@ -422,6 +443,37 @@ async function me(req, res, next) {
         ...serializeUser(user),
         _id: user._id,
       };
+    }
+
+    if (user && !hasOperationsCapability(user)) {
+      const phoneCandidates = [
+        toSafeTrimmedString(req.user?.phone),
+        toSafeTrimmedString(user.phone),
+      ].filter(Boolean);
+
+      for (const candidatePhone of phoneCandidates) {
+        const byPhone = await User.findOne({ phone: candidatePhone });
+        if (!byPhone) {
+          continue;
+        }
+        if (!hasOperationsCapability(byPhone)) {
+          continue;
+        }
+        const currentUid = toSafeTrimmedString(req.user?.uid);
+        if (currentUid) {
+          byPhone.firebaseUid = currentUid;
+          byPhone.uid = currentUid;
+        }
+        await byPhone.save();
+        user = byPhone;
+        req.dbUser = byPhone;
+        req.user = {
+          ...req.user,
+          ...serializeUser(byPhone),
+          _id: byPhone._id,
+        };
+        break;
+      }
     }
 
     user = await ensureLinkedStoreId(user);
