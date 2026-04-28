@@ -672,18 +672,40 @@ async function syncProfile(req, res, next) {
     req.dbUser.lastLoginAt = new Date();
 
     await req.dbUser.save();
-    await ensureLinkedStoreId(req.dbUser);
-    await recordUserNetworkContext(req.dbUser, req);
+
+    // If this session lands on a stale non-ops profile but the submitted phone
+    // maps to a vendor/rider account, switch the Firebase UID binding to that
+    // operations-capable profile.
+    let effectiveUser = req.dbUser;
+    if (!hasOperationsCapability(effectiveUser)) {
+      const candidatePhone = toSafeTrimmedString(req.body?.phone) || toSafeTrimmedString(effectiveUser.phone);
+      if (candidatePhone) {
+        const byPhone = await findBestUserByPhone(candidatePhone);
+        if (byPhone && hasOperationsCapability(byPhone) && String(byPhone._id) !== String(effectiveUser._id)) {
+          const currentUid = toSafeTrimmedString(req.user?.uid);
+          if (currentUid) {
+            byPhone.firebaseUid = currentUid;
+            byPhone.uid = currentUid;
+          }
+          await byPhone.save();
+          effectiveUser = byPhone;
+          req.dbUser = byPhone;
+        }
+      }
+    }
+
+    effectiveUser = await ensureLinkedStoreId(effectiveUser);
+    await recordUserNetworkContext(effectiveUser, req);
 
     req.user = {
       ...req.user,
-      ...serializeUser(req.dbUser),
-      _id: req.dbUser._id,
+      ...serializeUser(effectiveUser),
+      _id: effectiveUser._id,
     };
 
     return res.status(200).json({
       success: true,
-      data: serializeUserResponse(req.dbUser),
+      data: serializeUserResponse(effectiveUser),
     });
   } catch (error) {
     if (error.name === 'ValidationError') {
