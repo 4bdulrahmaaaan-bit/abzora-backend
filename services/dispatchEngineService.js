@@ -5,7 +5,7 @@ const DispatchBatch = require('../models/DispatchBatch');
 const Order = require('../models/Order');
 const Store = require('../models/Store');
 const User = require('../models/User');
-const { createAssignedTask } = require('./assignmentEngineService');
+const { ACTIVE_STATUSES, createAssignedTask, riderEligibilityFilter } = require('./assignmentEngineService');
 const { riderSlaScore } = require('./slaScoringService');
 const { runInTransaction, ensureEntityMappings } = require('./opsConsistencyService');
 
@@ -45,7 +45,29 @@ function orderDelayPenalty(order) {
   return ageMins > 90 ? 18 : ageMins > 60 ? 12 : ageMins > 30 ? 6 : 2;
 }
 
-async function assignSingleOrder({ orderId, actor = {} }) {
+function resolveDropCoordinates(order, user = null) {
+  const candidates = [
+    [order?.shippingAddress?.latitude, order?.shippingAddress?.longitude],
+    [order?.shippingAddress?.lat, order?.shippingAddress?.lng],
+    [order?.shippingAddress?.lat, order?.shippingAddress?.longitude],
+    [user?.latitude, user?.longitude],
+  ];
+  for (const [lat, lng] of candidates) {
+    const latitude = Number(lat);
+    const longitude = Number(lng);
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+      return { latitude, longitude };
+    }
+  }
+  return { latitude: null, longitude: null };
+}
+
+async function assignSingleOrder({
+  orderId,
+  actor = {},
+  excludedRiderIds = [],
+  replacementTaskId = '',
+}) {
   const order = await Order.findById(orderId);
   if (!order) {
     const error = new Error('Order not found.');
@@ -65,10 +87,36 @@ async function assignSingleOrder({ orderId, actor = {} }) {
   ) {
     const error = new Error('Order does not belong to this vendor.');
     error.statusCode = 403;
-    throw error;
+      throw error;
   }
 
+  const customer = order.userId
+    ? await User.findOne({
+        $or: [
+          { uid: order.userId },
+          { firebaseUid: order.userId },
+        ],
+      })
+        .select('latitude longitude')
+        .lean()
+    : null;
+  const dropCoords = resolveDropCoordinates(order, customer);
+
   const assignment = await runInTransaction(async (session) => {
+    if (replacementTaskId) {
+      const existingTask = await DeliveryTask.findById(replacementTaskId).session(session);
+      if (existingTask && ACTIVE_STATUSES.includes(String(existingTask.status || ''))) {
+        existingTask.status = 'cancelled';
+        existingTask.metadata = {
+          ...(existingTask.metadata || {}),
+          opsCancelledReason: 'rebalance_reassigned',
+          opsRebalancedAt: new Date().toISOString(),
+          opsPreviousRiderId: existingTask.riderId || '',
+        };
+        await existingTask.save({ session });
+      }
+    }
+
     const assigned = await createAssignedTask({
       taskType: 'ORDER_DELIVERY',
       entityType: 'order',
@@ -85,10 +133,11 @@ async function assignSingleOrder({ orderId, actor = {} }) {
       ].filter(Boolean).join(', '),
       pickupLat: store.latitude,
       pickupLng: store.longitude,
-      dropLat: null,
-      dropLng: null,
+      dropLat: dropCoords.latitude,
+      dropLng: dropCoords.longitude,
       city: store.city || '',
       sameDay: true,
+      excludedRiderIds,
       session,
       metadata: { source: 'dispatch_assign' },
     });
@@ -168,13 +217,7 @@ function clusterOrders(rows = []) {
 }
 
 async function availableRidersByCity(city = '') {
-  const riders = await User.find({
-    role: 'rider',
-    isActive: true,
-    riderApprovalStatus: 'approved',
-    riderAvailable: true,
-    ...(city ? { riderCity: new RegExp(`^${city}$`, 'i') } : {}),
-  })
+  const riders = await User.find(riderEligibilityFilter(city))
     .select('uid name riderCapacity latitude longitude')
     .lean();
 
@@ -252,6 +295,17 @@ async function assignBatches({ city = '', actor = {} }) {
     for (const row of cluster) {
       const order = await Order.findById(row.order._id);
       if (!order) continue;
+      const customer = order.userId
+        ? await User.findOne({
+            $or: [
+              { uid: order.userId },
+              { firebaseUid: order.userId },
+            ],
+          })
+            .select('latitude longitude')
+            .lean()
+        : null;
+      const dropCoords = resolveDropCoordinates(order, customer);
       const task = await DeliveryTask.create({
         taskType: 'ORDER_DELIVERY',
         entityType: 'order',
@@ -271,6 +325,8 @@ async function assignBatches({ city = '', actor = {} }) {
         ].filter(Boolean).join(', '),
         pickupLat: row.store.latitude ?? null,
         pickupLng: row.store.longitude ?? null,
+        dropLat: dropCoords.latitude,
+        dropLng: dropCoords.longitude,
         metadata: {
           source: 'dispatch_batch_assign',
           batchSize: cluster.length,

@@ -157,6 +157,91 @@ const customVendorProfileSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const atelierPricingRulesSchema = new mongoose.Schema(
+  {
+    basePriceMultiplier: {
+      type: Number,
+      default: 1,
+      min: 0,
+      max: 10,
+    },
+    tailoringCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    customizationBaseCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    homeVisitCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+  },
+  { _id: false },
+);
+
+const atelierCustomizationOptionsSchema = new mongoose.Schema(
+  {
+    fabric: {
+      type: [String],
+      default: [],
+    },
+    color: {
+      type: [String],
+      default: [],
+    },
+    styleVariants: {
+      type: [String],
+      default: [],
+    },
+    addOns: {
+      type: [String],
+      default: [],
+    },
+  },
+  { _id: false },
+);
+
+const atelierConfigSchema = new mongoose.Schema(
+  {
+    supportsCustomization: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    measurementOptions: {
+      type: [String],
+      default: [],
+      enum: ['manual', 'trial', 'visit', 'standard'],
+    },
+    customizationOptions: {
+      type: atelierCustomizationOptionsSchema,
+      default: () => ({}),
+    },
+    tailoringTimeDaysMin: {
+      type: Number,
+      default: 1,
+      min: 1,
+      max: 30,
+    },
+    tailoringTimeDaysMax: {
+      type: Number,
+      default: 3,
+      min: 1,
+      max: 30,
+    },
+    atelierPricingRules: {
+      type: atelierPricingRulesSchema,
+      default: () => ({}),
+    },
+  },
+  { _id: false },
+);
+
 const sameDayConfigSchema = new mongoose.Schema(
   {
     enabled: {
@@ -303,6 +388,10 @@ const storeSchema = new mongoose.Schema(
     },
     sameDay: {
       type: sameDayConfigSchema,
+      default: () => ({}),
+    },
+    atelierConfig: {
+      type: atelierConfigSchema,
       default: () => ({}),
     },
     operationalSpeedScore: {

@@ -894,18 +894,6 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
       throw new Error('Insufficient balance for withdrawal.');
     }
 
-    freshWallet.balance = roundMoney(Number(freshWallet.balance || 0) - safeAmount);
-    freshWallet.reservedAmount = roundMoney(Number(freshWallet.reservedAmount || 0) + safeAmount);
-    await freshWallet.save(withSession({}, session));
-
-    if (walletType === 'vendor' && freshWallet.storeId) {
-      await Store.findByIdAndUpdate(
-        freshWallet.storeId,
-        { $set: { walletBalance: freshWallet.balance } },
-        withSession({}, session),
-      );
-    }
-
     const payoutProfile = serializePayoutProfile(user?.payoutProfile || {});
     if (!payoutProfile.methodType) {
       throw new Error('Configure a payout account before requesting a withdrawal.');
@@ -945,6 +933,19 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
       });
       throw new Error('Withdrawal request blocked for security review.');
     }
+
+    freshWallet.balance = roundMoney(Number(freshWallet.balance || 0) - safeAmount);
+    freshWallet.reservedAmount = roundMoney(Number(freshWallet.reservedAmount || 0) + safeAmount);
+    await freshWallet.save(withSession({}, session));
+
+    if (walletType === 'vendor' && freshWallet.storeId) {
+      await Store.findByIdAndUpdate(
+        freshWallet.storeId,
+        { $set: { walletBalance: freshWallet.balance } },
+        withSession({}, session),
+      );
+    }
+
     const [request] = await WithdrawalRequest.create(
       [
         {
@@ -1047,8 +1048,26 @@ async function approveWithdrawalRequest({ requestId, processedBy, actorRole = 'a
     if (!wallet) {
       throw new Error('Linked wallet not found.');
     }
-    if (Number(wallet.reservedAmount || 0) < Number(request.amount || 0)) {
-      throw new Error('Reserved withdrawal balance is inconsistent.');
+    const requestedAmount = Number(request.amount || 0);
+    const reservedAmount = Number(wallet.reservedAmount || 0);
+    if (reservedAmount < requestedAmount) {
+      if (!wasFailed) {
+        throw new Error('Reserved withdrawal balance is inconsistent.');
+      }
+      const topUp = roundMoney(requestedAmount - reservedAmount);
+      if (topUp > Number(wallet.balance || 0)) {
+        throw new Error('Insufficient balance to retry this withdrawal.');
+      }
+      wallet.balance = roundMoney(Number(wallet.balance || 0) - topUp);
+      wallet.reservedAmount = roundMoney(reservedAmount + topUp);
+      await wallet.save(withSession({}, session));
+      if (request.walletType === 'vendor' && request.storeId) {
+        await Store.findByIdAndUpdate(
+          request.storeId,
+          { $set: { walletBalance: wallet.balance } },
+          withSession({}, session),
+        );
+      }
     }
 
     const { profile } = await ensureUserPayoutRecipient({
@@ -1322,6 +1341,24 @@ async function markWithdrawalFailed({
     }
     if (request.status === 'completed') {
       return request;
+    }
+
+    const wallet = request.walletType === 'vendor'
+      ? await VendorWallet.findOne({ storeId: request.storeId }).session(session)
+      : await RiderWallet.findOne({ riderId: request.riderId }).session(session);
+    if (wallet) {
+      wallet.reservedAmount = roundMoney(
+        Math.max(0, Number(wallet.reservedAmount || 0) - Number(request.amount || 0)),
+      );
+      wallet.balance = roundMoney(Number(wallet.balance || 0) + Number(request.amount || 0));
+      await wallet.save(withSession({}, session));
+      if (request.walletType === 'vendor' && request.storeId) {
+        await Store.findByIdAndUpdate(
+          request.storeId,
+          { $set: { walletBalance: wallet.balance } },
+          withSession({}, session),
+        );
+      }
     }
 
     request.status = 'failed';

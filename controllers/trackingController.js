@@ -6,6 +6,20 @@ const User = require('../models/User');
 const { getEtaForOrder } = require('../services/etaService');
 const { recordTrackingEvent } = require('../services/trackingEventService');
 const TrackingLog = require('../models/TrackingLog');
+const { hasRole } = require('../middleware/authorizationMiddleware');
+const { settleDeliveredOrder } = require('../services/financeService');
+
+function isVendorUser(user) {
+  return hasRole(user, ['vendor']);
+}
+
+function isRiderUser(user) {
+  return hasRole(user, ['rider']);
+}
+
+function isAdminUser(user) {
+  return hasRole(user, ['admin', 'super_admin']);
+}
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const values = [lat1, lng1, lat2, lng2].map((value) => Number(value));
@@ -137,26 +151,76 @@ function canReadTracking(req, order) {
   if (!order || !req.user?.uid) {
     return false;
   }
-  if (['admin', 'super_admin'].includes(req.user.role)) {
+  if (isAdminUser(req.user)) {
     return true;
   }
   if (req.user.uid === order.userId || req.user.uid === order.riderId) {
     return true;
   }
-  return req.user.role === 'vendor' && String(req.user.storeId || '') === String(order.storeId || '');
+  return isVendorUser(req.user) && String(req.user.storeId || '') === String(order.storeId || '');
 }
 
 function canWriteTracking(req, order, task, riderId) {
   if (!req.user?.uid) {
     return false;
   }
-  if (['admin', 'super_admin'].includes(req.user.role)) {
+  if (isAdminUser(req.user)) {
     return true;
   }
-  if (req.user.role === 'rider') {
+  if (isRiderUser(req.user)) {
     return String(req.user.uid) === String(riderId || order?.riderId || task?.riderId || '');
   }
   return false;
+}
+
+function normalizeDeliveryStatus(status) {
+  const normalized = String(status || '').trim().toLowerCase();
+  const map = {
+    assigned: 'Assigned',
+    accepted: 'Assigned',
+    'picked up': 'Picked up',
+    picked_up: 'Picked up',
+    'out for delivery': 'Out for delivery',
+    out_for_delivery: 'Out for delivery',
+    delivered: 'Delivered',
+    cancelled: 'Cancelled',
+    canceled: 'Cancelled',
+  };
+  return map[normalized] || '';
+}
+
+function taskStatusForDeliveryStatus(status) {
+  switch (status) {
+    case 'Assigned':
+      return 'assigned';
+    case 'Picked up':
+      return 'picked_up';
+    case 'Out for delivery':
+      return 'out_for_delivery';
+    case 'Delivered':
+      return 'delivered';
+    case 'Cancelled':
+      return 'cancelled';
+    default:
+      return '';
+  }
+}
+
+function orderStatusForDeliveryStatus(status, currentOrderStatus) {
+  switch (status) {
+    case 'Assigned':
+      return currentOrderStatus || 'confirmed';
+    case 'Picked up':
+      return 'processing';
+    case 'Out for delivery':
+      return 'shipped';
+    case 'Delivered':
+      return 'delivered';
+    case 'Cancelled':
+      return 'cancelled';
+    default:
+      return currentOrderStatus || '';
+  }
 }
 
 async function postLocationUpdate(req, res, next) {
@@ -171,7 +235,7 @@ async function postLocationUpdate(req, res, next) {
     }
 
     let riderId = String(req.body?.riderId || req.user.uid || '').trim();
-    if (req.user.role === 'rider') {
+    if (isRiderUser(req.user)) {
       riderId = req.user.uid;
     }
     const { order, task } = await resolveTrackingScope({ orderId, taskId });
@@ -281,16 +345,42 @@ async function postOrderStatusUpdate(req, res, next) {
       return res.status(400).json({ success: false, message: 'orderId and status are required.' });
     }
 
-    const order = await Order.findById(orderId);
+    let order = await Order.findById(orderId);
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
     }
+    const normalizedStatus = normalizeDeliveryStatus(status);
+    if (!normalizedStatus) {
+      return res.status(400).json({ success: false, message: 'Unsupported delivery status.' });
+    }
     const actorCanWrite =
-      ['admin', 'super_admin'].includes(req.user.role) ||
-      req.user.uid === order.riderId ||
-      req.user.uid === order.userId;
+      isAdminUser(req.user) ||
+      (isRiderUser(req.user) && req.user.uid === order.riderId);
     if (!actorCanWrite) {
       return res.status(403).json({ success: false, message: 'Status update access denied.' });
+    }
+
+    const task = await DeliveryTask.findOne({
+      orderId: order._id.toString(),
+      status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] },
+    }).sort({ createdAt: -1 });
+
+    order.deliveryStatus = normalizedStatus;
+    order.orderStatus = orderStatusForDeliveryStatus(normalizedStatus, order.orderStatus);
+    if (normalizedStatus === 'Delivered' && (order.paymentMethod || '').toUpperCase() === 'COD') {
+      order.paymentStatus = 'paid';
+    }
+    order.riderLocationUpdatedAt = order.riderLocationUpdatedAt || new Date().toISOString();
+    const shouldSettleDelivered = normalizedStatus === 'Delivered';
+    await order.save();
+    if (shouldSettleDelivered) {
+      await settleDeliveredOrder(order);
+      order = await Order.findById(order._id);
+    }
+
+    if (task) {
+      task.status = taskStatusForDeliveryStatus(normalizedStatus) || task.status;
+      await task.save();
     }
 
     await recordTrackingEvent({
@@ -299,8 +389,10 @@ async function postOrderStatusUpdate(req, res, next) {
       riderId: order.riderId || '',
       userId: order.userId || '',
       payload: {
-        status,
+        status: normalizedStatus,
+        taskStatus: task?.status || '',
         actorId: req.user.uid,
+        orderStatus: order.orderStatus,
       },
     });
     return res.status(200).json({ success: true });

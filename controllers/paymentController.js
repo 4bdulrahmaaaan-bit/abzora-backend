@@ -3,8 +3,9 @@ const mongoose = require('mongoose');
 
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const RefundRequest = require('../models/RefundRequest');
 const Transaction = require('../models/Transaction');
-const { reverseOrderSettlement } = require('../services/financeService');
+const { recordFinanceAudit, reverseOrderSettlement } = require('../services/financeService');
 const {
   createRazorpayOrder,
   verifyPayment,
@@ -70,6 +71,28 @@ async function recordPaymentTransaction({
   });
 }
 
+async function recordPaymentWebhookAudit({
+  action,
+  status = 'success',
+  order = null,
+  amount = 0,
+  message = '',
+  metadata = {},
+}) {
+  await recordFinanceAudit({
+    action,
+    actorId: 'razorpay-webhook',
+    actorRole: 'system',
+    status,
+    walletType: 'admin',
+    storeId: order?.storeId?.toString?.() || '',
+    orderIds: order?._id ? [order._id.toString()] : [],
+    amount,
+    message,
+    metadata,
+  });
+}
+
 async function handlePaymentCaptured(paymentEntity) {
   const razorpayOrderId = paymentEntity?.order_id?.toString() || '';
   const razorpayPaymentId = paymentEntity?.id?.toString() || '';
@@ -83,12 +106,32 @@ async function handlePaymentCaptured(paymentEntity) {
     order = await Order.findOne({ 'razorpay.orderId': razorpayOrderId });
   }
   if (!order) {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_captured_unmatched',
+      status: 'failed',
+      message: 'Captured payment webhook could not be matched to an order.',
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+        appOrderId,
+      },
+    });
     return null;
   }
   if (
     (order.paymentStatus || '').toLowerCase() === 'paid' &&
     String(order.razorpay?.paymentId || '') === razorpayPaymentId
   ) {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_captured_duplicate',
+      order,
+      amount: Number(order.totalAmount || 0),
+      message: 'Duplicate captured payment webhook ignored.',
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+      },
+    });
     return order;
   }
 
@@ -125,6 +168,16 @@ async function handlePaymentCaptured(paymentEntity) {
       razorpayPaymentId,
     },
   });
+  await recordPaymentWebhookAudit({
+    action: 'payment_webhook_captured',
+    order,
+    amount: Number(order.totalAmount || 0),
+    message: 'Payment captured via Razorpay webhook.',
+    metadata: {
+      razorpayOrderId,
+      razorpayPaymentId,
+    },
+  });
   return order;
 }
 
@@ -133,12 +186,50 @@ async function handlePaymentFailed(paymentEntity) {
   const razorpayPaymentId = paymentEntity?.id?.toString() || '';
   const order = await Order.findOne({ 'razorpay.orderId': razorpayOrderId });
   if (!order) {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_failed_unmatched',
+      status: 'failed',
+      message: 'Failed payment webhook could not be matched to an order.',
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+      },
+    });
     return null;
   }
+  const normalizedPaymentStatus = String(order.paymentStatus || '').toLowerCase();
   if (
-    (order.paymentStatus || '').toLowerCase() === 'failed' &&
+    normalizedPaymentStatus === 'paid' ||
+    normalizedPaymentStatus === 'captured' ||
+    normalizedPaymentStatus === 'refunded'
+  ) {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_failed_ignored',
+      order,
+      amount: Number(order.totalAmount || 0),
+      message: 'Late or duplicate failed payment webhook ignored for paid/refunded order.',
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+        currentPaymentStatus: normalizedPaymentStatus,
+      },
+    });
+    return order;
+  }
+  if (
+    normalizedPaymentStatus === 'failed' &&
     String(order.razorpay?.paymentId || '') === razorpayPaymentId
   ) {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_failed_duplicate',
+      order,
+      amount: Number(order.totalAmount || 0),
+      message: 'Duplicate failed payment webhook ignored.',
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+      },
+    });
     return order;
   }
   order.paymentStatus = 'failed';
@@ -157,6 +248,16 @@ async function handlePaymentFailed(paymentEntity) {
       razorpayPaymentId,
     },
   });
+  await recordPaymentWebhookAudit({
+    action: 'payment_webhook_failed',
+    order,
+    amount: Number(order.totalAmount || 0),
+    message: 'Payment failed via Razorpay webhook.',
+    metadata: {
+      razorpayOrderId,
+      razorpayPaymentId,
+    },
+  });
   return order;
 }
 
@@ -166,18 +267,62 @@ async function handleRefundProcessed(refundEntity) {
   const amount = amountPaise > 0 ? amountPaise / 100 : 0;
   const order = await Order.findOne({ 'razorpay.paymentId': paymentId });
   if (!order) {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_refund_unmatched',
+      status: 'failed',
+      amount,
+      message: 'Refund webhook could not be matched to an order.',
+      metadata: {
+        razorpayPaymentId: paymentId,
+        razorpayRefundId: String(refundEntity?.id || ''),
+      },
+    });
     return null;
   }
   if ((order.escrowStatus || '').toLowerCase() === 'refunded' && order.financialReversed) {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_refund_duplicate',
+      order,
+      amount,
+      message: 'Duplicate refund webhook ignored for already reversed order.',
+      metadata: {
+        razorpayPaymentId: paymentId,
+        razorpayRefundId: String(refundEntity?.id || ''),
+      },
+    });
     return order;
   }
 
-  order.paymentStatus = 'refunded';
-  order.refundStatus = 'refunded';
-  order.escrowStatus = 'refunded';
-  order.escrowUpdatedAt = nowIso();
-  appendTrackingTimestamp(order, 'Cancelled');
-  await reverseOrderSettlement(order, 'Refund processed via Razorpay webhook');
+  const refundRequestId = String(refundEntity?.notes?.refundRequestId || '').trim();
+  let refundRequest = null;
+  if (mongoose.Types.ObjectId.isValid(refundRequestId)) {
+    refundRequest = await RefundRequest.findById(refundRequestId);
+  }
+  if (!refundRequest && refundEntity?.id) {
+    refundRequest = await RefundRequest.findOne({ gatewayRefundId: String(refundEntity.id) });
+  }
+  if (refundRequest) {
+    refundRequest.gatewayRefundId = String(refundEntity?.id || refundRequest.gatewayRefundId || '');
+    refundRequest.refundedAmount = Math.max(
+      Number(refundRequest.refundedAmount || 0),
+      amount,
+    );
+    if (refundRequest.status === 'pending') {
+      refundRequest.status = 'approved';
+    }
+    await refundRequest.save();
+    order.refundRequestId = refundRequest._id.toString();
+  }
+
+  const fullRefund = amount >= Math.max(0, Number(order.totalAmount || 0)) - 0.01;
+  order.refundStatus = fullRefund ? 'refunded' : 'approved';
+  if (fullRefund) {
+    order.paymentStatus = 'refunded';
+    order.escrowStatus = 'refunded';
+    order.escrowUpdatedAt = nowIso();
+    appendTrackingTimestamp(order, 'Cancelled');
+    await reverseOrderSettlement(order, 'Refund processed via Razorpay webhook');
+  }
   await order.save();
 
   await Transaction.create({
@@ -196,6 +341,19 @@ async function handleRefundProcessed(refundEntity) {
       razorpayPaymentId: paymentId,
     },
   });
+  await recordPaymentWebhookAudit({
+    action: 'payment_webhook_refund_processed',
+    order,
+    amount,
+    message: fullRefund
+      ? 'Full refund processed via Razorpay webhook.'
+      : 'Partial refund processed via Razorpay webhook.',
+    metadata: {
+      razorpayPaymentId: paymentId,
+      razorpayRefundId: String(refundEntity?.id || ''),
+      fullRefund: String(fullRefund),
+    },
+  });
   return order;
 }
 
@@ -212,6 +370,14 @@ async function handleRazorpayWebhook(req, res, next) {
     const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body || {}));
     const signature = req.headers['x-razorpay-signature'];
     if (!verifyRazorpayWebhookSignature(rawBody, signature)) {
+      await recordPaymentWebhookAudit({
+        action: 'payment_webhook_invalid_signature',
+        status: 'failed',
+        message: 'Invalid Razorpay payment webhook signature.',
+        metadata: {
+          event: String(req.body?.event || ''),
+        },
+      });
       return res.status(400).json({ success: false, message: 'Invalid webhook signature.' });
     }
 
@@ -230,6 +396,13 @@ async function handleRazorpayWebhook(req, res, next) {
       await handleRefundProcessed(payload?.payload?.refund?.entity || {});
       return res.status(200).json({ success: true, event });
     }
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_ignored',
+      message: `Ignored unsupported Razorpay payment webhook event: ${event || 'unknown'}.`,
+      metadata: {
+        event,
+      },
+    });
     return res.status(200).json({ success: true, ignored: true, event });
   } catch (error) {
     return next(error);

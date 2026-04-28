@@ -61,13 +61,42 @@ async function getEtaForOrder(orderId) {
     status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] },
   }).sort({ createdAt: -1 }).lean();
 
+  if (!task) {
+    return {
+      orderId: order._id.toString(),
+      etaMinutes: null,
+      etaTimestamp: '',
+      confidence: 0,
+      factors: {
+        reason: 'no_active_delivery_task',
+      },
+    };
+  }
+
+  const destination = {
+    lat: Number(task?.dropLat),
+    lng: Number(task?.dropLng),
+  };
+  const hasDestination =
+    Number.isFinite(destination.lat) &&
+    Number.isFinite(destination.lng) &&
+    !(destination.lat === 0 && destination.lng === 0);
+  if (!hasDestination) {
+    return {
+      orderId: order._id.toString(),
+      etaMinutes: null,
+      etaTimestamp: '',
+      confidence: 0,
+      factors: {
+        reason: 'missing_drop_coordinates',
+        taskId: task._id?.toString?.() || '',
+      },
+    };
+  }
+
   const origin = {
     lat: Number(order.riderLatitude || task?.currentLocation?.coordinates?.[1] || task?.pickupLat || 0),
     lng: Number(order.riderLongitude || task?.currentLocation?.coordinates?.[0] || task?.pickupLng || 0),
-  };
-  const destination = {
-    lat: Number(task?.dropLat || 0),
-    lng: Number(task?.dropLng || 0),
   };
 
   const distanceKm = haversineDistanceKm(origin.lat, origin.lng, destination.lat, destination.lng);

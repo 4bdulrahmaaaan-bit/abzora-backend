@@ -12,6 +12,7 @@ const {
   requestTrialHomeSession,
   serializeTrialHomeSession,
 } = require('../services/trialHomeService');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 
 function ensureAuth(req, res) {
   if (!req.user?.uid) {
@@ -25,11 +26,19 @@ function ensureRole(req, res, allowedRoles = []) {
   if (!ensureAuth(req, res)) {
     return false;
   }
-  if (!allowedRoles.includes(req.user.role)) {
+  if (!hasRole(req.user, allowedRoles)) {
     res.status(403).json({ success: false, message: 'Access denied.' });
     return false;
   }
   return true;
+}
+
+function isVendorUser(user) {
+  return hasRole(user, ['vendor']);
+}
+
+function isRiderUser(user) {
+  return hasRole(user, ['rider']);
 }
 
 function serializeTask(task) {
@@ -136,7 +145,7 @@ async function assignRider(req, res, next) {
         return res.status(404).json({ success: false, message: 'Store not found.' });
       }
       if (
-        req.user.role === 'vendor' &&
+        isVendorUser(req.user) &&
         String(store.ownerId || '').trim() !== String(req.user.uid || '').trim()
       ) {
         return res.status(403).json({ success: false, message: 'Order does not belong to your store.' });
@@ -194,7 +203,7 @@ async function assignRider(req, res, next) {
         : null;
 
       if (
-        req.user.role === 'vendor' &&
+        isVendorUser(req.user) &&
         store &&
         String(store.ownerId || '').trim() !== String(req.user.uid || '').trim()
       ) {
@@ -253,7 +262,7 @@ async function listRiderTasks(req, res, next) {
       return;
     }
     const status = String(req.query?.status || '').trim().toLowerCase();
-    const filter = req.user.role === 'rider'
+    const filter = isRiderUser(req.user)
       ? { riderId: req.user.uid }
       : {};
     if (status) {
@@ -271,7 +280,7 @@ async function listRiderActiveTasks(req, res, next) {
     if (!ensureRole(req, res, ['rider', 'admin', 'super_admin'])) {
       return;
     }
-    const filter = req.user.role === 'rider'
+    const filter = isRiderUser(req.user)
       ? { riderId: req.user.uid, status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] } }
       : { status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] } };
     const tasks = await DeliveryTask.find(filter).sort({ createdAt: -1 }).limit(50);
@@ -299,7 +308,7 @@ async function updateRiderTaskStatus(req, res, next) {
     if (!task) {
       return res.status(404).json({ success: false, message: 'Task not found.' });
     }
-    if (req.user.role === 'rider' && task.riderId !== req.user.uid) {
+    if (isRiderUser(req.user) && task.riderId !== req.user.uid) {
       return res.status(403).json({ success: false, message: 'Task belongs to another rider.' });
     }
 
@@ -389,7 +398,7 @@ async function listVendorOperationsOrders(req, res, next) {
     }
     const status = String(req.query?.status || '').trim().toLowerCase();
     let storeIds = [];
-    if (req.user.role === 'vendor') {
+    if (isVendorUser(req.user)) {
       const stores = await Store.find({ ownerId: req.user.uid }).select('_id').lean();
       storeIds = stores.map((store) => store._id.toString());
     } else if (req.query?.storeId && mongoose.Types.ObjectId.isValid(req.query.storeId)) {
@@ -439,7 +448,7 @@ async function updateVendorOrderFlow(req, res, next) {
     if (!store) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
-    if (req.user.role === 'vendor' && String(store.ownerId || '') !== String(req.user.uid || '')) {
+    if (isVendorUser(req.user) && String(store.ownerId || '') !== String(req.user.uid || '')) {
       return res.status(403).json({ success: false, message: 'Order does not belong to your store.' });
     }
 
@@ -494,7 +503,7 @@ async function listVendorTrialRequests(req, res, next) {
     if (approvalStatus) {
       query.approvalStatus = approvalStatus;
     }
-    if (req.user.role === 'vendor') {
+    if (isVendorUser(req.user)) {
       const stores = await Store.find({ ownerId: req.user.uid }).select('_id').lean();
       const storeIds = stores.map((store) => store._id);
       const products = await Product.find({ storeId: { $in: storeIds } }).select('_id').lean();
@@ -527,7 +536,7 @@ async function updateVendorTrialFlow(req, res, next) {
     if (!session) {
       return res.status(404).json({ success: false, message: 'Trial session not found.' });
     }
-    if (req.user.role === 'vendor') {
+    if (isVendorUser(req.user)) {
       const stores = await Store.find({ ownerId: req.user.uid }).select('_id').lean();
       const storeIds = stores.map((store) => store._id);
       const itemProductIds = (session.items || [])
@@ -641,7 +650,7 @@ async function getOperationsAnalytics(req, res, next) {
     let storeFilter = {};
     let vendorStoreIds = [];
     let vendorProductIds = [];
-    if (req.user.role === 'vendor') {
+    if (isVendorUser(req.user)) {
       const stores = await Store.find({ ownerId: req.user.uid }).select('_id').lean();
       vendorStoreIds = stores.map((store) => store._id.toString());
       vendorProductIds = (
@@ -652,7 +661,7 @@ async function getOperationsAnalytics(req, res, next) {
 
     const [deliveryStats, vendorStats, trialStats] = await Promise.all([
       DeliveryTask.aggregate([
-        ...(req.user.role === 'vendor' ? [{ $match: storeFilter }] : []),
+        ...(isVendorUser(req.user) ? [{ $match: storeFilter }] : []),
         {
           $group: {
             _id: null,
@@ -670,7 +679,7 @@ async function getOperationsAnalytics(req, res, next) {
         },
       ]),
       Order.aggregate([
-        ...(req.user.role === 'vendor' ? [{ $match: storeFilter }] : []),
+        ...(isVendorUser(req.user) ? [{ $match: storeFilter }] : []),
         {
           $group: {
             _id: '$storeId',
@@ -684,7 +693,7 @@ async function getOperationsAnalytics(req, res, next) {
         { $limit: 20 },
       ]),
       TrialHomeSession.aggregate([
-        ...(req.user.role === 'vendor'
+        ...(isVendorUser(req.user)
           ? [{ $match: { 'items.productId': { $in: vendorProductIds } } }]
           : []),
         {

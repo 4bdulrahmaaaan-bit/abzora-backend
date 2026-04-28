@@ -6,6 +6,16 @@ const { WORKER } = require('./opsConstants');
 let running = false;
 let inFlight = 0;
 let loopHandle = null;
+const workerHealth = {
+  processedCount: 0,
+  executionFailures: 0,
+  deferredRetries: 0,
+  loopFailures: 0,
+  emptyDequeues: 0,
+  lastProcessedAt: '',
+  lastErrorAt: '',
+  lastError: '',
+};
 
 async function queueOpenAlerts(limit = 200) {
   const severityWeight = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
@@ -65,7 +75,10 @@ async function requeueDueRetries(limit = 120) {
 
 async function processSingleQueueItem() {
   const alertId = await dequeueAlert();
-  if (!alertId) return false;
+  if (!alertId) {
+    workerHealth.emptyDequeues += 1;
+    return false;
+  }
 
   const alert = await OpsAlert.findOne({ alertId: String(alertId) });
   if (!alert || alert.status === 'RESOLVED' || alert.status === 'FAILED') {
@@ -73,11 +86,18 @@ async function processSingleQueueItem() {
   }
 
   if (alert.nextRetryAt && new Date(alert.nextRetryAt).getTime() > Date.now()) {
-    await enqueueAlert({ alertId: alert.alertId, severity: alert.severity });
+    workerHealth.deferredRetries += 1;
     return false;
   }
 
-  await executeAlertAction(alert, 'ops-worker');
+  const result = await executeAlertAction(alert, 'ops-worker');
+  if (result?.success === false && !result?.manual) {
+    workerHealth.executionFailures += 1;
+    workerHealth.lastErrorAt = new Date().toISOString();
+    workerHealth.lastError = String(result?.error || 'Unknown ops execution failure');
+  }
+  workerHealth.processedCount += 1;
+  workerHealth.lastProcessedAt = new Date().toISOString();
   return true;
 }
 
@@ -90,7 +110,12 @@ async function workerLoopTick() {
   while (running && inFlight < WORKER.maxConcurrency) {
     inFlight += 1;
     processSingleQueueItem()
-      .catch(() => null)
+      .catch((error) => {
+        workerHealth.loopFailures += 1;
+        workerHealth.lastErrorAt = new Date().toISOString();
+        workerHealth.lastError = String(error?.message || error || 'Unknown worker loop failure');
+        console.warn('Ops worker queue item failed:', workerHealth.lastError);
+      })
       .finally(() => {
         inFlight = Math.max(0, inFlight - 1);
       });
@@ -116,9 +141,18 @@ function stopOpsWorker() {
   }
 }
 
+function getWorkerHealth() {
+  return {
+    ...workerHealth,
+    running,
+    inFlight,
+  };
+}
+
 module.exports = {
   startOpsWorker,
   stopOpsWorker,
   queueOpenAlerts,
   requeueDueRetries,
+  getWorkerHealth,
 };

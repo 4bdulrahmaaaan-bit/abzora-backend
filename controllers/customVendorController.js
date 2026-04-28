@@ -5,6 +5,7 @@ const Store = require('../models/Store');
 const CustomOrderMessage = require('../models/CustomOrderMessage');
 const VendorTrainingProgress = require('../models/VendorTrainingProgress');
 const VendorSampleReview = require('../models/VendorSampleReview');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 
 const ALLOWED_SPECIALIZATIONS = new Set([
   'shirts',
@@ -20,11 +21,16 @@ const ALLOWED_SPECIALIZATIONS = new Set([
 
 const CUSTOM_VENDOR_STATUSES = [
   'new_order',
+  'draft',
   'accepted',
+  'confirmed',
+  'measuring',
+  'stitching',
   'needs_clarification',
   'in_stitching',
   'quality_check',
   'ready',
+  'pickup',
   'shipped',
   'delivered',
   'rejected',
@@ -41,6 +47,10 @@ const ALLOWED_ALTERATION_STATUSES = new Set(['none', 'requested', 'accepted', 'i
 function ensureVendor(req, res) {
   if (!req.user?.uid) {
     res.status(401).json({ success: false, message: 'Unauthorized' });
+    return false;
+  }
+  if (!hasRole(req.user, ['vendor'])) {
+    res.status(403).json({ success: false, message: 'Vendor access required.' });
     return false;
   }
   return true;
@@ -78,6 +88,77 @@ function clampNumber(value, fallback, minimum, maximum) {
 
 function normalizeShortText(value, maxLength = 120) {
   return String(value || '').trim().slice(0, maxLength);
+}
+
+function normalizeStringArray(value, max = 12) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, max);
+}
+
+function normalizeAtelierConfig(raw = {}, fallback = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const base = fallback && typeof fallback === 'object' ? fallback : {};
+  const customizationOptions = source.customizationOptions && typeof source.customizationOptions === 'object'
+    ? source.customizationOptions
+    : base.customizationOptions || {};
+  const pricingRules = source.atelierPricingRules && typeof source.atelierPricingRules === 'object'
+    ? source.atelierPricingRules
+    : base.atelierPricingRules || {};
+  return {
+    supportsCustomization:
+      source.supportsCustomization == null
+        ? Boolean(base.supportsCustomization)
+        : source.supportsCustomization === true,
+    measurementOptions: normalizeStringArray(
+      source.measurementOptions ?? base.measurementOptions ?? [],
+    ).filter((item) => ['manual', 'trial', 'visit', 'standard'].includes(item)),
+    customizationOptions: {
+      fabric: normalizeStringArray(customizationOptions.fabric, 20),
+      color: normalizeStringArray(customizationOptions.color, 20),
+      styleVariants: normalizeStringArray(customizationOptions.styleVariants, 20),
+      addOns: normalizeStringArray(customizationOptions.addOns, 20),
+    },
+    tailoringTimeDaysMin: clampNumber(
+      source.tailoringTimeDaysMin,
+      Number(base.tailoringTimeDaysMin || 1),
+      1,
+      30,
+    ),
+    tailoringTimeDaysMax: clampNumber(
+      source.tailoringTimeDaysMax,
+      Number(base.tailoringTimeDaysMax || 3),
+      1,
+      30,
+    ),
+    atelierPricingRules: {
+      basePriceMultiplier: clampNumber(
+        pricingRules.basePriceMultiplier,
+        Number(base.atelierPricingRules?.basePriceMultiplier || 1),
+        0,
+        10,
+      ),
+      tailoringCharge: clampNumber(
+        pricingRules.tailoringCharge,
+        Number(base.atelierPricingRules?.tailoringCharge || 0),
+        0,
+        100000,
+      ),
+      customizationBaseCharge: clampNumber(
+        pricingRules.customizationBaseCharge,
+        Number(base.atelierPricingRules?.customizationBaseCharge || 0),
+        0,
+        100000,
+      ),
+      homeVisitCharge: clampNumber(
+        pricingRules.homeVisitCharge,
+        Number(base.atelierPricingRules?.homeVisitCharge || 0),
+        0,
+        100000,
+      ),
+    },
+  };
 }
 
 function createDefaultTrainingModules() {
@@ -229,6 +310,10 @@ function serializeCustomVendorProfile(store) {
       adminQaPassRate: Number(quality.adminQaPassRate || 0),
       visibilityTier: quality.visibilityTier || 'watchlist',
     },
+    atelierConfig: normalizeAtelierConfig(
+      store?.atelierConfig?.toObject?.() || store?.atelierConfig || {},
+      store?.atelierConfig?.toObject?.() || store?.atelierConfig || {},
+    ),
   };
 }
 
@@ -246,6 +331,12 @@ function serializeCustomOrder(order) {
     customOrderStatus: source.customOrderStatus || 'none',
     selectedDesignerName: source.selectedDesignerName || '',
     customMeasurements: source.customMeasurements || {},
+    atelierCustomization: source.atelierCustomization || {},
+    measurementMethod: source.measurementMethod || '',
+    atelierStatus: source.atelierStatus || 'none',
+    atelierTailoringCharge: Number(source.atelierTailoringCharge || 0),
+    atelierCustomizationCharge: Number(source.atelierCustomizationCharge || 0),
+    atelierHomeVisitCharge: Number(source.atelierHomeVisitCharge || 0),
     customDesignOptions: source.customDesignOptions || {},
     referenceImageUrl: source.referenceImageUrl || '',
     previewImageUrl: source.previewImageUrl || '',
@@ -392,6 +483,12 @@ async function saveOwnCustomVendorProfile(req, res, next) {
       });
     }
     store.vendorType = 'custom_vendor';
+    store.atelierConfig = normalizeAtelierConfig(
+      body.atelierConfig || {
+        supportsCustomization: true,
+      },
+      store.atelierConfig?.toObject?.() || store.atelierConfig || {},
+    );
     store.customVendorProfile = {
       ...profile.toObject?.(),
       experienceYears: clampNumber(body.experienceYears, Number(profile.experienceYears || 0), 0, 60),
@@ -546,6 +643,24 @@ async function getCustomVendorDashboard(req, res, next) {
         counts[key] += 1;
       }
     }
+    const deliveredOrders = orders.filter((order) => order.customOrderStatus === 'delivered');
+    const atelierAov = deliveredOrders.length === 0
+      ? 0
+      : deliveredOrders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0) / deliveredOrders.length;
+    const atelierConversionRate = orders.length === 0
+      ? 0
+      : deliveredOrders.length / orders.length;
+    const returnReduction = Math.max(
+      0,
+      1 - Number(store.customVendorProfile?.metrics?.returnRate || 0),
+    );
+    const tailoringTimeDays = deliveredOrders.length === 0
+      ? Number(store.atelierConfig?.tailoringTimeDaysMax || store.customVendorProfile?.productionTimeDays || 0)
+      : deliveredOrders.reduce((sum, order) => {
+          const created = new Date(order.createdAt || Date.now()).getTime();
+          const delivered = new Date(order.updatedAt || order.createdAt || Date.now()).getTime();
+          return sum + Math.max(0, (delivered - created) / (1000 * 60 * 60 * 24));
+        }, 0) / deliveredOrders.length;
     return res.status(200).json({
       success: true,
       data: {
@@ -560,6 +675,10 @@ async function getCustomVendorDashboard(req, res, next) {
           ready: counts.ready,
           shipped: counts.shipped,
           delivered: counts.delivered,
+          atelierConversionRate: Number(atelierConversionRate.toFixed(2)),
+          averageOrderValue: Number(atelierAov.toFixed(2)),
+          returnReduction: Number(returnReduction.toFixed(2)),
+          tailoringTimeDays: Number(tailoringTimeDays.toFixed(1)),
         },
         orders: orders.map(serializeCustomOrder),
       },
@@ -665,7 +784,7 @@ async function updateCustomOrderStatus(req, res, next) {
     }
 
     const requiresPreDispatchProof =
-      status === 'ready' || status === 'shipped' || status === 'delivered';
+      status === 'ready' || status === 'pickup' || status === 'shipped' || status === 'delivered';
     if (requiresPreDispatchProof) {
       if (!order.vendorFinalImageUrl.trim()) {
         return res.status(400).json({
@@ -697,15 +816,30 @@ async function updateCustomOrderStatus(req, res, next) {
     }
 
     order.customOrderStatus = status;
+    order.atelierStatus = ['draft', 'confirmed', 'measuring', 'stitching', 'ready', 'pickup', 'delivered', 'rejected']
+      .includes(status)
+      ? status
+      : order.atelierStatus;
     if (status === 'delivered') {
       order.orderStatus = 'delivered';
+      order.deliveryStatus = 'Delivered';
       if (order.customerFitFeedbackStatus === 'pending') {
         order.customerFitFeedbackStatus = 'pending';
       }
-    } else if (status === 'shipped') {
+    } else if (status === 'pickup' || status === 'shipped') {
       order.orderStatus = 'shipped';
-    } else if (status === 'accepted' || status === 'in_stitching' || status === 'quality_check') {
+      order.deliveryStatus = status === 'pickup' ? 'Ready for pickup' : 'Out for delivery';
+    } else if (
+      status === 'accepted' ||
+      status === 'confirmed' ||
+      status === 'measuring' ||
+      status === 'stitching' ||
+      status === 'in_stitching' ||
+      status === 'quality_check'
+    ) {
       order.orderStatus = 'processing';
+    } else if (status === 'draft') {
+      order.orderStatus = 'pending';
     }
     await order.save();
     return res.status(200).json({ success: true, data: serializeCustomOrder(order) });

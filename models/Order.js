@@ -63,6 +63,7 @@ const trackingTimestampSchema = new mongoose.Schema({}, { _id: false, strict: fa
 const customMeasurementsSchema = new mongoose.Schema({}, { _id: false, strict: false });
 const customDesignSchema = new mongoose.Schema({}, { _id: false, strict: false });
 const pricingBreakdownSchema = new mongoose.Schema({}, { _id: false, strict: false });
+const atelierOptionsSchema = new mongoose.Schema({}, { _id: false, strict: false });
 
 const orderSchema = new mongoose.Schema(
   {
@@ -236,10 +237,15 @@ const orderSchema = new mongoose.Schema(
         'none',
         'new_order',
         'accepted',
+        'draft',
+        'confirmed',
+        'measuring',
+        'stitching',
         'needs_clarification',
         'in_stitching',
         'quality_check',
         'ready',
+        'pickup',
         'shipped',
         'delivered',
         'rejected',
@@ -255,6 +261,36 @@ const orderSchema = new mongoose.Schema(
     customMeasurements: {
       type: customMeasurementsSchema,
       default: () => ({}),
+    },
+    atelierCustomization: {
+      type: atelierOptionsSchema,
+      default: () => ({}),
+    },
+    measurementMethod: {
+      type: String,
+      enum: ['', 'standard', 'manual', 'trial', 'visit'],
+      default: '',
+    },
+    atelierStatus: {
+      type: String,
+      enum: ['none', 'draft', 'confirmed', 'measuring', 'stitching', 'ready', 'pickup', 'delivered', 'cancelled', 'rejected'],
+      default: 'none',
+      index: true,
+    },
+    atelierTailoringCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    atelierCustomizationCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    atelierHomeVisitCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     customDesignOptions: {
       type: customDesignSchema,

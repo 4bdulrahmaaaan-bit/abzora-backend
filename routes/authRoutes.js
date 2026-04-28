@@ -1,8 +1,10 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { requireRoles } = require('../middleware/authorizationMiddleware');
 const {
   me,
+  getUserByIdentifier,
   debugAuth,
   upsertTestUser,
   syncProfile,
@@ -30,6 +32,7 @@ const router = express.Router();
 router.post('/test-user', upsertTestUser);
 router.get('/me', authMiddleware, me);
 router.get('/profile', authMiddleware, me);
+router.get('/users/:id', authMiddleware, requireRoles('vendor', 'rider', 'admin', 'super_admin'), getUserByIdentifier);
 router.get('/debug', authMiddleware, debugAuth);
 router.post('/sync-profile', authMiddleware, syncProfile);
 router.get('/addresses', authMiddleware, listAddresses);

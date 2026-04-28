@@ -57,6 +57,20 @@ function riderScore({ distanceKm, workload }) {
   return distanceKm * 1.25 + workload * 2.75;
 }
 
+function riderEligibilityFilter(city = '') {
+  const normalizedCity = String(city || '').trim().toLowerCase();
+  return {
+    $or: [
+      { role: 'rider' },
+      { 'roles.rider': true },
+    ],
+    isActive: true,
+    riderApprovalStatus: 'approved',
+    riderAvailable: true,
+    ...(normalizedCity ? { riderCity: new RegExp(`^${normalizedCity}$`, 'i') } : {}),
+  };
+}
+
 async function findBestRider({
   pickupLat,
   pickupLng,
@@ -67,13 +81,7 @@ async function findBestRider({
 }) {
   const normalizedCity = String(city || '').trim().toLowerCase();
 
-  const riders = await User.find({
-    role: 'rider',
-    isActive: true,
-    riderApprovalStatus: 'approved',
-    riderAvailable: true,
-    ...(normalizedCity ? { riderCity: new RegExp(`^${normalizedCity}$`, 'i') } : {}),
-  })
+  const riders = await User.find(riderEligibilityFilter(normalizedCity))
     .select('uid name latitude longitude riderCity riderCapacity')
     .session(session)
     .lean();
@@ -214,4 +222,5 @@ async function createAssignedTask({
 module.exports = {
   ACTIVE_STATUSES,
   createAssignedTask,
+  riderEligibilityFilter,
 };

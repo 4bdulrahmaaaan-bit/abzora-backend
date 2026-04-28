@@ -130,8 +130,9 @@ async function triggerDispatchRebalance(req, res, next) {
         const assigned = await assignSingleOrder({
           orderId: task.orderId,
           actor: req.user,
+          replacementTaskId: task._id.toString(),
+          excludedRiderIds: [String(task.riderId || '').trim()].filter(Boolean),
         });
-        await DeliveryTask.updateOne({ _id: task._id }, { $set: { status: 'cancelled' } });
         rebalanced.push(assigned);
       } catch (_) {
         // Skip failures and continue.

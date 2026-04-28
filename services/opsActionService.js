@@ -47,7 +47,7 @@ async function markAlertRetry(alert, error) {
         },
       },
     );
-    return;
+    return { exhausted: true, retryCount: nextRetryCount };
   }
 
   const backoffMs = nextBackoffMs(nextRetryCount);
@@ -60,6 +60,26 @@ async function markAlertRetry(alert, error) {
         retryCount: nextRetryCount,
         nextRetryAt: new Date(Date.now() + backoffMs),
         lastError: String(error?.message || error || 'Unknown failure'),
+      },
+    },
+  );
+  return { exhausted: false, retryCount: nextRetryCount };
+}
+
+async function markAlertManualRequired(alert, details = {}) {
+  await OpsAlert.updateOne(
+    { _id: alert._id },
+    {
+      $set: {
+        status: 'ESCALATED',
+        actionStatus: 'PENDING',
+        lastError: '',
+        nextRetryAt: null,
+        payload: {
+          ...(alert.payload || {}),
+          resolution: details,
+          manualReviewRequired: true,
+        },
       },
     },
   );
@@ -103,22 +123,34 @@ async function reassignOrder(alert, actorId = 'system') {
     throw new Error('Order id is missing for reassignment.');
   }
 
-  await DeliveryTask.updateMany(
-    {
-      orderId,
-      status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] },
-    },
-    {
-      $set: {
-        status: 'cancelled',
-        'metadata.opsReassigned': true,
+  const activeTasks = await DeliveryTask.find({
+    orderId,
+    status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] },
+  })
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .lean();
+
+  const [primaryTask, ...duplicateTasks] = activeTasks;
+
+  if (duplicateTasks.length > 0) {
+    await DeliveryTask.updateMany(
+      {
+        _id: { $in: duplicateTasks.map((task) => task._id) },
       },
-    },
-  );
+      {
+        $set: {
+          status: 'cancelled',
+          'metadata.opsReassignedDuplicate': true,
+        },
+      },
+    );
+  }
 
   const assigned = await assignSingleOrder({
     orderId,
     actor: { uid: actorId, role: 'admin' },
+    replacementTaskId: primaryTask?._id?.toString?.() || '',
+    excludedRiderIds: [primaryTask?.riderId].filter(Boolean),
   });
   await ensureEntityMappings({ orderId });
   return assigned;
@@ -133,23 +165,28 @@ async function retryDispatch(alert) {
 
 async function pingRider(alert) {
   return {
-    pinged: true,
+    completed: false,
+    pinged: false,
     riderId: alert.riderId || '',
+    reason: 'manual_contact_required',
   };
 }
 
 async function rerouteOrder(alert) {
   return {
-    rerouted: true,
+    completed: false,
+    rerouted: false,
     orderId: alert.orderId || '',
-    etaAdjustment: 'recomputed',
+    reason: 'manual_reroute_required',
   };
 }
 
 async function notifyVendor(alert) {
   return {
-    notified: true,
+    completed: false,
+    notified: false,
     vendorId: alert.vendorId || '',
+    reason: 'manual_vendor_followup_required',
   };
 }
 
@@ -166,7 +203,11 @@ async function retryPayment(alert) {
   order.settlementFailureCount = 0;
   await order.save();
 
-  return { retried: true };
+  return {
+    completed: false,
+    retried: true,
+    reason: 'payment_state_reset_only',
+  };
 }
 
 const actionHandlers = {
@@ -228,19 +269,21 @@ async function executeAlertAction(alert, actorId = 'system') {
 
     const handler = actionHandlers[alert.action] || actionHandlers.MANUAL_REVIEW;
     const result = await handler(alert, actorId);
+    const requiresManualReview = result?.completed === false;
 
-    if (alert.type === 'STUCK_ORDER' && alert.retryCount >= Number(alert.maxRetries || 3) - 1) {
-      const fallback = await cancelOrderFallback(alert);
+    if (requiresManualReview) {
+      await markAlertManualRequired(alert, result);
       await logOpsAction({
         alertId: alert.alertId,
-        action: 'CANCEL_FALLBACK',
-        status: 'SUCCESS',
+        action: alert.action,
+        status: 'ESCALATED',
         entityType,
         entityId,
         actorId,
         attempt: alert.retryCount,
-        details: fallback,
+        details: result,
       });
+      return { success: false, manual: true, result };
     }
 
     await markAlertResolved(alert, result, true);
@@ -257,7 +300,31 @@ async function executeAlertAction(alert, actorId = 'system') {
 
     return { success: true, result };
   } catch (error) {
-    await markAlertRetry(alert, error);
+    const retryState = await markAlertRetry(alert, error);
+
+    if (retryState?.exhausted && alert.type === 'STUCK_ORDER') {
+      const fallback = await cancelOrderFallback(alert);
+      await logOpsAction({
+        alertId: alert.alertId,
+        action: 'CANCEL_FALLBACK',
+        status: 'SUCCESS',
+        entityType,
+        entityId,
+        actorId,
+        attempt: retryState.retryCount,
+        details: fallback,
+      });
+      await markAlertResolved(alert, {
+        fallback,
+        reason: 'max_retries_exhausted',
+      });
+      return {
+        success: false,
+        fallbackApplied: true,
+        error: error.message,
+      };
+    }
+
     await logOpsAction({
       alertId: alert.alertId,
       action: alert.action,

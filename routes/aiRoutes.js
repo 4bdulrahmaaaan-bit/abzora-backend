@@ -28,6 +28,7 @@ router.use(authMiddleware);
 router.post('/gateway', runAiGateway);
 router.post('/recommend-size', recommendSize);
 router.post('/stylist-chat', stylistChat);
+router.post('/style', stylistRecommendations);
 router.post('/stylist-recommendations', stylistRecommendations);
 router.get('/history/:chatId', getChatHistory);
 router.post('/history/:chatId', appendChatHistoryEntry);

@@ -73,36 +73,59 @@ async function upsertOpenAlert({
     VENDOR_DELAY: 'NOTIFY_VENDOR',
     PAYMENT_FAILED: 'RETRY_PAYMENT',
   };
-  const alert = await OpsAlert.findOneAndUpdate(
-    {
-      type,
-      entityType,
-      entityId,
-      status: { $in: ['OPEN', 'QUEUED', 'PROCESSING', 'ESCALATED'] },
-    },
-    {
-      $setOnInsert: {
-        alertId: `ops_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  const activeFilter = {
+    type,
+    entityType,
+    entityId,
+    status: { $in: ['OPEN', 'QUEUED', 'PROCESSING', 'ESCALATED'] },
+  };
+  const updatePayload = {
+    score,
+    severity,
+    title,
+    message,
+    payload,
+    orderId,
+    taskId,
+    riderId,
+    vendorId,
+    action: actionMap[type] || 'MANUAL_REVIEW',
+    maxRetries: Math.min(3, Math.max(2, Number(process.env.OPS_ACTION_MAX_RETRIES || 3))),
+  };
+
+  const existing = await OpsAlert.findOne(activeFilter);
+  if (existing) {
+    const shouldQueue = ['OPEN', 'ESCALATED'].includes(String(existing.status || '').toUpperCase());
+    await OpsAlert.updateOne(
+      { _id: existing._id },
+      {
+        $set: updatePayload,
       },
-      $set: {
-        score,
-        severity,
-        title,
-        message,
-        payload,
-        orderId,
-        taskId,
-        riderId,
-        vendorId,
-        status: 'OPEN',
-        action: actionMap[type] || 'MANUAL_REVIEW',
-        actionStatus: 'PENDING',
-        maxRetries: Math.min(3, Math.max(2, Number(process.env.OPS_ACTION_MAX_RETRIES || 3))),
-      },
-    },
-    { upsert: true, new: true },
-  );
-  return alert;
+    );
+    const alert = await OpsAlert.findById(existing._id);
+    return { alert, shouldQueue };
+  }
+
+  const [alert] = await OpsAlert.create([{
+    alertId: `ops_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    type,
+    entityType,
+    entityId,
+    score,
+    severity,
+    title,
+    message,
+    payload,
+    orderId,
+    taskId,
+    riderId,
+    vendorId,
+    status: 'OPEN',
+    action: actionMap[type] || 'MANUAL_REVIEW',
+    actionStatus: 'PENDING',
+    maxRetries: Math.min(3, Math.max(2, Number(process.env.OPS_ACTION_MAX_RETRIES || 3))),
+  }]);
+  return { alert, shouldQueue: true };
 }
 
 async function detectAndUpsertOperationalAlerts() {
@@ -126,7 +149,7 @@ async function detectAndUpsertOperationalAlerts() {
       priorityBoost: 8,
     });
     const entity = resolveAlertEntity({ order, task: null, type: ALERT_TYPES.VENDOR_DELAY });
-    const alert = await upsertOpenAlert({
+    const { alert, shouldQueue } = await upsertOpenAlert({
       type: ALERT_TYPES.VENDOR_DELAY,
       title: 'Vendor acceptance timeout',
       message: 'Vendor confirmation exceeded configured timeout.',
@@ -137,12 +160,20 @@ async function detectAndUpsertOperationalAlerts() {
       },
       ...entity,
     });
-    created.push(alert);
+    created.push({ alert, shouldQueue });
   }
 
+  const taskTimeoutFloor = Math.max(
+    1,
+    Math.min(
+      Number(TIMEOUTS_MINUTES.riderAccept || 7),
+      Number(TIMEOUTS_MINUTES.pickup || 25),
+      Number(TIMEOUTS_MINUTES.delivery || 90),
+    ),
+  );
   const stuckTasks = await DeliveryTask.find({
     status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] },
-    updatedAt: { $lte: new Date(now.getTime() - 20 * 60000) },
+    updatedAt: { $lte: new Date(now.getTime() - taskTimeoutFloor * 60000) },
   })
     .sort({ updatedAt: 1 })
     .limit(300)
@@ -153,12 +184,18 @@ async function detectAndUpsertOperationalAlerts() {
     const delayMins = ageMinutes(updatedAt);
 
     let type = ALERT_TYPES.STUCK_ORDER;
+    let timeoutMinutes = TIMEOUTS_MINUTES.delivery;
     if (task.status === 'assigned' && delayMins >= TIMEOUTS_MINUTES.riderAccept) {
       type = ALERT_TYPES.DISPATCH_FAILED;
+      timeoutMinutes = TIMEOUTS_MINUTES.riderAccept;
     } else if (task.status === 'accepted' && delayMins >= TIMEOUTS_MINUTES.pickup) {
       type = ALERT_TYPES.RIDER_INACTIVE;
+      timeoutMinutes = TIMEOUTS_MINUTES.pickup;
     } else if ((task.status === 'picked_up' || task.status === 'out_for_delivery') && delayMins >= TIMEOUTS_MINUTES.delivery) {
       type = ALERT_TYPES.DELAYED_ORDER;
+      timeoutMinutes = TIMEOUTS_MINUTES.delivery;
+    } else {
+      continue;
     }
 
     const score = buildAlertScore({
@@ -167,7 +204,7 @@ async function detectAndUpsertOperationalAlerts() {
       priorityBoost: type === ALERT_TYPES.STUCK_ORDER ? 20 : 10,
     });
 
-    const alert = await upsertOpenAlert({
+    const { alert, shouldQueue } = await upsertOpenAlert({
       type,
       title: `Task timeout: ${task.status}`,
       message: `Task has been inactive for ${delayMins} minutes and is marked as stuck.`,
@@ -175,12 +212,7 @@ async function detectAndUpsertOperationalAlerts() {
       payload: {
         taskStatus: task.status,
         delayMins,
-        timeoutMinutes:
-          type === ALERT_TYPES.DISPATCH_FAILED
-            ? TIMEOUTS_MINUTES.riderAccept
-            : type === ALERT_TYPES.RIDER_INACTIVE
-              ? TIMEOUTS_MINUTES.pickup
-              : TIMEOUTS_MINUTES.delivery,
+        timeoutMinutes,
       },
       entityType: 'task',
       entityId: task._id.toString(),
@@ -197,7 +229,7 @@ async function detectAndUpsertOperationalAlerts() {
     if (task.orderId) {
       await ensureEntityMappings({ orderId: task.orderId });
     }
-    created.push(alert);
+    created.push({ alert, shouldQueue });
   }
 
   const paymentFailedOrders = await Order.find({
@@ -215,7 +247,7 @@ async function detectAndUpsertOperationalAlerts() {
       orderValue: Number(order.totalAmount || 0),
       priorityBoost: 12,
     });
-    const alert = await upsertOpenAlert({
+    const { alert, shouldQueue } = await upsertOpenAlert({
       type: ALERT_TYPES.PAYMENT_FAILED,
       title: 'Payment failed',
       message: 'Payment failed and requires retry or manual intervention.',
@@ -230,7 +262,7 @@ async function detectAndUpsertOperationalAlerts() {
       riderId: order.riderId || '',
       vendorId: '',
     });
-    created.push(alert);
+    created.push({ alert, shouldQueue });
   }
 
   return created;

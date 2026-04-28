@@ -3,6 +3,7 @@ const Product = require('../models/Product');
 const Store = require('../models/Store');
 const AdminPlatformSettings = require('../models/AdminPlatformSettings');
 const User = require('../models/User');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 
 const VALID_SESSION_STATUSES = new Set([
   'draft',
@@ -402,14 +403,14 @@ async function requestTrialHomeSession({ userId, actor, payload }) {
 }
 
 async function canActorApproveTrialSession({ session, actor }) {
-  const role = actor?.role?.toString().trim().toLowerCase() || '';
-  if (role === 'admin' || role === 'super_admin') {
+  if (hasRole(actor, ['admin', 'super_admin'])) {
     return true;
   }
-  if (role !== 'vendor') {
+  const storeId = await resolveVendorStoreId(actor);
+  const isVendorActor = hasRole(actor, ['vendor']) || Boolean(storeId);
+  if (!isVendorActor) {
     return false;
   }
-  const storeId = actor?.storeId?.toString().trim() || '';
   if (!storeId) {
     return false;
   }
@@ -431,12 +432,13 @@ async function approveTrialHomeRequest({ session, actor, note = '' }) {
     throw error;
   }
   session.approvalStatus = 'approved';
+  const approvedBy = hasRole(actor, ['vendor'])
+    ? 'vendor'
+    : hasRole(actor, ['admin', 'super_admin'])
+    ? 'admin'
+    : 'system';
   session.approvedBy =
-    actor?.role === 'vendor'
-      ? 'vendor'
-      : actor?.role === 'admin' || actor?.role === 'super_admin'
-      ? 'admin'
-      : 'system';
+    approvedBy;
   session.approvalReason = note?.toString().trim() || 'Approved by reviewer.';
   if (session.status === 'draft') {
     session.status = 'booked';
@@ -458,12 +460,13 @@ async function rejectTrialHomeRequest({ session, actor, note = '' }) {
     throw error;
   }
   session.approvalStatus = 'rejected';
+  const approvedBy = hasRole(actor, ['vendor'])
+    ? 'vendor'
+    : hasRole(actor, ['admin', 'super_admin'])
+    ? 'admin'
+    : 'system';
   session.approvedBy =
-    actor?.role === 'vendor'
-      ? 'vendor'
-      : actor?.role === 'admin' || actor?.role === 'super_admin'
-      ? 'admin'
-      : 'system';
+    approvedBy;
   session.approvalReason = note?.toString().trim() || 'Rejected by reviewer.';
   session.status = 'cancelled';
   pushEvent(
@@ -774,12 +777,23 @@ async function convertTrialHomeToTailoring({ session, payload, actorId }) {
 
   session.status = 'converted_to_tailoring';
   session.tailoringRequest = payload.tailoringRequest?.toString().trim() || '';
+  if (payload.targetStoreId || payload.targetStoreName) {
+    session.events = Array.isArray(session.events) ? session.events : [];
+    session.events.push({
+      type: 'atelier_cta_presented',
+      actorId,
+      note: `Tailor this with ${payload.targetStoreName?.toString().trim() || 'selected atelier'} (${payload.targetStoreId?.toString().trim() || ''})`,
+      createdAt: new Date(),
+    });
+  }
   session.feedback = {
     ...(session.feedback?.toObject?.() || session.feedback || {}),
     tailoringRecommendation:
       payload.tailoringRecommendation?.toString().trim() ||
       session.feedback?.tailoringRecommendation ||
-      'Adjust with custom tailoring',
+      (payload.targetStoreName
+        ? `Tailor this with ${payload.targetStoreName.toString().trim()}`
+        : 'Adjust with custom tailoring'),
     adjustmentOptions: Array.isArray(payload.adjustmentOptions)
       ? uniqueStrings(payload.adjustmentOptions)
       : session.feedback?.adjustmentOptions || [],

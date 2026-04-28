@@ -1,6 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { requireVendor } = require('../middleware/authorizationMiddleware');
 const {
   getVendorDashboard,
   getVendorPayoutProfile,
@@ -34,35 +35,37 @@ const {
   getOperationsAnalytics,
   assignRider,
 } = require('../controllers/logisticsController');
+const { listVendorProducts } = require('../controllers/productController');
 
 const router = express.Router();
 
 router.use(authMiddleware);
 
-router.get('/dashboard', getVendorDashboard);
-router.get('/custom/dashboard', getCustomVendorDashboard);
-router.get('/custom/profile', getOwnCustomVendorProfile);
-router.get('/custom/quality', getOwnCustomVendorQuality);
-router.post('/custom/profile', saveOwnCustomVendorProfile);
-router.post('/custom/training/modules/:moduleKey/complete', completeTrainingModule);
-router.post('/custom/sample-review', submitSampleReview);
-router.get('/custom/orders', listCustomVendorOrders);
-router.patch('/custom/orders/:orderId/status', updateCustomOrderStatus);
-router.get('/custom/orders/:orderId/messages', listCustomOrderMessages);
-router.get('/wallet', getVendorWallet);
-router.post('/withdraw', requestVendorWithdraw);
-router.get('/payout-account', getVendorPayoutProfile);
-router.post('/payout-account', saveVendorPayoutProfile);
-router.get('/trial-home/dashboard', getVendorTrialHomeDashboard);
-router.get('/trial-home/sessions', listVendorTrialHomeSessions);
-router.patch('/trial-home/:id/status', updateVendorTrialHomeSession);
-router.get('/trial-home/settings/products', listVendorTrialHomeProductSettings);
-router.patch('/trial-home/settings/products/:productId', updateVendorTrialHomeProductSettings);
-router.get('/ops/orders', listVendorOperationsOrders);
-router.patch('/ops/orders/:orderId/status', updateVendorOrderFlow);
-router.get('/ops/trials', listVendorTrialRequests);
-router.patch('/ops/trials/:sessionId/status', updateVendorTrialFlow);
-router.post('/ops/assign-rider', assignRider);
-router.get('/ops/analytics', getOperationsAnalytics);
+router.get('/products', requireVendor, listVendorProducts);
+router.get('/dashboard', requireVendor, getVendorDashboard);
+router.get('/custom/dashboard', requireVendor, getCustomVendorDashboard);
+router.get('/custom/profile', requireVendor, getOwnCustomVendorProfile);
+router.get('/custom/quality', requireVendor, getOwnCustomVendorQuality);
+router.post('/custom/profile', requireVendor, saveOwnCustomVendorProfile);
+router.post('/custom/training/modules/:moduleKey/complete', requireVendor, completeTrainingModule);
+router.post('/custom/sample-review', requireVendor, submitSampleReview);
+router.get('/custom/orders', requireVendor, listCustomVendorOrders);
+router.patch('/custom/orders/:orderId/status', requireVendor, updateCustomOrderStatus);
+router.get('/custom/orders/:orderId/messages', requireVendor, listCustomOrderMessages);
+router.get('/wallet', requireVendor, getVendorWallet);
+router.post('/withdraw', requireVendor, requestVendorWithdraw);
+router.get('/payout-account', requireVendor, getVendorPayoutProfile);
+router.post('/payout-account', requireVendor, saveVendorPayoutProfile);
+router.get('/trial-home/dashboard', requireVendor, getVendorTrialHomeDashboard);
+router.get('/trial-home/sessions', requireVendor, listVendorTrialHomeSessions);
+router.patch('/trial-home/:id/status', requireVendor, updateVendorTrialHomeSession);
+router.get('/trial-home/settings/products', requireVendor, listVendorTrialHomeProductSettings);
+router.patch('/trial-home/settings/products/:productId', requireVendor, updateVendorTrialHomeProductSettings);
+router.get('/ops/orders', requireVendor, listVendorOperationsOrders);
+router.patch('/ops/orders/:orderId/status', requireVendor, updateVendorOrderFlow);
+router.get('/ops/trials', requireVendor, listVendorTrialRequests);
+router.patch('/ops/trials/:sessionId/status', requireVendor, updateVendorTrialFlow);
+router.post('/ops/assign-rider', requireVendor, assignRider);
+router.get('/ops/analytics', requireVendor, getOperationsAnalytics);
 
 module.exports = router;

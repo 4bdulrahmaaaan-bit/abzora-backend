@@ -41,6 +41,244 @@ function normalizeOptionalUrl(value) {
   }
 }
 
+function normalizeColorHex(value, fallback = '#C6A769') {
+  const normalized = value?.toString().trim() || '';
+  if (/^#[0-9a-fA-F]{6}$/.test(normalized)) {
+    return normalized.toUpperCase();
+  }
+  return fallback;
+}
+
+function parseBooleanFlag(value) {
+  if (value == null) {
+    return null;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (['true', '1', 'yes'].includes(normalized)) {
+    return true;
+  }
+  if (['false', '0', 'no'].includes(normalized)) {
+    return false;
+  }
+  return null;
+}
+
+function parseCsvValues(value) {
+  if (value == null) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => parseCsvValues(item))
+      .filter((item, index, list) => list.indexOf(item) === index);
+  }
+  return String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item, index, list) => list.indexOf(item) === index);
+}
+
+function parseNumberOrNull(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function normalizedMapValue(map, key) {
+  if (!map || typeof map !== 'object') {
+    return '';
+  }
+  const candidate = map[key];
+  return candidate == null ? '' : String(candidate).trim();
+}
+
+function deriveGender(source = {}) {
+  const direct =
+    normalizedMapValue(source.attributes, 'gender') ||
+    normalizedMapValue(source.attributes, 'targetGender') ||
+    source.gender?.toString().trim() ||
+    '';
+  if (direct) {
+    return direct.toLowerCase();
+  }
+  const haystack = `${source.category || ''} ${source.subcategory || ''} ${source.name || ''}`
+    .toLowerCase();
+  if (haystack.includes('women') || haystack.includes('woman') || haystack.includes('ladies')) {
+    return 'women';
+  }
+  if (haystack.includes('men') || haystack.includes('man') || haystack.includes('gent')) {
+    return 'men';
+  }
+  return 'unisex';
+}
+
+function deriveColors(source = {}) {
+  const candidates = [
+    source.colors,
+    source.color,
+    source.attributes?.colors,
+    source.attributes?.color,
+    source.atelier?.colorOptions,
+  ];
+  const values = candidates
+    .flatMap((candidate) => {
+      if (Array.isArray(candidate)) {
+        return candidate;
+      }
+      if (candidate == null) {
+        return [];
+      }
+      return String(candidate).split(',');
+    })
+    .map((item) => String(item).trim().toLowerCase())
+    .filter(Boolean);
+  return values.filter((item, index) => values.indexOf(item) === index);
+}
+
+function deriveFitConfidence(source = {}) {
+  const explicit = parseNumberOrNull(source.fitConfidence ?? source.attributes?.fitConfidence);
+  if (explicit != null) {
+    return clampNumber(explicit, 0, 100);
+  }
+  const fitRisk = clampNumber(Number(source.fitRisk || 0.35), 0, 1);
+  return Math.round((1 - fitRisk) * 100);
+}
+
+function deriveFitConfidenceLabel(confidence) {
+  if (confidence >= 82) {
+    return 'high';
+  }
+  if (confidence >= 62) {
+    return 'medium';
+  }
+  return 'low';
+}
+
+function deriveReturnRisk(source = {}) {
+  const fitRisk = clampNumber(Number(source.fitRisk || 0.35), 0, 1);
+  return fitRisk >= 0.5 ? 'high' : 'low';
+}
+
+function deriveTryAtHomeAvailable(source = {}, store = null) {
+  const productEnabled = source.trialHome?.trialEnabled === true;
+  const storeSupports = store?.sameDay?.supportsTrialHome !== false;
+  return productEnabled && storeSupports;
+}
+
+function deriveCustomizable(source = {}) {
+  return Boolean(
+    source.isCustomTailoring ||
+      source.customizable === true ||
+      source.atelier?.customizable === true ||
+      source.atelier?.atelierEnabled === true
+  );
+}
+
+function deriveSameDayAvailable(source = {}, store = null, options = {}) {
+  const eligible = source.sameDayEligible !== false;
+  const enabled = store?.sameDay?.enabled === true;
+  const cityFilter = String(options.city || '').trim().toLowerCase();
+  const cityMatches =
+    !cityFilter || String(store?.city || '').trim().toLowerCase() === cityFilter;
+  const cutoffHour = Number(store?.sameDay?.cutoffHour ?? 16);
+  const beforeCutoff = options.ignoreCutoff === true || Number(options.currentHour ?? 0) <= cutoffHour;
+  return eligible && enabled && cityMatches && beforeCutoff;
+}
+
+function deriveDeliveryTime(source = {}, store = null, options = {}) {
+  if (deriveSameDayAvailable(source, store, options)) {
+    return 'today';
+  }
+  if (source.sameDayEligible !== false || Number(store?.sameDay?.prepTimeMins ?? 0) <= 120) {
+    return 'tomorrow';
+  }
+  return '2-3 days';
+}
+
+function buildProductListOptions(req, currentHour) {
+  return {
+    sameDayOnly:
+      parseBooleanFlag(req.query.sameDayAvailable ?? req.query.sameDay) === true,
+    tryAtHomeOnly: parseBooleanFlag(req.query.tryAtHomeAvailable) === true,
+    customizableOnly:
+      parseBooleanFlag(req.query.customizable ?? req.query.atelier) === true,
+    city: req.query.city?.toString().trim() || '',
+    currentHour,
+    ignoreCutoff: req.query.ignoreCutoff === 'true',
+  };
+}
+
+function toObjectIdOrNull(value) {
+  const normalized = value?.toString().trim() || '';
+  if (!normalized || !mongoose.Types.ObjectId.isValid(normalized)) {
+    return null;
+  }
+  return new mongoose.Types.ObjectId(normalized);
+}
+
+function normalizeStringMap(input, fallback = {}) {
+  const source =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? input
+      : fallback;
+  const entries = Object.entries(source || {})
+    .map(([key, value]) => [key.toString().trim(), value?.toString().trim() || ''])
+    .filter(([key, value]) => key && value);
+  return Object.fromEntries(entries);
+}
+
+function normalizeNumberMap(input, fallback = {}) {
+  const source =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? input
+      : fallback;
+  const entries = Object.entries(source || {})
+    .map(([key, value]) => [key.toString().trim(), Number(value)])
+    .filter(([key, value]) => key && Number.isFinite(value));
+  return Object.fromEntries(entries);
+}
+
+function normalizeGarmentConfig(raw = {}, fallback = {}) {
+  const source = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const base = fallback && typeof fallback === 'object' ? fallback : {};
+  const templateIdRaw = source.templateId ?? base.templateId;
+  const fitPresetRaw = (source.fitPreset ?? base.fitPreset ?? 'regular')
+    .toString()
+    .trim()
+    .toLowerCase();
+  const fitPreset = ['slim', 'regular', 'relaxed', 'oversized', 'athletic'].includes(
+    fitPresetRaw
+  )
+    ? fitPresetRaw
+    : 'regular';
+  const lodPreferenceRaw = (source.lodPreference ?? base.lodPreference ?? 'auto')
+    .toString()
+    .trim()
+    .toLowerCase();
+  const lodPreference = ['auto', 'low', 'medium', 'high'].includes(lodPreferenceRaw)
+    ? lodPreferenceRaw
+    : 'auto';
+
+  return {
+    templateId: toObjectIdOrNull(templateIdRaw),
+    fabricTextureUrl: normalizeOptionalUrl(
+      source.fabricTextureUrl ?? base.fabricTextureUrl
+    ),
+    fitPreset,
+    colorHex: normalizeColorHex(source.colorHex ?? base.colorHex),
+    designOptions: normalizeStringMap(source.designOptions, base.designOptions || {}),
+    blendShapeOverrides: normalizeNumberMap(
+      source.blendShapeOverrides,
+      base.blendShapeOverrides || {}
+    ),
+    lodPreference,
+  };
+}
+
 function validateUnityMetadata({ unityAssetBundleUrl, rigProfile, materialProfile }) {
   const normalizedBundleUrl = normalizeOptionalUrl(unityAssetBundleUrl);
   const normalizedRigProfile = rigProfile?.toString().trim() || '';
@@ -68,12 +306,8 @@ function validateUnityMetadata({ unityAssetBundleUrl, rigProfile, materialProfil
 
 function productListCacheKey(query = {}, options = {}) {
   const normalized = JSON.stringify({
-    storeId: query.storeId || '',
-    category: query.category || '',
-    sameDayOnly: options.sameDayOnly === true,
-    city: options.city || '',
-    cutoffHour: options.cutoffHour ?? '',
-    ignoreCutoff: options.ignoreCutoff === true,
+    query,
+    options,
   });
   return `products:list:${normalized}`;
 }
@@ -120,7 +354,7 @@ function serializeProduct(product, options = {}) {
     options.store ||
     (source.storeId && typeof source.storeId === 'object' ? source.storeId : null);
 
-  return {
+  const serialized = {
     id: source._id?.toString() || source.id || '',
     name: source.name || '',
     brand: source.brand || populatedStore?.name || '',
@@ -162,9 +396,159 @@ function serializeProduct(product, options = {}) {
       trialFee: Number(source.trialHome?.trialFee || 99),
       approvalMode: source.trialHome?.approvalMode || 'auto',
     },
+    atelier: normalizeAtelierProductConfig(source.atelier || {}, source.atelier || {}),
+    garmentConfig: {
+      templateId:
+        source.garmentConfig?.templateId?.toString?.() ||
+        source.garmentConfig?.templateId ||
+        '',
+      fabricTextureUrl: source.garmentConfig?.fabricTextureUrl || '',
+      fitPreset: source.garmentConfig?.fitPreset || 'regular',
+      colorHex: source.garmentConfig?.colorHex || '#C6A769',
+      designOptions: source.garmentConfig?.designOptions
+        ? Object.fromEntries(Object.entries(source.garmentConfig.designOptions))
+        : {},
+      blendShapeOverrides: source.garmentConfig?.blendShapeOverrides
+        ? Object.fromEntries(Object.entries(source.garmentConfig.blendShapeOverrides))
+        : {},
+      lodPreference: source.garmentConfig?.lodPreference || 'auto',
+    },
+    isCustomTailoring: Boolean(source.atelier?.atelierEnabled || source.atelier?.customizable),
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,
   };
+  const fitConfidence = deriveFitConfidence(source);
+  serialized.gender = deriveGender(source);
+  serialized.colors = deriveColors(source);
+  serialized.sameDayAvailable = deriveSameDayAvailable(source, populatedStore, options);
+  serialized.tryAtHomeAvailable = deriveTryAtHomeAvailable(source, populatedStore);
+  serialized.customizable = deriveCustomizable(serialized);
+  serialized.deliveryTime = deriveDeliveryTime(source, populatedStore, options);
+  serialized.fitConfidence = fitConfidence;
+  serialized.fitConfidenceLabel = deriveFitConfidenceLabel(fitConfidence);
+  serialized.returnRisk = deriveReturnRisk(source);
+  serialized.popularity =
+    (Number(source.demandScore || 0) * 100) +
+    (Number(source.purchaseCount || 0) * 4) +
+    (Number(source.viewCount || 0) * 0.4);
+  return serialized;
+}
+
+function applyProductFilters(products, filters = {}) {
+  const categories = parseCsvValues(filters.category);
+  const genders = parseCsvValues(filters.gender).map((item) => item.toLowerCase());
+  const sizes = parseCsvValues(filters.size).map((item) => item.toUpperCase());
+  const colors = parseCsvValues(filters.color).map((item) => item.toLowerCase());
+  const brands = parseCsvValues(filters.brand).map((item) => item.toLowerCase());
+  const deliveryTimes = parseCsvValues(filters.deliveryTime).map((item) => item.toLowerCase());
+  const fitConfidenceLabels = parseCsvValues(filters.fitConfidence).map((item) => item.toLowerCase());
+  const returnRisks = parseCsvValues(filters.returnRisk).map((item) => item.toLowerCase());
+  const minPrice = parseNumberOrNull(filters.minPrice);
+  const maxPrice = parseNumberOrNull(filters.maxPrice);
+  const minRating = parseNumberOrNull(filters.rating);
+  const sameDayAvailable = parseBooleanFlag(filters.sameDayAvailable ?? filters.sameDay);
+  const tryAtHomeAvailable = parseBooleanFlag(filters.tryAtHomeAvailable);
+  const customizable = parseBooleanFlag(filters.customizable ?? filters.atelier);
+
+  return products.filter((item) => {
+    if (categories.length > 0 && !categories.includes(item.category)) {
+      return false;
+    }
+    if (genders.length > 0 && !genders.includes(String(item.gender || '').toLowerCase())) {
+      return false;
+    }
+    if (sizes.length > 0) {
+      const productSizes = (Array.isArray(item.sizes) ? item.sizes : []).map((size) =>
+        String(size).toUpperCase()
+      );
+      if (!sizes.some((size) => productSizes.includes(size))) {
+        return false;
+      }
+    }
+    if (colors.length > 0) {
+      const productColors = (Array.isArray(item.colors) ? item.colors : []).map((color) =>
+        String(color).toLowerCase()
+      );
+      if (!colors.some((color) => productColors.includes(color))) {
+        return false;
+      }
+    }
+    if (brands.length > 0 && !brands.includes(String(item.brand || '').toLowerCase())) {
+      return false;
+    }
+    if (minPrice != null && Number(item.price || 0) < minPrice) {
+      return false;
+    }
+    if (maxPrice != null && Number(item.price || 0) > maxPrice) {
+      return false;
+    }
+    if (sameDayAvailable != null && item.sameDayAvailable !== sameDayAvailable) {
+      return false;
+    }
+    if (tryAtHomeAvailable != null && item.tryAtHomeAvailable !== tryAtHomeAvailable) {
+      return false;
+    }
+    if (customizable != null && item.customizable !== customizable) {
+      return false;
+    }
+    if (deliveryTimes.length > 0 && !deliveryTimes.includes(String(item.deliveryTime || '').toLowerCase())) {
+      return false;
+    }
+    if (
+      fitConfidenceLabels.length > 0 &&
+      !fitConfidenceLabels.includes(String(item.fitConfidenceLabel || '').toLowerCase())
+    ) {
+      return false;
+    }
+    if (returnRisks.length > 0 && !returnRisks.includes(String(item.returnRisk || '').toLowerCase())) {
+      return false;
+    }
+    if (minRating != null && Number(item.rating || 0) < minRating) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function sortProducts(products, sort = 'relevance') {
+  const normalized = String(sort || 'relevance').trim().toLowerCase();
+  const sorted = [...products];
+  sorted.sort((left, right) => {
+    switch (normalized) {
+      case 'price_low_to_high':
+        return Number(left.price || 0) - Number(right.price || 0);
+      case 'price_high_to_low':
+        return Number(right.price || 0) - Number(left.price || 0);
+      case 'newest':
+        return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
+      case 'popularity':
+        return Number(right.popularity || 0) - Number(left.popularity || 0);
+      case 'same_day_priority':
+        if (left.sameDayAvailable !== right.sameDayAvailable) {
+          return left.sameDayAvailable ? -1 : 1;
+        }
+        if (left.tryAtHomeAvailable !== right.tryAtHomeAvailable) {
+          return left.tryAtHomeAvailable ? -1 : 1;
+        }
+        return Number(right.popularity || 0) - Number(left.popularity || 0);
+      case 'relevance':
+      default:
+        if (left.sameDayAvailable !== right.sameDayAvailable) {
+          return left.sameDayAvailable ? -1 : 1;
+        }
+        if (Number(left.fitConfidence || 0) !== Number(right.fitConfidence || 0)) {
+          return Number(right.fitConfidence || 0) - Number(left.fitConfidence || 0);
+        }
+        if (Number(left.rating || 0) !== Number(right.rating || 0)) {
+          return Number(right.rating || 0) - Number(left.rating || 0);
+        }
+        if (Number(left.popularity || 0) !== Number(right.popularity || 0)) {
+          return Number(right.popularity || 0) - Number(left.popularity || 0);
+        }
+        return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
+    }
+  });
+  return sorted;
 }
 
 function normalizeTrialHomeConfig(raw = {}, fallback = {}) {
@@ -202,6 +586,34 @@ function normalizeTrialHomeConfig(raw = {}, fallback = {}) {
   };
 }
 
+function normalizeStringList(raw, fallback = []) {
+  if (!Array.isArray(raw)) {
+    return fallback;
+  }
+  return [...new Set(raw.map((item) => item?.toString().trim()).filter(Boolean))].slice(0, 20);
+}
+
+function normalizeAtelierProductConfig(raw = {}, fallback = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const base = fallback && typeof fallback === 'object' ? fallback : {};
+  return {
+    customizable:
+      source.customizable == null ? Boolean(base.customizable) : source.customizable === true,
+    atelierEnabled:
+      source.atelierEnabled == null ? Boolean(base.atelierEnabled) : source.atelierEnabled === true,
+    fabricOptions: normalizeStringList(source.fabricOptions, base.fabricOptions || []),
+    colorOptions: normalizeStringList(source.colorOptions, base.colorOptions || []),
+    styleVariants: normalizeStringList(source.styleVariants, base.styleVariants || []),
+    addOnOptions: normalizeStringList(source.addOnOptions, base.addOnOptions || []),
+    allowedMeasurementOptions: normalizeStringList(
+      source.allowedMeasurementOptions,
+      base.allowedMeasurementOptions || [],
+    ).filter((item) => ['manual', 'trial', 'visit', 'standard'].includes(item)),
+    baseTailoringCharge: Math.max(0, Number(source.baseTailoringCharge ?? base.baseTailoringCharge ?? 0)),
+    homeVisitCharge: Math.max(0, Number(source.homeVisitCharge ?? base.homeVisitCharge ?? 0)),
+  };
+}
+
 function shouldGenerateArAsset(body) {
   return body?.disableArAssetGeneration !== true;
 }
@@ -225,6 +637,8 @@ async function createProduct(req, res, next) {
       attributes,
       arAsset,
       trialHome,
+      atelier,
+      garmentConfig,
     } = req.body || {};
     const normalizedName = name?.toString().trim() || '';
     const normalizedCategory = category?.toString().trim() || '';
@@ -293,6 +707,8 @@ async function createProduct(req, res, next) {
       attributes: sanitizeAttributes(subcategory?.toString().trim() || normalizedCategory, attributes),
       arAsset: arAsset && typeof arAsset === 'object' && !Array.isArray(arAsset) ? arAsset : {},
       trialHome: normalizeTrialHomeConfig(trialHome),
+      atelier: normalizeAtelierProductConfig(atelier),
+      garmentConfig: normalizeGarmentConfig(garmentConfig),
     });
     if (shouldGenerateArAsset(req.body) && Array.isArray(product.images) && product.images.length > 0) {
       product.arAsset = await generateArAsset({ product });
@@ -318,21 +734,52 @@ async function listProducts(req, res, next) {
     if (req.query.storeId && mongoose.Types.ObjectId.isValid(req.query.storeId)) {
       query.storeId = req.query.storeId;
     }
-    if (req.query.category) {
-      query.category = req.query.category.toString().trim();
+    const categories = parseCsvValues(req.query.category);
+    if (categories.length === 1) {
+      query.category = categories[0];
+    } else if (categories.length > 1) {
+      query.category = { $in: categories };
     }
-    const sameDayOnly = String(req.query.sameDay || '').trim().toLowerCase() === 'true';
-    const cityFilter = req.query.city?.toString().trim() || '';
+    const minPrice = parseNumberOrNull(req.query.minPrice);
+    const maxPrice = parseNumberOrNull(req.query.maxPrice);
+    if (minPrice != null || maxPrice != null) {
+      query.price = {};
+      if (minPrice != null) {
+        query.price.$gte = minPrice;
+      }
+      if (maxPrice != null) {
+        query.price.$lte = maxPrice;
+      }
+    }
     const now = new Date();
     const hour = now.getHours();
-    const cutoffOverride = req.query.ignoreCutoff === 'true';
+    const listOptions = buildProductListOptions(req, hour);
+    const sameDayOnly = listOptions.sameDayOnly;
+    const atelierOnly = listOptions.customizableOnly;
+    const cityFilter = listOptions.city;
+    const cutoffOverride = listOptions.ignoreCutoff === true;
+    const minRating = parseNumberOrNull(req.query.rating);
+    if (minRating != null) {
+      query.rating = { $gte: minRating };
+    }
+    const sizeFilters = parseCsvValues(req.query.size).map((value) => value.toUpperCase());
+    if (sizeFilters.length > 0) {
+      query.sizes = { $in: sizeFilters };
+    }
     if (sameDayOnly) {
       query.sameDayEligible = true;
     }
+    if (atelierOnly) {
+      query['atelier.atelierEnabled'] = true;
+    }
+    const tryAtHomeOnly = parseBooleanFlag(req.query.tryAtHomeAvailable) === true;
+    if (tryAtHomeOnly) {
+      query['trialHome.trialEnabled'] = true;
+    }
     const cacheKey = productListCacheKey(query, {
-      sameDayOnly,
+      filters: req.query,
       city: cityFilter,
-      cutoffHour: hour,
+      currentHour: hour,
       ignoreCutoff: cutoffOverride,
     });
     const cached = await cache.getJson(cacheKey);
@@ -343,30 +790,72 @@ async function listProducts(req, res, next) {
     const products = await Product.find(query)
       .sort({ createdAt: -1 })
       .populate('storeId', 'name rating logoUrl city sameDay operationalSpeedScore isActive');
-    let serialized = products.map(serializeProduct);
-    if (sameDayOnly) {
-      serialized = serialized
-        .filter((item) => {
-          const sameDayConfig = item.store?.sameDay || {};
-          const enabled = sameDayConfig.enabled === true;
-          const cutoffHour = Number(sameDayConfig.cutoffHour ?? 16);
-          const cityAllowed = !cityFilter ||
-            String(item.store?.city || '').trim().toLowerCase() === cityFilter.toLowerCase();
-          const beforeCutoff = cutoffOverride || hour <= cutoffHour;
-          return enabled && cityAllowed && beforeCutoff;
-        })
-        .sort((left, right) => {
-          const speedLeft = Number(left.store?.operationalSpeedScore || 0);
-          const speedRight = Number(right.store?.operationalSpeedScore || 0);
-          if (speedLeft !== speedRight) {
-            return speedRight - speedLeft;
-          }
-          return Number(right.demandScore || 0) - Number(left.demandScore || 0);
-        });
-    }
-    await cache.setJson(cacheKey, serialized, 120);
+    let serialized = products.map((product) => serializeProduct(product, listOptions));
+    serialized = applyProductFilters(serialized, req.query);
+    serialized = sortProducts(serialized, req.query.sort);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.max(
+      1,
+      Math.min(100, parseInt(req.query.limit, 10) || serialized.length || 20)
+    );
+    const paged = req.query.page || req.query.limit
+      ? serialized.slice((page - 1) * limit, (page - 1) * limit + limit)
+      : serialized;
+    await cache.setJson(cacheKey, paged, 120);
 
-    return res.status(200).json({ success: true, data: serialized });
+    return res.status(200).json({ success: true, data: paged });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function resolveOwnedStore(user) {
+  if (!user) {
+    return null;
+  }
+
+  const storeCandidates = [
+    ...(user._id ? [{ vendorId: user._id }] : []),
+    ...(user.firebaseUid ? [{ ownerId: user.firebaseUid }] : []),
+    ...(user.uid ? [{ ownerId: user.uid }] : []),
+    ...((user.storeId || '').trim().length > 0 && mongoose.Types.ObjectId.isValid(user.storeId)
+      ? [{ _id: user.storeId }]
+      : []),
+  ];
+
+  if (storeCandidates.length === 0) {
+    return null;
+  }
+
+  return Store.findOne({ $or: storeCandidates }).sort({ createdAt: -1 });
+}
+
+async function listVendorProducts(req, res, next) {
+  try {
+    const store = await resolveOwnedStore(req.dbUser || req.user);
+    if (!store) {
+      return res.status(404).json({
+        success: false,
+        message: 'Store not found for this vendor account.',
+      });
+    }
+
+    const requestedStoreId = req.query.storeId?.toString().trim() || '';
+    if (requestedStoreId && requestedStoreId !== store._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only view products from your own store.',
+      });
+    }
+
+    const products = await Product.find({ storeId: store._id }).sort({
+      createdAt: -1,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: products.map((product) => serializeProduct(product, { store })),
+    });
   } catch (error) {
     return next(error);
   }
@@ -417,7 +906,10 @@ async function updateProduct(req, res, next) {
     if (!store) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
-    if (store.ownerId !== req.user.uid) {
+    const isAdmin =
+      ['admin', 'super_admin'].includes((req.user?.role || '').toLowerCase()) &&
+      isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
+    if (store.ownerId !== req.user.uid && !isAdmin) {
       return res.status(403).json({ success: false, message: 'You can only update products from your own store.' });
     }
 
@@ -438,6 +930,8 @@ async function updateProduct(req, res, next) {
       arAsset,
       isActive,
       trialHome,
+      atelier,
+      garmentConfig,
     } = req.body || {};
     const normalizedName = name?.toString().trim() || product.name;
     const normalizedBrand =
@@ -505,6 +999,18 @@ async function updateProduct(req, res, next) {
     }
     if (trialHome && typeof trialHome === 'object' && !Array.isArray(trialHome)) {
       product.trialHome = normalizeTrialHomeConfig(trialHome, product.trialHome || {});
+    }
+    if (atelier && typeof atelier === 'object' && !Array.isArray(atelier)) {
+      product.atelier = normalizeAtelierProductConfig(
+        atelier,
+        product.atelier?.toObject?.() ?? product.atelier ?? {},
+      );
+    }
+    if (garmentConfig && typeof garmentConfig === 'object' && !Array.isArray(garmentConfig)) {
+      product.garmentConfig = normalizeGarmentConfig(
+        garmentConfig,
+        product.garmentConfig?.toObject?.() ?? product.garmentConfig ?? {},
+      );
     }
     if (
       !arAsset &&
@@ -608,6 +1114,7 @@ async function deleteProduct(req, res, next) {
 module.exports = {
   createProduct,
   listProducts,
+  listVendorProducts,
   getProduct,
   updateProduct,
   deleteProduct,

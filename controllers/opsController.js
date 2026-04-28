@@ -5,6 +5,7 @@ const OpsActionLog = require('../models/OpsActionLog');
 const DeliveryTask = require('../models/DeliveryTask');
 const DispatchBatch = require('../models/DispatchBatch');
 const Order = require('../models/Order');
+const RefundRequest = require('../models/RefundRequest');
 const User = require('../models/User');
 const { isAllowedAdminEmail } = require('./authController');
 const { runDetectionCycle } = require('../services/opsRuntimeService');
@@ -12,6 +13,8 @@ const { executeAlertAction } = require('../services/opsActionService');
 const { getOpsMetrics } = require('../services/opsMetricsService');
 const { assignSingleOrder } = require('../services/dispatchEngineService');
 const { logOpsAction } = require('../services/opsAuditService');
+const { reverseOrderSettlement } = require('../services/financeService');
+const { processRazorpayRefund } = require('./orderController');
 
 function ensureOpsAdmin(req, res) {
   const privileged = req.user?.role === 'admin' || req.user?.role === 'super_admin';
@@ -118,17 +121,27 @@ async function manualReassignOrder(req, res, next) {
       return res.status(400).json({ success: false, message: 'Invalid orderId.' });
     }
 
-    await DeliveryTask.updateMany(
-      {
-        orderId,
-        status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] },
-      },
-      { $set: { status: 'cancelled', 'metadata.opsManualReassign': true } },
-    );
+    const activeTasks = await DeliveryTask.find({
+      orderId,
+      status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] },
+    })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .lean();
+
+    const [primaryTask, ...duplicateTasks] = activeTasks;
+
+    if (duplicateTasks.length > 0) {
+      await DeliveryTask.updateMany(
+        { _id: { $in: duplicateTasks.map((task) => task._id) } },
+        { $set: { status: 'cancelled', 'metadata.opsManualReassignDuplicate': true } },
+      );
+    }
 
     const assigned = await assignSingleOrder({
       orderId,
       actor: { uid: req.user.uid, role: req.user.role },
+      replacementTaskId: primaryTask?._id?.toString?.() || '',
+      excludedRiderIds: [primaryTask?.riderId].filter(Boolean),
     });
 
     await logOpsAction({
@@ -159,8 +172,39 @@ async function manualCancelOrder(req, res, next) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
     }
 
+    let cancellationRefund = null;
+    const shouldAutoRefund =
+      (order.paymentMethod || '').toLowerCase() === 'online' &&
+      (order.paymentStatus || '').toLowerCase() === 'paid';
+
+    if (shouldAutoRefund) {
+      const refundRequest = await RefundRequest.create({
+        orderId: order._id,
+        userId: order.userId,
+        reason: req.body?.reason || 'Order cancelled by ops admin.',
+        requestedAmount: Number(order.totalAmount || 0),
+        refundedAmount: 0,
+        status: 'pending',
+      });
+      const gatewayRefund = await processRazorpayRefund(order, refundRequest, Number(order.totalAmount || 0));
+      refundRequest.status = 'approved';
+      refundRequest.processedAt = new Date().toISOString();
+      refundRequest.processedBy = req.user.uid;
+      refundRequest.gatewayRefundId = gatewayRefund?.id || '';
+      refundRequest.refundedAmount = Number(order.totalAmount || 0);
+      await refundRequest.save();
+      cancellationRefund = refundRequest;
+
+      order.paymentStatus = 'refunded';
+      order.refundStatus = 'refunded';
+      order.refundRequestId = refundRequest._id.toString();
+      order.escrowStatus = 'refunded';
+      order.escrowUpdatedAt = new Date().toISOString();
+    }
+
     order.orderStatus = 'cancelled';
     order.deliveryStatus = 'Cancelled';
+    await reverseOrderSettlement(order, 'Order cancelled by ops admin');
     await order.save();
 
     await DeliveryTask.updateMany(
@@ -179,10 +223,19 @@ async function manualCancelOrder(req, res, next) {
       entityType: 'order',
       entityId: orderId,
       actorId: req.user.uid,
-      details: { reason: req.body?.reason || 'admin_override' },
+      details: {
+        reason: req.body?.reason || 'admin_override',
+        refundRequestId: cancellationRefund?._id?.toString?.() || '',
+      },
     });
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({
+      success: true,
+      data: {
+        orderId,
+        refundRequestId: cancellationRefund?._id?.toString?.() || '',
+      },
+    });
   } catch (error) {
     return next(error);
   }

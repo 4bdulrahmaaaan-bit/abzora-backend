@@ -2,7 +2,16 @@ const initializeFirebase = require('../config/firebase');
 const User = require('../models/User');
 const { clientIp, logSecurityWarning } = require('../services/auditLogger');
 
-const VALID_ROLES = new Set(['user', 'customer', 'vendor', 'rider', 'admin', 'super_admin']);
+const VALID_ROLES = new Set([
+  'user',
+  'customer',
+  'vendor',
+  'rider',
+  'admin',
+  'super_admin',
+  'designer',
+  'qa',
+]);
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
 
 function allowedAdminEmails() {
@@ -20,6 +29,45 @@ function isAllowedAdminEmail(email) {
 function normalizeRole(role, fallback = 'customer') {
   const normalized = role?.toString().trim().toLowerCase();
   return VALID_ROLES.has(normalized) ? normalized : fallback;
+}
+
+function normalizePhone(value) {
+  const raw = value?.toString().trim() || '';
+  if (!raw) return '';
+  const digitsOnly = raw.replace(/[^0-9+]/g, '');
+  if (digitsOnly.startsWith('+')) {
+    return digitsOnly;
+  }
+  return digitsOnly;
+}
+
+function roleMapFromUser(user) {
+  if (!user?.roles) return {};
+  const raw = user.roles instanceof Map
+    ? Object.fromEntries(user.roles.entries())
+    : user.roles;
+  const normalized = {};
+  for (const [key, value] of Object.entries(raw || {})) {
+    normalized[key.toString().trim().toLowerCase()] = Boolean(value);
+  }
+  return normalized;
+}
+
+function hasOperationsCapability(user) {
+  const role = normalizeRole(user?.role, '');
+  if (role === 'vendor' || role === 'rider') {
+    return true;
+  }
+  const roles = roleMapFromUser(user);
+  if (roles.vendor === true || roles.rider === true) {
+    return true;
+  }
+  const storeId = user?.storeId?.toString().trim() || '';
+  if (storeId) {
+    return true;
+  }
+  const approval = (user?.riderApprovalStatus || '').toString().trim().toLowerCase();
+  return approval === 'approved';
 }
 
 function serializeUser(user) {
@@ -60,7 +108,7 @@ function serializeUser(user) {
 
 async function upsertFirebaseUser(decoded) {
   const decodedEmail = decoded.email || '';
-  const decodedPhone = decoded.phone_number || '';
+  const decodedPhone = normalizePhone(decoded.phone_number || '');
   const shouldPromoteAdmin = isAllowedAdminEmail(decodedEmail);
 
   let user = await User.findOne({
@@ -71,6 +119,22 @@ async function upsertFirebaseUser(decoded) {
       ...(decodedPhone ? [{ phone: decodedPhone }] : []),
     ],
   });
+
+  if (decodedPhone) {
+    const phoneMatched = await User.findOne({ phone: decodedPhone });
+    if (
+      phoneMatched &&
+      (!user || String(phoneMatched._id) !== String(user._id)) &&
+      hasOperationsCapability(phoneMatched)
+    ) {
+      if (user && String(user._id) !== String(phoneMatched._id)) {
+        user.firebaseUid = '';
+        user.uid = '';
+        await user.save();
+      }
+      user = phoneMatched;
+    }
+  }
 
   if (!user) {
     user = await User.create({
@@ -116,6 +180,13 @@ function unauthorized(res) {
   return res.status(401).json({
     success: false,
     message: 'Unauthorized',
+  });
+}
+
+function unauthorizedWithMessage(res, message) {
+  return res.status(401).json({
+    success: false,
+    message,
   });
 }
 
@@ -202,6 +273,18 @@ async function authMiddleware(req, res, next) {
       ip: clientIp(req),
       message: error.message,
     });
+    if (error?.code === 'auth/id-token-expired') {
+      return unauthorizedWithMessage(
+        res,
+        'Session expired. Please sign in again.',
+      );
+    }
+    if (error?.code === 'auth/id-token-revoked') {
+      return unauthorizedWithMessage(
+        res,
+        'Session revoked. Please sign in again.',
+      );
+    }
     return unauthorized(res);
   }
 }

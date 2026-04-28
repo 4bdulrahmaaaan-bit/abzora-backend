@@ -47,6 +47,7 @@ const bannerRoutes = require('./routes/bannerRoutes');
 const homeVisualRoutes = require('./routes/homeVisualRoutes');
 const categoryRoutes = require('./routes/category.routes');
 const outfitRoutes = require('./routes/outfitRoutes');
+const socialRoutes = require('./routes/socialRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 const financeRoutes = require('./routes/financeRoutes');
 const walletRoutes = require('./routes/walletRoutes');
@@ -60,7 +61,9 @@ const analyticsRoutes = require('./routes/analyticsRoutes');
 const logisticsRoutes = require('./routes/logisticsRoutes');
 const dispatchRoutes = require('./routes/dispatchRoutes');
 const trackingRoutes = require('./routes/trackingRoutes');
+const atelierRoutes = require('./routes/atelierRoutes');
 const opsRoutes = require('./routes/opsRoutes');
+const wardrobeRoutes = require('./routes/wardrobeRoutes');
 const debugRoutes = require('./routes/debugRoutes');
 const { attachTrackingGateway } = require('./services/trackingGateway');
 const { attachPricingGateway } = require('./services/pricingGateway');
@@ -168,6 +171,12 @@ app.get('/', (req, res) => {
       aiSpecs: '/ai/specs',
       arGenerate: '/ar/generate',
       upload: '/upload',
+      atelierCatalog: '/atelier/catalog',
+      atelierQuote: '/atelier/quote',
+      atelierCreate: '/orders/atelier',
+      wardrobeSave: '/wardrobe/save',
+      wardrobeList: '/wardrobe',
+      wardrobeRecommend: '/wardrobe/recommend',
     },
   });
 });
@@ -201,6 +210,7 @@ app.use('/banners', bannerRoutes);
 app.use('/home-visuals', homeVisualRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/outfits', aiLimiter, outfitRoutes);
+app.use('/', socialRoutes);
 app.use('/finance', adminLimiter, authMiddleware, financeRoutes);
 app.use('/wallet', withdrawalLimiter, authMiddleware, walletRoutes);
 app.use('/payouts', adminLimiter, authMiddleware, requireAdmin, payoutRoutes);
@@ -214,7 +224,9 @@ app.use('/analytics', supportLimiter, analyticsRoutes);
 app.use('/', logisticsRoutes);
 app.use('/dispatch', dispatchRoutes);
 app.use('/tracking', trackingRoutes);
+app.use('/atelier', orderLimiter, atelierRoutes);
 app.use('/ops', adminLimiter, authMiddleware, requireAdmin, opsRoutes);
+app.use('/wardrobe', wardrobeRoutes);
 app.use('/webhooks', webhookRoutes);
 app.use('/debug', debugRoutes);
 

@@ -32,6 +32,97 @@ const trialHomeConfigSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const atelierCustomizationSchema = new mongoose.Schema(
+  {
+    customizable: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    atelierEnabled: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    fabricOptions: {
+      type: [String],
+      default: [],
+    },
+    colorOptions: {
+      type: [String],
+      default: [],
+    },
+    styleVariants: {
+      type: [String],
+      default: [],
+    },
+    addOnOptions: {
+      type: [String],
+      default: [],
+    },
+    allowedMeasurementOptions: {
+      type: [String],
+      default: [],
+      enum: ['manual', 'trial', 'visit', 'standard'],
+    },
+    baseTailoringCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    homeVisitCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+  },
+  { _id: false },
+);
+
+const garmentConfigSchema = new mongoose.Schema(
+  {
+    templateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'GarmentTemplate',
+      default: null,
+      index: true,
+    },
+    fabricTextureUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    fitPreset: {
+      type: String,
+      trim: true,
+      default: 'regular',
+      enum: ['slim', 'regular', 'relaxed', 'oversized', 'athletic'],
+    },
+    colorHex: {
+      type: String,
+      trim: true,
+      default: '#C6A769',
+    },
+    designOptions: {
+      type: Map,
+      of: String,
+      default: {},
+    },
+    blendShapeOverrides: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
+    lodPreference: {
+      type: String,
+      trim: true,
+      default: 'auto',
+      enum: ['auto', 'low', 'medium', 'high'],
+    },
+  },
+  { _id: false },
+);
+
 const productSchema = new mongoose.Schema(
   {
     name: {
@@ -256,6 +347,14 @@ const productSchema = new mongoose.Schema(
     },
     trialHome: {
       type: trialHomeConfigSchema,
+      default: () => ({}),
+    },
+    atelier: {
+      type: atelierCustomizationSchema,
+      default: () => ({}),
+    },
+    garmentConfig: {
+      type: garmentConfigSchema,
       default: () => ({}),
     },
   },

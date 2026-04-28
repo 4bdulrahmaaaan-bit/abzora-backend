@@ -32,6 +32,15 @@ const {
   settleRiderWallet,
   settleVendorWallet,
 } = require('../services/financeService');
+const { hasRole } = require('../middleware/authorizationMiddleware');
+
+function isRiderUser(user) {
+  return hasRole(user, ['rider']);
+}
+
+function isAdminUser(user) {
+  return hasRole(user, ['admin', 'super_admin']);
+}
 
 function serializeOrder(order) {
   if (!order) {
@@ -102,6 +111,12 @@ function serializeOrder(order) {
     fulfillmentType: source.fulfillmentType || 'marketplace',
     customOrderStatus: source.customOrderStatus || 'none',
     customMeasurements: source.customMeasurements || {},
+    atelierCustomization: source.atelierCustomization || {},
+    measurementMethod: source.measurementMethod || '',
+    atelierStatus: source.atelierStatus || 'none',
+    atelierTailoringCharge: Number(source.atelierTailoringCharge || 0),
+    atelierCustomizationCharge: Number(source.atelierCustomizationCharge || 0),
+    atelierHomeVisitCharge: Number(source.atelierHomeVisitCharge || 0),
     customDesignOptions: source.customDesignOptions || {},
     referenceImageUrl: source.referenceImageUrl || '',
     previewImageUrl: source.previewImageUrl || '',
@@ -445,15 +460,15 @@ function buildRazorpayReceipt(orderId) {
 }
 
 function canManageDelivery(req) {
-  return req.user?.role === 'rider' || req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  return isRiderUser(req.user) || isAdminUser(req.user);
 }
 
 function canManageRefunds(req) {
-  return req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  return isAdminUser(req.user);
 }
 
 function canManageReturns(req) {
-  return req.user?.role === 'rider' || req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  return hasRole(req.user, ['rider', 'admin', 'super_admin']);
 }
 
 function shippingAddressLabel(order) {
@@ -528,7 +543,7 @@ function isOrderAvailableForRider(order) {
 }
 
 function canManageFinance(req) {
-  return req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  return isAdminUser(req.user);
 }
 
 function toTitleCase(value) {
@@ -621,6 +636,49 @@ function sanitizeTaxAmount(rawTaxAmount) {
     return 0;
   }
   return Math.max(0, numeric);
+}
+
+function normalizeOptionalUrl(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    return '';
+  }
+  try {
+    const parsed = new URL(normalized);
+    return ['http:', 'https:'].includes(parsed.protocol) ? normalized : '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function normalizeStringArray(value, max = 12) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, max);
+}
+
+function buildCustomizationSummary({ atelierCustomization = {}, measurementMethod = '', selectedDesignerName = '' }) {
+  const parts = [];
+  if (atelierCustomization.fabric) {
+    parts.push(`Fabric: ${atelierCustomization.fabric}`);
+  }
+  if (atelierCustomization.color) {
+    parts.push(`Color: ${atelierCustomization.color}`);
+  }
+  if (atelierCustomization.fitStyle) {
+    parts.push(`Fit: ${atelierCustomization.fitStyle}`);
+  }
+  if (Array.isArray(atelierCustomization.addOns) && atelierCustomization.addOns.length > 0) {
+    parts.push(`Add-ons: ${atelierCustomization.addOns.join(', ')}`);
+  }
+  if (measurementMethod) {
+    parts.push(`Measurement: ${measurementMethod}`);
+  }
+  if (selectedDesignerName) {
+    parts.push(`Atelier: ${selectedDesignerName}`);
+  }
+  return parts.join(' | ');
 }
 
 async function buildNormalizedOrderDraft(items) {
@@ -780,7 +838,7 @@ function canAccessInvoice(req, order, store) {
   if (req.user?.role === 'vendor' && store?.ownerId && store.ownerId === req.user.uid) {
     return true;
   }
-  return req.user?.role === 'rider' && order.riderId && order.riderId === req.user.uid;
+  return isRiderUser(req.user) && order.riderId && order.riderId === req.user.uid;
 }
 
 function buildInvoiceInput(order, customer, store) {
@@ -1091,6 +1149,189 @@ async function quickCheckoutOrder(req, res, next) {
   }
 }
 
+async function createAtelierOrder(req, res, next) {
+  try {
+    const {
+      productId,
+      quantity = 1,
+      size = '',
+      paymentMethod = 'RAZORPAY',
+      shippingAddress,
+      taxAmount = 0,
+      deliveryDistanceKm = 0,
+      atelierCustomization = {},
+      customMeasurements = {},
+      customDesignOptions = {},
+      measurementMethod = 'standard',
+      selectedDesignerName = '',
+      referenceImageUrl = '',
+      previewImageUrl = '',
+    } = req.body || {};
+
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(String(productId || ''))) {
+      return res.status(400).json({ success: false, message: 'Valid productId is required.' });
+    }
+
+    const product = await Product.findById(productId);
+    if (!product || !product.isActive) {
+      return res.status(404).json({ success: false, message: 'Product not found.' });
+    }
+    const store = await Store.findById(product.storeId);
+    if (!store) {
+      return res.status(404).json({ success: false, message: 'Store not found.' });
+    }
+    if (!store.atelierConfig?.supportsCustomization || !product.atelier?.atelierEnabled) {
+      return res.status(400).json({
+        success: false,
+        message: 'This product is not currently available as an atelier customization.',
+      });
+    }
+
+    const normalizedMeasurementMethod = String(measurementMethod || 'standard').trim().toLowerCase();
+    const allowedMeasurementOptions = Array.isArray(product.atelier?.allowedMeasurementOptions) &&
+      product.atelier.allowedMeasurementOptions.length > 0
+      ? product.atelier.allowedMeasurementOptions
+      : store.atelierConfig?.measurementOptions || ['standard'];
+    if (!allowedMeasurementOptions.includes(normalizedMeasurementMethod)) {
+      return res.status(400).json({
+        success: false,
+        message: 'This measurement method is not available for the selected atelier product.',
+      });
+    }
+
+    const safeQuantity = Number.isInteger(Number(quantity)) && Number(quantity) > 0 ? Number(quantity) : 1;
+    if (product.stock < safeQuantity) {
+      return res.status(400).json({ success: false, message: 'Requested quantity is not available.' });
+    }
+
+    const user = await User.findOne({ uid: req.user.uid });
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const normalizedShippingAddress = {
+      name: shippingAddress?.name?.toString().trim() || user.name || '',
+      phone: shippingAddress?.phone?.toString().trim() || user.phone || '',
+      addressLine1: shippingAddress?.addressLine1?.toString().trim() || user.address || '',
+      addressLine2: shippingAddress?.addressLine2?.toString().trim() || '',
+      city: shippingAddress?.city?.toString().trim() || user.city || '',
+      state: shippingAddress?.state?.toString().trim() || '',
+      pincode: shippingAddress?.pincode?.toString().trim() || '',
+    };
+
+    const baseAmount = Number(product.price || 0) * safeQuantity;
+    const addOnOptions = normalizeStringArray(atelierCustomization?.addOns);
+    const atelierCustomizationCharge =
+      Number(store.atelierConfig?.atelierPricingRules?.customizationBaseCharge || 0) +
+      addOnOptions.length * 50;
+    const atelierTailoringCharge =
+      Number(product.atelier?.baseTailoringCharge || 0) ||
+      Number(store.atelierConfig?.atelierPricingRules?.tailoringCharge || 0);
+    const atelierHomeVisitCharge =
+      normalizedMeasurementMethod === 'visit'
+        ? Number(product.atelier?.homeVisitCharge || store.atelierConfig?.atelierPricingRules?.homeVisitCharge || 0)
+        : 0;
+    const atelierSubtotalAmount = baseAmount + atelierCustomizationCharge + atelierTailoringCharge + atelierHomeVisitCharge;
+
+    const financials = await buildPricingSnapshot({
+      user,
+      store,
+      products: [product],
+      subtotalAmount: atelierSubtotalAmount,
+      taxAmount: sanitizeTaxAmount(taxAmount),
+      paymentMethod: (paymentMethod || 'RAZORPAY').toString().trim().toUpperCase() === 'COD' ? 'COD' : 'RAZORPAY',
+      requestedDistanceKm: deliveryDistanceKm,
+      tryAtHomeRequested: normalizedMeasurementMethod === 'trial',
+      fulfillmentType: 'custom_tailoring',
+    });
+
+    const normalizedAtelierCustomization = {
+      fabric: String(atelierCustomization?.fabric || '').trim(),
+      color: String(atelierCustomization?.color || '').trim(),
+      fitStyle: String(atelierCustomization?.fitStyle || '').trim(),
+      addOns: addOnOptions,
+    };
+
+    const order = await Order.create({
+      userId: req.user.uid,
+      storeId: store._id,
+      items: [
+        {
+          productId: product._id,
+          name: product.name,
+          price: Number(product.price || 0),
+          quantity: safeQuantity,
+          size: String(size || '').trim(),
+          image: Array.isArray(product.images) && product.images.length > 0 ? product.images[0] : '',
+        },
+      ],
+      subtotalAmount: atelierSubtotalAmount,
+      productAmount: baseAmount,
+      taxAmount: financials.taxAmount,
+      deliveryFee: financials.deliveryFee,
+      deliveryDistanceKm: financials.deliveryDistanceKm,
+      discountAmount: financials.discountAmount,
+      discountPercent: financials.discountPercent,
+      tryAtHomeFee: financials.tryAtHomeFee,
+      tryAtHomeFeeRefundable: financials.tryAtHomeFeeRefundable,
+      totalAmount: financials.totalAmount,
+      commissionPercent: financials.commissionPercent,
+      platformCommission: financials.platformCommission,
+      vendorEarnings: financials.vendorEarnings,
+      riderEarnings: financials.riderEarnings,
+      paymentGatewayFee: financials.paymentGatewayFee,
+      platformRevenue: financials.platformRevenue,
+      platformCost: financials.platformCost,
+      platformProfit: financials.platformProfit,
+      pricingBreakdown: financials.pricingBreakdown,
+      paymentMethod: (paymentMethod || 'RAZORPAY').toString().trim().toUpperCase() === 'COD' ? 'COD' : 'RAZORPAY',
+      paymentStatus: 'pending',
+      escrowStatus: 'held',
+      escrowUpdatedAt: new Date().toISOString(),
+      orderStatus: 'pending',
+      deliveryStatus: 'Pending',
+      sameDayOrder: isSameDayOrderEligible(store),
+      payoutStatus: 'none',
+      riderPayoutStatus: 'none',
+      fulfillmentType: 'custom_tailoring',
+      customOrderStatus: 'draft',
+      atelierStatus: 'draft',
+      measurementMethod: normalizedMeasurementMethod,
+      atelierCustomization: normalizedAtelierCustomization,
+      atelierTailoringCharge,
+      atelierCustomizationCharge,
+      atelierHomeVisitCharge,
+      customMeasurements: customMeasurements && typeof customMeasurements === 'object' ? customMeasurements : {},
+      customDesignOptions: customDesignOptions && typeof customDesignOptions === 'object'
+        ? customDesignOptions
+        : {},
+      selectedDesignerName: String(selectedDesignerName || store.name).trim(),
+      referenceImageUrl: normalizeOptionalUrl(referenceImageUrl),
+      previewImageUrl: normalizeOptionalUrl(previewImageUrl),
+      customProductionTimeDays: Number(store.atelierConfig?.tailoringTimeDaysMax || store.customVendorProfile?.productionTimeDays || 3),
+      customizationSummary: buildCustomizationSummary({
+        atelierCustomization: normalizedAtelierCustomization,
+        measurementMethod: normalizedMeasurementMethod,
+        selectedDesignerName: String(selectedDesignerName || store.name).trim(),
+      }),
+      shippingAddress: normalizedShippingAddress,
+      trackingId: '',
+      trackingTimestamps: {},
+    });
+
+    order.trackingId = buildTrackingId(order._id, store._id);
+    appendTrackingTimestamp(order, 'Order Placed');
+    await order.save();
+
+    return res.status(201).json({ success: true, data: serializeOrder(order) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getOrderPricingQuote(req, res, next) {
   try {
     const {
@@ -1255,7 +1496,7 @@ async function updateDeliveryStatus(req, res, next) {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid order id.' });
     }
-    if (!allowed.contains(nextStatus)) {
+    if (!allowed.includes(nextStatus)) {
       return res.status(400).json({ success: false, message: 'Unsupported delivery status.' });
     }
 
@@ -1263,7 +1504,7 @@ async function updateDeliveryStatus(req, res, next) {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
     }
-    if (order.riderId !== req.user.uid && !['admin', 'super_admin'].contains(req.user?.role)) {
+    if (order.riderId !== req.user.uid && !['admin', 'super_admin'].includes(req.user?.role)) {
       return res.status(403).json({ success: false, message: 'Rider access denied.' });
     }
 
@@ -1278,8 +1519,11 @@ async function updateDeliveryStatus(req, res, next) {
     }
     appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(nextStatus));
     appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
-    await settleDeliveredOrder(order);
+    const shouldSettleDelivered = nextStatus === 'Delivered';
     await order.save();
+    if (shouldSettleDelivered) {
+      await settleDeliveredOrder(order);
+    }
     await recordTrackingEvent({
       eventType: 'order_status_update',
       orderId: order._id.toString(),
@@ -1319,7 +1563,7 @@ async function updateRiderLocation(req, res, next) {
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found.' });
     }
-    if (order.riderId !== req.user.uid && !['admin', 'super_admin'].contains(req.user?.role)) {
+    if (order.riderId !== req.user.uid && !['admin', 'super_admin'].includes(req.user?.role)) {
       return res.status(403).json({ success: false, message: 'Rider access denied.' });
     }
 
@@ -1949,7 +2193,7 @@ async function markReturnPicked(req, res, next) {
       return res.status(400).json({ success: false, message: 'Only approved returns can be marked as picked.' });
     }
     if (
-      req.user.role === 'rider' &&
+      isRiderUser(req.user) &&
       request.riderId &&
       request.riderId !== req.user.uid
     ) {
@@ -1964,7 +2208,7 @@ async function markReturnPicked(req, res, next) {
     request.status = 'picked';
     request.pickedAt = new Date().toISOString();
     request.processedBy = req.user.uid;
-    if (!request.riderId && req.user.role === 'rider') {
+    if (!request.riderId && isRiderUser(req.user)) {
       request.riderId = req.user.uid;
     }
     await request.save();
@@ -2001,7 +2245,7 @@ async function completeReturnRequest(req, res, next) {
     if (!['picked', 'approved', 'assigned'].includes(request.status)) {
       return res.status(400).json({ success: false, message: 'This return is not ready for completion.' });
     }
-    if (req.user.role === 'rider' && request.riderId !== req.user.uid) {
+    if (isRiderUser(req.user) && request.riderId !== req.user.uid) {
       return res.status(403).json({ success: false, message: 'This return is assigned to another rider.' });
     }
 
@@ -2310,6 +2554,7 @@ async function verifyPayment(req, res, next) {
 
 module.exports = {
   createOrder,
+  createAtelierOrder,
   quickCheckoutOrder,
   getOrderPricingQuote,
   acceptDelivery,
@@ -2337,5 +2582,6 @@ module.exports = {
   cancelOrder,
   updateRiderLocation,
   downloadOrderInvoicePdf,
+  processRazorpayRefund,
   verifyPayment,
 };

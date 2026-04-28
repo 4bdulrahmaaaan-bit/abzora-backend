@@ -6,6 +6,7 @@ const DeliveryTask = require('../models/DeliveryTask');
 const Order = require('../models/Order');
 const Store = require('../models/Store');
 const User = require('../models/User');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 
 const localBus = new EventEmitter();
 localBus.setMaxListeners(1000);
@@ -68,6 +69,10 @@ function broadcastToRooms(targetRooms = [], payload = {}) {
       delivered.add(ws);
     }
   }
+  return {
+    roomCount: targetRooms.length,
+    deliveredSockets: delivered.size,
+  };
 }
 
 async function ensureRedisPubSub() {
@@ -139,9 +144,18 @@ async function publishTrackingEvent(event = {}) {
         payload,
       }),
     );
+    return {
+      backend: 'redis',
+      roomCount: targetRooms.length,
+      deliveredSockets: 0,
+    };
   } else {
-    broadcastToRooms(targetRooms, payload);
+    const publishResult = broadcastToRooms(targetRooms, payload);
     localBus.emit(REDIS_CHANNEL, { rooms: targetRooms, payload });
+    return {
+      backend: 'local',
+      ...publishResult,
+    };
   }
 }
 
@@ -181,6 +195,34 @@ async function decodeSocketUser(token) {
   };
 }
 
+function hasVendorTrackingAccess(state) {
+  if (!state) {
+    return false;
+  }
+  if (hasRole(state.user || { role: state.role }, ['vendor'])) {
+    return true;
+  }
+  const storeId = state.user?.storeId?.toString().trim() || '';
+  return storeId.length > 0;
+}
+
+function hasRiderTrackingAccess(state) {
+  if (!state) {
+    return false;
+  }
+  if (hasRole(state.user || { role: state.role }, ['rider'])) {
+    return true;
+  }
+  const approvalStatus = String(state.user?.riderApprovalStatus || '')
+    .trim()
+    .toLowerCase();
+  return approvalStatus === 'approved';
+}
+
+function isAdminTrackingUser(state) {
+  return hasRole(state?.user || { role: state?.role }, ['admin', 'super_admin']);
+}
+
 async function canJoinRoom(state, room) {
   const [type, id] = String(room || '').split(':');
   const entityId = String(id || '').trim();
@@ -188,7 +230,7 @@ async function canJoinRoom(state, room) {
     return false;
   }
 
-  if (state.role === 'admin' || state.role === 'super_admin') {
+  if (isAdminTrackingUser(state)) {
     return true;
   }
 
@@ -196,19 +238,19 @@ async function canJoinRoom(state, room) {
     return entityId === state.uid;
   }
   if (type === 'rider') {
-    return state.role === 'rider' && entityId === state.uid;
+    return hasRiderTrackingAccess(state) && entityId === state.uid;
   }
 
   if (type === 'order') {
     const order = await Order.findById(entityId).select('userId riderId storeId').lean();
     if (!order) return false;
-    if (state.role === 'rider') {
+    if (hasRiderTrackingAccess(state)) {
       return String(order.riderId || '') === state.uid;
     }
     if (state.role === 'customer' || state.role === 'user') {
       return String(order.userId || '') === state.uid;
     }
-    if (state.role === 'vendor') {
+    if (hasVendorTrackingAccess(state)) {
       const store = await Store.findById(order.storeId).select('ownerId').lean();
       return String(store?.ownerId || '') === state.uid;
     }
@@ -218,13 +260,13 @@ async function canJoinRoom(state, room) {
   if (type === 'task') {
     const task = await DeliveryTask.findById(entityId).select('userId riderId vendorId').lean();
     if (!task) return false;
-    if (state.role === 'rider') {
+    if (hasRiderTrackingAccess(state)) {
       return String(task.riderId || '') === state.uid;
     }
     if (state.role === 'customer' || state.role === 'user') {
       return String(task.userId || '') === state.uid;
     }
-    if (state.role === 'vendor') {
+    if (hasVendorTrackingAccess(state)) {
       return String(task.vendorId || '') === state.uid;
     }
     return false;

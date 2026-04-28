@@ -94,6 +94,22 @@ function serializeUserResponse(user) {
   };
 }
 
+function buildUserLookupQuery(identifier) {
+  const normalized = identifier?.toString().trim() || '';
+  if (!normalized) {
+    return null;
+  }
+
+  const orConditions = [
+    { firebaseUid: normalized },
+    { uid: normalized },
+  ];
+  if (mongoose.Types.ObjectId.isValid(normalized)) {
+    orConditions.push({ _id: normalized });
+  }
+  return { $or: orConditions };
+}
+
 function serializeMeasurementProfile(profile) {
   return {
     id: profile?._id?.toString?.() || '',
@@ -421,6 +437,35 @@ async function me(req, res, next) {
     success: true,
     data: serializeUserResponse(user || req.user),
   });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getUserByIdentifier(req, res, next) {
+  try {
+    const identifier = req.params.id?.toString().trim() || '';
+    const lookup = buildUserLookupQuery(identifier);
+    if (!lookup) {
+      return res.status(400).json({
+        success: false,
+        message: 'User identifier is required.',
+      });
+    }
+
+    const user = await User.findOne(lookup);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found.',
+      });
+    }
+
+    const hydratedUser = await ensureLinkedStoreId(user);
+    return res.status(200).json({
+      success: true,
+      data: serializeUserResponse(hydratedUser),
+    });
   } catch (error) {
     return next(error);
   }
@@ -1083,6 +1128,7 @@ async function claimGrowthOffer(req, res, next) {
 
 module.exports = {
   me,
+  getUserByIdentifier,
   debugAuth,
   upsertTestUser,
   syncProfile,

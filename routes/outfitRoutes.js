@@ -11,6 +11,7 @@ const {
 const router = express.Router();
 
 router.get('/', getOutfits);
+router.get('/recommend', getOutfits);
 router.get('/complete-look/:productId', getCompleteLook);
 router.get('/body-type', authMiddleware, getBodyTypeRecommendations);
 router.post('/track', authMiddleware, trackOutfit);

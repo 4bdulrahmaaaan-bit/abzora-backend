@@ -29,7 +29,11 @@ async function runDetectionCycle() {
       detectDeadOrdersAndTasks(),
     ]);
 
-    for (const alert of alerts) {
+    for (const item of alerts) {
+      const alert = item?.alert || item;
+      if (!alert || item?.shouldQueue === false) {
+        continue;
+      }
       await enqueueAlert({ alertId: alert.alertId, severity: alert.severity });
       await OpsAlert.updateOne(
         { _id: alert._id },
@@ -59,13 +63,15 @@ async function runEscalationCycle() {
     const cutoff = new Date(Date.now() - thresholdMinutes * 60000);
 
     const unresolved = await OpsAlert.find({
-      status: { $in: ['OPEN', 'QUEUED', 'PROCESSING', 'ESCALATED'] },
+      status: { $in: ['OPEN', 'QUEUED', 'ESCALATED'] },
       updatedAt: { $lte: cutoff },
     }).limit(150);
 
     for (const alert of unresolved) {
+      const currentStatus = String(alert.status || '').toUpperCase();
       const escalatedSeverity = escalateSeverity(alert.severity);
       const escalatedScore = Math.min(100, Number(alert.score || 0) + 10);
+      const shouldQueue = currentStatus === 'OPEN';
       await OpsAlert.updateOne(
         { _id: alert._id },
         {
@@ -73,14 +79,17 @@ async function runEscalationCycle() {
             severity: escalatedSeverity,
             score: escalatedScore,
             status: 'ESCALATED',
-            actionStatus: 'PENDING',
+            actionStatus:
+              currentStatus === 'QUEUED' ? 'PENDING' : String(alert.actionStatus || 'PENDING'),
           },
           $inc: {
             escalatedCount: 1,
           },
         },
       );
-      await enqueueAlert({ alertId: alert.alertId, severity: escalatedSeverity });
+      if (shouldQueue) {
+        await enqueueAlert({ alertId: alert.alertId, severity: escalatedSeverity });
+      }
     }
   } catch (error) {
     console.warn('Ops escalation cycle failed:', error.message);

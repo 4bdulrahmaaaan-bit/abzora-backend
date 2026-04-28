@@ -15,6 +15,7 @@ const {
   listWithdrawalRequests,
   markWithdrawalCompleted,
   markWithdrawalFailed,
+  recordFinanceAudit,
   rejectWithdrawalRequest,
   runAutomaticSettlements,
   saveUserPayoutProfile,
@@ -26,12 +27,45 @@ const VendorWallet = require('../models/VendorWallet');
 const RiderWallet = require('../models/RiderWallet');
 const { verifyWebhookSignature } = require('../services/razorpayPayoutService');
 const { isAllowedAdminEmail } = require('./authController');
+const { hasRole } = require('../middleware/authorizationMiddleware');
+
+function isVendorUser(user) {
+  return hasRole(user, ['vendor']);
+}
+
+function isRiderUser(user) {
+  return hasRole(user, ['rider']);
+}
 
 function ensureAdmin(req, res) {
-  const privileged = ['admin', 'super_admin'].includes(req.user?.role);
+  const privileged = hasRole(req.user, ['admin', 'super_admin']);
   const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
   if (!privileged || !emailAllowed) {
     res.status(403).json({ success: false, message: 'Admin access denied.' });
+    return false;
+  }
+  return true;
+}
+
+function ensureVendor(req, res) {
+  if (!req.user?.uid) {
+    res.status(401).json({ success: false, message: 'Unauthorized' });
+    return false;
+  }
+  if (!isVendorUser(req.user)) {
+    res.status(403).json({ success: false, message: 'Vendor access required.' });
+    return false;
+  }
+  return true;
+}
+
+function ensureRider(req, res) {
+  if (!req.user?.uid) {
+    res.status(401).json({ success: false, message: 'Unauthorized' });
+    return false;
+  }
+  if (!isRiderUser(req.user)) {
+    res.status(403).json({ success: false, message: 'Rider access required.' });
     return false;
   }
   return true;
@@ -157,6 +191,34 @@ function serializeTransaction(item) {
   };
 }
 
+async function recordPayoutWebhookAudit({
+  action,
+  status = 'success',
+  request = null,
+  amount = 0,
+  message = '',
+  metadata = {},
+}) {
+  try {
+    await recordFinanceAudit({
+      action,
+      actorId: 'razorpayx-webhook',
+      actorRole: 'system',
+      walletType: request?.walletType || 'admin',
+      userId: request?.userId || '',
+      storeId: request?.storeId || '',
+      riderId: request?.riderId || '',
+      amount: Number(amount || request?.amount || 0),
+      status,
+      orderId: '',
+      message,
+      metadata,
+    });
+  } catch (error) {
+    console.warn('Failed to record payout webhook audit:', error.message);
+  }
+}
+
 function startOfDay(date = new Date()) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -195,8 +257,8 @@ function buildDailySeries({ items, amountFor, dateFor, days = 7, labelFormatter 
 
 async function getVendorWallet(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureVendor(req, res)) {
+      return;
     }
     const store = await Store.findOne({ ownerId: req.user.uid });
     if (!store) {
@@ -249,8 +311,8 @@ async function getUserWalletSummary(req, res, next) {
 
 async function getVendorDashboard(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureVendor(req, res)) {
+      return;
     }
     const store = await Store.findOne({ ownerId: req.user.uid });
     if (!store) {
@@ -337,8 +399,8 @@ async function getVendorDashboard(req, res, next) {
 
 async function requestVendorWithdraw(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureVendor(req, res)) {
+      return;
     }
     const amount = Number(req.body?.amount || 0);
     const store = await Store.findOne({ ownerId: req.user.uid });
@@ -369,8 +431,8 @@ async function requestVendorWithdraw(req, res, next) {
 
 async function getVendorPayoutProfile(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureVendor(req, res)) {
+      return;
     }
     const store = await Store.findOne({ ownerId: req.user.uid });
     if (!store) {
@@ -385,8 +447,8 @@ async function getVendorPayoutProfile(req, res, next) {
 
 async function saveVendorPayoutProfile(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureVendor(req, res)) {
+      return;
     }
     const store = await Store.findOne({ ownerId: req.user.uid });
     if (!store) {
@@ -409,8 +471,8 @@ async function saveVendorPayoutProfile(req, res, next) {
 
 async function getRiderWallet(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureRider(req, res)) {
+      return;
     }
     const [wallet, transactions, withdrawalRequests, payoutProfile] = await Promise.all([
       getOrCreateRiderWallet(req.user.uid),
@@ -436,8 +498,8 @@ async function getRiderWallet(req, res, next) {
 
 async function getRiderDashboard(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureRider(req, res)) {
+      return;
     }
     const [wallet, transactions, orders] = await Promise.all([
       getOrCreateRiderWallet(req.user.uid),
@@ -475,8 +537,8 @@ async function getRiderDashboard(req, res, next) {
 
 async function requestRiderWithdraw(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureRider(req, res)) {
+      return;
     }
     const amount = Number(req.body?.amount || 0);
     const wallet = await getOrCreateRiderWallet(req.user.uid);
@@ -501,8 +563,8 @@ async function requestRiderWithdraw(req, res, next) {
 
 async function getRiderPayoutProfile(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureRider(req, res)) {
+      return;
     }
     const { profile } = await getUserPayoutProfile(req.user.uid);
     return res.status(200).json({ success: true, data: serializePayoutProfile(profile) });
@@ -513,8 +575,8 @@ async function getRiderPayoutProfile(req, res, next) {
 
 async function saveRiderPayoutProfile(req, res, next) {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    if (!ensureRider(req, res)) {
+      return;
     }
     const profile = await saveUserPayoutProfile({
       userId: req.user.uid,
@@ -772,6 +834,14 @@ async function handleRazorpayPayoutWebhook(req, res, next) {
     const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body || {}));
     const signature = req.headers['x-razorpay-signature'];
     if (!verifyWebhookSignature(rawBody, signature)) {
+      await recordPayoutWebhookAudit({
+        action: 'payout_webhook_invalid_signature',
+        status: 'failed',
+        message: 'Invalid RazorpayX payout webhook signature.',
+        metadata: {
+          event: String(req.body?.event || '').trim(),
+        },
+      });
       return res.status(400).json({ success: false, message: 'Invalid webhook signature.' });
     }
 
@@ -788,27 +858,54 @@ async function handleRazorpayPayoutWebhook(req, res, next) {
       payoutEntity?.status_details?.reason ||
       payoutEntity?.failure_reason ||
       'Payout failed.';
+    const failedEvents = new Set([
+      'payout.failed',
+      'payout.rejected',
+      'payout.cancelled',
+      'payout.reversed',
+      'payout.returned',
+    ]);
 
     if (event === 'payout.processed') {
       const request = await markWithdrawalCompleted({ payoutId, requestId });
+      await recordPayoutWebhookAudit({
+        action: 'payout_webhook_processed',
+        request,
+        amount: request?.amount || 0,
+        message: `Processed RazorpayX payout webhook event: ${event}.`,
+        metadata: { event, payoutId, requestId },
+      });
       return res.status(200).json({
         success: true,
         data: serializeWithdrawalRequest(request),
       });
     }
 
-    if (event === 'payout.failed') {
+    if (failedEvents.has(event)) {
       const request = await markWithdrawalFailed({
         payoutId,
         requestId,
         reason: failureReason,
       });
+      await recordPayoutWebhookAudit({
+        action: 'payout_webhook_failed',
+        status: 'failed',
+        request,
+        amount: request?.amount || 0,
+        message: failureReason,
+        metadata: { event, payoutId, requestId },
+      });
       return res.status(200).json({
         success: true,
         data: serializeWithdrawalRequest(request),
       });
     }
 
+    await recordPayoutWebhookAudit({
+      action: 'payout_webhook_ignored',
+      message: `Ignored unsupported RazorpayX payout webhook event: ${event || 'unknown'}.`,
+      metadata: { event, payoutId, requestId },
+    });
     return res.status(200).json({ success: true, ignored: true, event });
   } catch (error) {
     return next(error);

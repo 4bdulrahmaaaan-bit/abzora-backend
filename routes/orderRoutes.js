@@ -3,6 +3,7 @@ const express = require('express');
 const authMiddleware = require('../middleware/authMiddleware');
 const {
   acceptDelivery,
+  createAtelierOrder,
   createOrder,
   getOrderPricingQuote,
   quickCheckoutOrder,
@@ -38,6 +39,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.post('/quote', getOrderPricingQuote);
+router.post('/atelier', createAtelierOrder);
 router.post('/', createOrder);
 router.post('/quick-checkout', quickCheckoutOrder);
 router.get('/', listUserOrders);

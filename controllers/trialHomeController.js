@@ -20,17 +20,17 @@ const {
 } = require('../services/trialHomeService');
 const TrialHomeSession = require('../models/TrialHomeSession');
 const { isAllowedAdminEmail } = require('./authController');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 
 function unauthorized(res) {
   return res.status(401).json({ success: false, message: 'Unauthorized' });
 }
 
 function isPrivilegedApprover(req) {
-  const role = req.user?.role;
-  if (role === 'vendor') {
+  if (hasRole(req.user, ['vendor'])) {
     return true;
   }
-  if (role === 'admin' || role === 'super_admin') {
+  if (hasRole(req.user, ['admin', 'super_admin'])) {
     return isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
   }
   return false;
@@ -356,7 +356,7 @@ function ensureVendor(req, res) {
     unauthorized(res);
     return false;
   }
-  if (req.user.role !== 'vendor') {
+  if (!hasRole(req.user, ['vendor'])) {
     res.status(403).json({
       success: false,
       message: 'Vendor access required.',

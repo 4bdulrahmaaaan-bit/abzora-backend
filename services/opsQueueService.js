@@ -75,7 +75,36 @@ async function dequeueAlert() {
   return '';
 }
 
+async function getQueueHealth() {
+  const ordered = [
+    ALERT_SEVERITY.CRITICAL,
+    ALERT_SEVERITY.HIGH,
+    ALERT_SEVERITY.MEDIUM,
+    ALERT_SEVERITY.LOW,
+  ];
+  const redis = await ensureRedis();
+  const bySeverity = {};
+  let totalDepth = 0;
+
+  if (redis && redisAvailable) {
+    for (const severity of ordered) {
+      const depth = Number(await redis.lLen(QUEUE_KEYS[severity])) || 0;
+      bySeverity[severity] = depth;
+      totalDepth += depth;
+    }
+    return { backend: 'redis', totalDepth, bySeverity };
+  }
+
+  for (const severity of ordered) {
+    const depth = localQueue[severity].length;
+    bySeverity[severity] = depth;
+    totalDepth += depth;
+  }
+  return { backend: 'memory', totalDepth, bySeverity };
+}
+
 module.exports = {
   enqueueAlert,
   dequeueAlert,
+  getQueueHealth,
 };

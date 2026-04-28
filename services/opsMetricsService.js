@@ -1,7 +1,10 @@
 const OpsAlert = require('../models/OpsAlert');
 const DeliveryTask = require('../models/DeliveryTask');
 const Order = require('../models/Order');
+const OpsActionLog = require('../models/OpsActionLog');
 const OpsMetricsSnapshot = require('../models/OpsMetricsSnapshot');
+const { getQueueHealth } = require('./opsQueueService');
+const { getWorkerHealth } = require('./opsWorkerService');
 
 function bucketStart(type, date = new Date()) {
   const value = new Date(date);
@@ -22,11 +25,14 @@ async function aggregateOpsMetrics({ type = 'hourly' }) {
     endAt.setHours(endAt.getHours() + 1);
   }
 
-  const [tasks, alerts, orders] = await Promise.all([
+  const [tasks, alerts, orders, actionLogs, queueHealth] = await Promise.all([
     DeliveryTask.find({ createdAt: { $gte: startAt, $lt: endAt } }).lean(),
     OpsAlert.find({ createdAt: { $gte: startAt, $lt: endAt } }).lean(),
     Order.find({ updatedAt: { $gte: startAt, $lt: endAt } }).lean(),
+    OpsActionLog.find({ createdAt: { $gte: startAt, $lt: endAt } }).lean(),
+    getQueueHealth(),
   ]);
+  const workerHealth = getWorkerHealth();
 
   const deliveredTasks = tasks.filter((task) => task.status === 'delivered');
   const delayed = tasks.filter((task) => Boolean(task?.metadata?.opsStuck));
@@ -34,6 +40,12 @@ async function aggregateOpsMetrics({ type = 'hourly' }) {
   const dispatchSuccess = Math.max(0, tasks.length - dispatchFailures);
   const autoResolved = alerts.filter((alert) => alert.autoResolved === true).length;
   const etaRiskCount = alerts.filter((alert) => alert.type === 'ETA_RISK').length;
+  const retryBacklog = alerts.filter((alert) => alert.status === 'QUEUED' && alert.nextRetryAt).length;
+  const escalatedAlerts = alerts.filter((alert) => alert.status === 'ESCALATED').length;
+  const manualReviewAlerts = alerts.filter((alert) => alert?.payload?.manualReviewRequired === true).length;
+  const fallbackCancellations = actionLogs.filter(
+    (log) => log.action === 'CANCEL_FALLBACK' && log.status === 'SUCCESS',
+  ).length;
 
   const avgDeliveryMinutes = deliveredTasks.length > 0
     ? deliveredTasks.reduce((sum, task) => {
@@ -71,11 +83,18 @@ async function aggregateOpsMetrics({ type = 'hourly' }) {
     dispatchSuccess,
     dispatchFailures,
     etaAccuracy,
-    autoResolvedAlerts: autoResolved,
-    totalAlerts: alerts.length,
-    riderEfficiency: Number(riderEfficiency.toFixed(2)),
-    vendorEfficiency: Number(vendorEfficiency.toFixed(2)),
-    avgDeliveryMinutes: Number(avgDeliveryMinutes.toFixed(2)),
+      autoResolvedAlerts: autoResolved,
+      totalAlerts: alerts.length,
+      queueDepth: Number(queueHealth?.totalDepth || 0),
+      retryBacklog,
+      escalatedAlerts,
+      manualReviewAlerts,
+      fallbackCancellations,
+      workerLoopFailures: Number(workerHealth.loopFailures || 0),
+      workerExecutionFailures: Number(workerHealth.executionFailures || 0),
+      riderEfficiency: Number(riderEfficiency.toFixed(2)),
+      vendorEfficiency: Number(vendorEfficiency.toFixed(2)),
+      avgDeliveryMinutes: Number(avgDeliveryMinutes.toFixed(2)),
     delayPercent: tasks.length > 0 ? Number(((delayed.length / tasks.length) * 100).toFixed(2)) : 0,
   };
 

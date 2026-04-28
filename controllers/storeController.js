@@ -21,6 +21,58 @@ function sanitizeVendorEditableCustomProfile(profile = {}) {
   };
 }
 
+function normalizeStringList(value, fallback = []) {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+  return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))].slice(0, 20);
+}
+
+function normalizeAtelierConfig(raw = {}, fallback = {}) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const base = fallback && typeof fallback === 'object' ? fallback : {};
+  const measurementOptions = normalizeStringList(
+    source.measurementOptions ?? base.measurementOptions ?? [],
+  ).filter((item) => ['manual', 'trial', 'visit', 'standard'].includes(item));
+  const customizationOptions = source.customizationOptions && typeof source.customizationOptions === 'object'
+    ? source.customizationOptions
+    : base.customizationOptions || {};
+  const atelierPricingRules = source.atelierPricingRules && typeof source.atelierPricingRules === 'object'
+    ? source.atelierPricingRules
+    : base.atelierPricingRules || {};
+
+  return {
+    supportsCustomization:
+      source.supportsCustomization == null
+        ? Boolean(base.supportsCustomization)
+        : source.supportsCustomization === true,
+    measurementOptions,
+    customizationOptions: {
+      fabric: normalizeStringList(customizationOptions.fabric, base.customizationOptions?.fabric || []),
+      color: normalizeStringList(customizationOptions.color, base.customizationOptions?.color || []),
+      styleVariants: normalizeStringList(customizationOptions.styleVariants, base.customizationOptions?.styleVariants || []),
+      addOns: normalizeStringList(customizationOptions.addOns, base.customizationOptions?.addOns || []),
+    },
+    tailoringTimeDaysMin: Math.min(
+      30,
+      Math.max(1, Number(source.tailoringTimeDaysMin ?? base.tailoringTimeDaysMin ?? 1)),
+    ),
+    tailoringTimeDaysMax: Math.min(
+      30,
+      Math.max(
+        Number(source.tailoringTimeDaysMin ?? base.tailoringTimeDaysMin ?? 1),
+        Number(source.tailoringTimeDaysMax ?? base.tailoringTimeDaysMax ?? 3),
+      ),
+    ),
+    atelierPricingRules: {
+      basePriceMultiplier: Math.min(10, Math.max(0, Number(atelierPricingRules.basePriceMultiplier ?? base.atelierPricingRules?.basePriceMultiplier ?? 1))),
+      tailoringCharge: Math.max(0, Number(atelierPricingRules.tailoringCharge ?? base.atelierPricingRules?.tailoringCharge ?? 0)),
+      customizationBaseCharge: Math.max(0, Number(atelierPricingRules.customizationBaseCharge ?? base.atelierPricingRules?.customizationBaseCharge ?? 0)),
+      homeVisitCharge: Math.max(0, Number(atelierPricingRules.homeVisitCharge ?? base.atelierPricingRules?.homeVisitCharge ?? 0)),
+    },
+  };
+}
+
 function normalizeSameDayConfig(raw = {}, fallback = {}) {
   const source = raw && typeof raw === 'object' ? raw : {};
   return {
@@ -82,6 +134,7 @@ function serializeStore(store, extras = {}, options = {}) {
       supportsAlterations: source.customVendorProfile?.supportsAlterations !== false,
       alterationPolicy: source.customVendorProfile?.alterationPolicy || '',
     },
+    atelierConfig: normalizeAtelierConfig(source.atelierConfig || {}, source.atelierConfig || {}),
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,
   };
@@ -129,6 +182,7 @@ async function createStore(req, res, next) {
       bannerImageUrl,
       category,
       customVendorProfile,
+      atelierConfig,
       sameDay,
       operationalSpeedScore,
     } = req.body || {};
@@ -169,6 +223,7 @@ async function createStore(req, res, next) {
         vendorType === 'custom_vendor' && customVendorProfile
           ? sanitizeVendorEditableCustomProfile(customVendorProfile)
           : undefined,
+      atelierConfig: normalizeAtelierConfig(atelierConfig || {}),
       sameDay: normalizeSameDayConfig(sameDay || {}),
       operationalSpeedScore: Math.min(100, Math.max(0, Number(operationalSpeedScore || 50))),
       ownerId,
@@ -188,7 +243,12 @@ async function createStore(req, res, next) {
 
 async function listStores(req, res, next) {
   try {
-    const stores = await Store.find({ isActive: true })
+    const query = { isActive: true };
+    const atelierOnly = String(req.query.atelier || req.query.customizable || '').trim().toLowerCase() === 'true';
+    if (atelierOnly) {
+      query['atelierConfig.supportsCustomization'] = true;
+    }
+    const stores = await Store.find(query)
       .sort({ createdAt: -1 });
 
     return res.status(200).json({ success: true, data: stores.map(serializeStore) });
@@ -277,6 +337,36 @@ async function getOwnStore(req, res, next) {
   }
 }
 
+async function getStoreByOwner(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const ownerId = req.params.ownerId?.toString().trim();
+    if (!ownerId) {
+      return res.status(400).json({ success: false, message: 'ownerId is required.' });
+    }
+
+    const store = await Store.findOne({
+      $or: [
+        { ownerId },
+        ...(mongoose.Types.ObjectId.isValid(ownerId) ? [{ vendorId: ownerId }] : []),
+      ],
+    }).sort({ createdAt: -1 });
+    if (!store) {
+      return res.status(404).json({ success: false, message: 'Store not found.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: serializeStore(store),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function updateStore(req, res, next) {
   try {
     const { id } = req.params;
@@ -309,6 +399,7 @@ async function updateStore(req, res, next) {
       bannerImageUrl,
       category,
       customVendorProfile,
+      atelierConfig,
       sameDay,
       operationalSpeedScore,
     } = req.body || {};
@@ -346,6 +437,12 @@ async function updateStore(req, res, next) {
         ...sanitizeVendorEditableCustomProfile(customVendorProfile),
       };
     }
+    if (atelierConfig && typeof atelierConfig === 'object') {
+      store.atelierConfig = normalizeAtelierConfig(
+        atelierConfig,
+        store.atelierConfig?.toObject?.() ?? store.atelierConfig ?? {},
+      );
+    }
     if (sameDay && typeof sameDay === 'object') {
       store.sameDay = normalizeSameDayConfig(sameDay, store.sameDay || {});
     }
@@ -377,6 +474,7 @@ module.exports = {
   listStores,
   listRankedCustomStores,
   getStore,
+  getStoreByOwner,
   getOwnStore,
   updateStore,
 };
