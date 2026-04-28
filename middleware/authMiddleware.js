@@ -41,6 +41,33 @@ function normalizePhone(value) {
   return digitsOnly;
 }
 
+function phoneDigits(value) {
+  const normalized = normalizePhone(value);
+  return normalized.replace(/[^0-9]/g, '');
+}
+
+function phoneTail10(value) {
+  const digits = phoneDigits(value);
+  if (digits.length < 10) {
+    return '';
+  }
+  return digits.slice(-10);
+}
+
+function buildPhoneLookupCandidates(value) {
+  const normalized = normalizePhone(value);
+  if (!normalized) {
+    return [];
+  }
+  const tail10 = phoneTail10(normalized);
+  const regex = tail10 ? new RegExp(`${tail10}$`) : null;
+  return [
+    { phone: normalized },
+    ...(tail10 ? [{ phone: tail10 }] : []),
+    ...(regex ? [{ phone: regex }] : []),
+  ];
+}
+
 function roleMapFromUser(user) {
   if (!user?.roles) return {};
   const raw = user.roles instanceof Map
@@ -109,6 +136,7 @@ function serializeUser(user) {
 async function upsertFirebaseUser(decoded) {
   const decodedEmail = decoded.email || '';
   const decodedPhone = normalizePhone(decoded.phone_number || '');
+  const decodedPhoneTail10 = phoneTail10(decodedPhone);
   const shouldPromoteAdmin = isAllowedAdminEmail(decodedEmail);
 
   let user = await User.findOne({
@@ -116,12 +144,14 @@ async function upsertFirebaseUser(decoded) {
       { firebaseUid: decoded.uid },
       { uid: decoded.uid },
       ...(decodedEmail ? [{ email: decodedEmail }] : []),
-      ...(decodedPhone ? [{ phone: decodedPhone }] : []),
+      ...buildPhoneLookupCandidates(decodedPhone),
     ],
   });
 
-  if (decodedPhone) {
-    const phoneMatched = await User.findOne({ phone: decodedPhone });
+  if (decodedPhone || decodedPhoneTail10) {
+    const phoneMatched = await User.findOne({
+      $or: buildPhoneLookupCandidates(decodedPhone),
+    });
     if (
       phoneMatched &&
       (!user || String(phoneMatched._id) !== String(user._id)) &&

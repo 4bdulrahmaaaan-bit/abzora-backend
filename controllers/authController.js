@@ -34,6 +34,40 @@ function toSafeTrimmedString(value) {
   return value == null ? '' : value.toString().trim();
 }
 
+function normalizePhoneLike(value) {
+  const raw = toSafeTrimmedString(value);
+  if (!raw) {
+    return '';
+  }
+  const digitsOrPlus = raw.replace(/[^0-9+]/g, '');
+  if (digitsOrPlus.startsWith('+')) {
+    return digitsOrPlus;
+  }
+  return digitsOrPlus;
+}
+
+function phoneTail10(value) {
+  const normalized = normalizePhoneLike(value).replace(/[^0-9]/g, '');
+  if (normalized.length < 10) {
+    return '';
+  }
+  return normalized.slice(-10);
+}
+
+function buildPhoneLookupQuery(value) {
+  const normalized = normalizePhoneLike(value);
+  if (!normalized) {
+    return null;
+  }
+  const tail10 = phoneTail10(normalized);
+  return {
+    $or: [
+      { phone: normalized },
+      ...(tail10 ? [{ phone: tail10 }, { phone: new RegExp(`${tail10}$`) }] : []),
+    ],
+  };
+}
+
 function normalizeOptionalUrl(value) {
   const normalized = toSafeTrimmedString(value);
   if (!normalized) {
@@ -452,7 +486,11 @@ async function me(req, res, next) {
       ].filter(Boolean);
 
       for (const candidatePhone of phoneCandidates) {
-        const byPhone = await User.findOne({ phone: candidatePhone });
+        const lookup = buildPhoneLookupQuery(candidatePhone);
+        if (!lookup) {
+          continue;
+        }
+        const byPhone = await User.findOne(lookup);
         if (!byPhone) {
           continue;
         }
