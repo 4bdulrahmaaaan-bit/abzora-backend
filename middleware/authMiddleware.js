@@ -68,6 +68,19 @@ function buildPhoneLookupCandidates(value) {
   ];
 }
 
+async function findBestUserByPhone(phoneValue) {
+  const candidates = buildPhoneLookupCandidates(phoneValue);
+  if (!candidates.length) {
+    return null;
+  }
+  const matches = await User.find({ $or: candidates }).sort({ updatedAt: -1, createdAt: -1 });
+  if (!matches.length) {
+    return null;
+  }
+  const opsMatch = matches.find((entry) => hasOperationsCapability(entry));
+  return opsMatch || matches[0];
+}
+
 function roleMapFromUser(user) {
   if (!user?.roles) return {};
   const raw = user.roles instanceof Map
@@ -149,9 +162,7 @@ async function upsertFirebaseUser(decoded) {
   });
 
   if (decodedPhone || decodedPhoneTail10) {
-    const phoneMatched = await User.findOne({
-      $or: buildPhoneLookupCandidates(decodedPhone),
-    });
+    const phoneMatched = await findBestUserByPhone(decodedPhone);
     if (
       phoneMatched &&
       (!user || String(phoneMatched._id) !== String(user._id)) &&

@@ -68,6 +68,19 @@ function buildPhoneLookupQuery(value) {
   };
 }
 
+async function findBestUserByPhone(phoneValue) {
+  const lookup = buildPhoneLookupQuery(phoneValue);
+  if (!lookup) {
+    return null;
+  }
+  const matches = await User.find(lookup).sort({ updatedAt: -1, createdAt: -1 });
+  if (!matches.length) {
+    return null;
+  }
+  const opsMatch = matches.find((entry) => hasOperationsCapability(entry));
+  return opsMatch || matches[0];
+}
+
 function normalizeOptionalUrl(value) {
   const normalized = toSafeTrimmedString(value);
   if (!normalized) {
@@ -486,11 +499,7 @@ async function me(req, res, next) {
       ].filter(Boolean);
 
       for (const candidatePhone of phoneCandidates) {
-        const lookup = buildPhoneLookupQuery(candidatePhone);
-        if (!lookup) {
-          continue;
-        }
-        const byPhone = await User.findOne(lookup);
+        const byPhone = await findBestUserByPhone(candidatePhone);
         if (!byPhone) {
           continue;
         }
