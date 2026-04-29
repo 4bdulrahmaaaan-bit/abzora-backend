@@ -884,6 +884,14 @@ async function createWithdrawalRequest({ walletType, wallet, userId, amount, not
 
   return runWithOptionalSession(async (session) => {
     const user = await User.findOne({ uid: userId }).session(session);
+    const existingOpenRequest = await WithdrawalRequest.findOne({
+      walletType,
+      userId,
+      status: { $in: ['pending', 'manual_review', 'processing'] },
+    }).session(session);
+    if (existingOpenRequest) {
+      throw new Error('An existing withdrawal request is already in progress.');
+    }
     const freshWallet = walletType === 'vendor'
       ? await VendorWallet.findById(wallet._id).session(session)
       : await RiderWallet.findById(wallet._id).session(session);
@@ -1036,6 +1044,9 @@ async function approveWithdrawalRequest({ requestId, processedBy, actorRole = 'a
     const request = await WithdrawalRequest.findOne({ requestId }).session(session);
     if (!request) {
       throw new Error('Withdrawal request not found.');
+    }
+    if (request.status === 'processing' && request.payoutId) {
+      return request;
     }
     const wasFailed = request.status === 'failed';
     if (!['pending', 'manual_review', 'failed'].includes(request.status)) {

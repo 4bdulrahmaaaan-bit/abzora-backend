@@ -263,6 +263,7 @@ async function handlePaymentFailed(paymentEntity) {
 
 async function handleRefundProcessed(refundEntity) {
   const paymentId = refundEntity?.payment_id?.toString() || '';
+  const refundId = String(refundEntity?.id || '').trim();
   const amountPaise = Number(refundEntity?.amount || 0);
   const amount = amountPaise > 0 ? amountPaise / 100 : 0;
   const order = await Order.findOne({ 'razorpay.paymentId': paymentId });
@@ -293,16 +294,37 @@ async function handleRefundProcessed(refundEntity) {
     return order;
   }
 
+  if (refundId) {
+    const existingRefundTx = await Transaction.findOne({
+      type: 'refund',
+      'metadata.razorpayRefundId': refundId,
+      orderId: order._id.toString(),
+    });
+    if (existingRefundTx) {
+      await recordPaymentWebhookAudit({
+        action: 'payment_webhook_refund_duplicate_tx',
+        order,
+        amount,
+        message: 'Duplicate refund webhook ignored because refund transaction already exists.',
+        metadata: {
+          razorpayPaymentId: paymentId,
+          razorpayRefundId: refundId,
+        },
+      });
+      return order;
+    }
+  }
+
   const refundRequestId = String(refundEntity?.notes?.refundRequestId || '').trim();
   let refundRequest = null;
   if (mongoose.Types.ObjectId.isValid(refundRequestId)) {
     refundRequest = await RefundRequest.findById(refundRequestId);
   }
-  if (!refundRequest && refundEntity?.id) {
-    refundRequest = await RefundRequest.findOne({ gatewayRefundId: String(refundEntity.id) });
+  if (!refundRequest && refundId) {
+    refundRequest = await RefundRequest.findOne({ gatewayRefundId: refundId });
   }
   if (refundRequest) {
-    refundRequest.gatewayRefundId = String(refundEntity?.id || refundRequest.gatewayRefundId || '');
+    refundRequest.gatewayRefundId = refundId || String(refundRequest.gatewayRefundId || '');
     refundRequest.refundedAmount = Math.max(
       Number(refundRequest.refundedAmount || 0),
       amount,
@@ -334,12 +356,12 @@ async function handleRefundProcessed(refundEntity) {
     orderId: order._id.toString(),
     amount: -Math.abs(amount || Number(order.totalAmount || 0)),
     status: 'processed',
-    note: 'Refund processed via Razorpay webhook.',
-    createdAtIso: nowIso(),
-    metadata: {
-      razorpayRefundId: String(refundEntity?.id || ''),
-      razorpayPaymentId: paymentId,
-    },
+      note: 'Refund processed via Razorpay webhook.',
+      createdAtIso: nowIso(),
+      metadata: {
+      razorpayRefundId: refundId,
+        razorpayPaymentId: paymentId,
+      },
   });
   await recordPaymentWebhookAudit({
     action: 'payment_webhook_refund_processed',
@@ -350,7 +372,7 @@ async function handleRefundProcessed(refundEntity) {
       : 'Partial refund processed via Razorpay webhook.',
     metadata: {
       razorpayPaymentId: paymentId,
-      razorpayRefundId: String(refundEntity?.id || ''),
+      razorpayRefundId: refundId,
       fullRefund: String(fullRefund),
     },
   });
