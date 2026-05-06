@@ -67,6 +67,7 @@ async function assignSingleOrder({
   actor = {},
   excludedRiderIds = [],
   replacementTaskId = '',
+  preferredRiderId = '',
 }) {
   const order = await Order.findById(orderId);
   if (!order) {
@@ -137,6 +138,7 @@ async function assignSingleOrder({
       dropLng: dropCoords.longitude,
       city: store.city || '',
       sameDay: true,
+      preferredRiderId,
       excludedRiderIds,
       session,
       metadata: { source: 'dispatch_assign' },

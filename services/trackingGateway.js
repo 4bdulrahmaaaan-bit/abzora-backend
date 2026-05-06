@@ -116,6 +116,12 @@ function inferRooms(event = {}) {
   if (event.taskId) {
     result.add(roomName('task', event.taskId));
   }
+  if (event.zoneId) {
+    result.add(roomName('zone', event.zoneId));
+  }
+  if (event.data?.zoneId) {
+    result.add(roomName('zone', event.data.zoneId));
+  }
   if (Array.isArray(event.extraRooms)) {
     for (const room of event.extraRooms) {
       if (room) result.add(String(room));
@@ -126,6 +132,7 @@ function inferRooms(event = {}) {
 
 async function publishTrackingEvent(event = {}) {
   const payload = {
+    namespace: event.namespace || 'customer',
     eventType: event.eventType || 'tracking_event',
     orderId: event.orderId || '',
     riderId: event.riderId || '',
@@ -270,6 +277,10 @@ async function canJoinRoom(state, room) {
       return String(task.vendorId || '') === state.uid;
     }
     return false;
+  }
+
+  if (type === 'zone') {
+    return isAdminTrackingUser(state) || hasVendorTrackingAccess(state) || hasRiderTrackingAccess(state);
   }
 
   return false;

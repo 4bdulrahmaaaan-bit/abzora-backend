@@ -40,6 +40,58 @@ npm run dev
 - `POST /orders/create-razorpay-order`
 - `POST /orders/verify-payment`
 - `POST /upload`
+- `GET /delivery/check?product_id=...&lat=...&lng=...&pincode=...`
+- `POST /rider/assign`
+- `GET /order/track/:id`
+
+## Delivery APIs
+
+### Check delivery availability
+
+`GET /delivery/check?product_id=<id>&lat=<lat>&lng=<lng>&pincode=<pincode>`
+
+Example response:
+
+```json
+{
+  "available": true,
+  "eta": "Today",
+  "eta_minutes": 185,
+  "vendor_id": "68175f6ab0b2f53f0f97f6cd",
+  "distance_km": 4.2
+}
+```
+
+### Assign rider
+
+`POST /rider/assign`
+
+Body:
+
+```json
+{
+  "orderId": "6817618db0b2f53f0f97f744",
+  "sameDay": true
+}
+```
+
+### Track order
+
+`GET /order/track/:id`
+
+Example response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "order_id": "6817618db0b2f53f0f97f744",
+    "status": "Out for delivery",
+    "rider": { "lat": 12.9716, "lng": 77.5946, "status": "active" },
+    "updated_at": "2026-05-04T13:10:14.000Z"
+  }
+}
+```
 
 ## Deployment
 

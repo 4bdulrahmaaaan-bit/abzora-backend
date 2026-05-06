@@ -140,6 +140,30 @@ const productSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    originalPrice: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    discountPercentage: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 99,
+    },
+    isDiscountActive: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    discountStartDate: {
+      type: Date,
+      default: null,
+    },
+    discountEndDate: {
+      type: Date,
+      default: null,
+    },
     images: {
       type: [String],
       default: [],

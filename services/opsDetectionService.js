@@ -6,6 +6,7 @@ const OpsAlert = require('../models/OpsAlert');
 const { ALERT_TYPES, TIMEOUTS_MINUTES } = require('./opsConstants');
 const { computeAlertScore, scoreToSeverity } = require('./opsScoringService');
 const { ensureEntityMappings } = require('./opsConsistencyService');
+const { rebuildZones } = require('./zoneService');
 
 function asDate(input) {
   if (!input) return null;
@@ -263,6 +264,44 @@ async function detectAndUpsertOperationalAlerts() {
       vendorId: '',
     });
     created.push({ alert, shouldQueue });
+  }
+
+  const zones = await rebuildZones();
+  for (const zone of zones) {
+    if (Number(zone.activeOrders || 0) >= 8 && Number(zone.demandScore || 0) >= 2) {
+      const score = Math.min(100, 60 + Math.round(zone.demandScore * 12));
+      const { alert, shouldQueue } = await upsertOpenAlert({
+        type: ALERT_TYPES.HIGH_DEMAND,
+        title: 'High demand zone',
+        message: `Zone ${zone.zoneId} has high demand pressure.`,
+        score,
+        payload: zone,
+        entityType: 'zone',
+        entityId: zone.zoneId,
+        orderId: '',
+        taskId: '',
+        riderId: '',
+        vendorId: '',
+      });
+      created.push({ alert, shouldQueue });
+    }
+    if (Number(zone.activeRiders || 0) <= 1 && Number(zone.activeOrders || 0) >= 4) {
+      const score = Math.min(100, 65 + zone.activeOrders * 3);
+      const { alert, shouldQueue } = await upsertOpenAlert({
+        type: ALERT_TYPES.LOW_RIDER_COVERAGE,
+        title: 'Low rider coverage',
+        message: `Zone ${zone.zoneId} has low rider availability.`,
+        score,
+        payload: zone,
+        entityType: 'zone',
+        entityId: zone.zoneId,
+        orderId: '',
+        taskId: '',
+        riderId: '',
+        vendorId: '',
+      });
+      created.push({ alert, shouldQueue });
+    }
   }
 
   return created;

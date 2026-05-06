@@ -1,5 +1,12 @@
 const { getDashboard } = require('../services/analyticsDashboardService');
-const { trackEvent } = require('../services/analyticsService');
+const {
+  trackEvent,
+  getProductAnalyticsSummary,
+  getPriceConversionChart,
+  getDiscountSalesChart,
+  getTimeSeriesChart,
+  getAnalyticsSummary,
+} = require('../services/analyticsService');
 const { hasRole } = require('../middleware/authorizationMiddleware');
 
 function getAuthenticatedUserId(req) {
@@ -8,14 +15,21 @@ function getAuthenticatedUserId(req) {
 
 async function createAnalyticsEvent(req, res, next) {
   try {
+    const metadata = req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {};
+    if (req.body?.price_shown != null && metadata.price_shown == null) {
+      metadata.price_shown = req.body.price_shown;
+    }
+    if (req.body?.discount_shown != null && metadata.discount_shown == null) {
+      metadata.discount_shown = req.body.discount_shown;
+    }
     const payload = await trackEvent({
-      eventType: req.body?.eventType,
+      eventType: req.body?.eventType || req.body?.event_type,
       userId: getAuthenticatedUserId(req),
-      sessionId: req.body?.sessionId,
-      productId: req.body?.productId,
-      decisionId: req.body?.decisionId,
+      sessionId: req.body?.sessionId || req.body?.session_id,
+      productId: req.body?.productId || req.body?.product_id,
+      decisionId: req.body?.decisionId || req.body?.decision_id,
       cta: req.body?.cta,
-      metadata: req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {},
+      metadata,
       timestamp: req.body?.timestamp,
     });
 
@@ -40,7 +54,73 @@ async function fetchAnalyticsDashboard(req, res, next) {
   }
 }
 
+async function fetchProductAnalytics(req, res, next) {
+  try {
+    const productId = req.params?.id || '';
+    const data = await getProductAnalyticsSummary(productId, {
+      from: req.query?.from,
+      to: req.query?.to,
+    });
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function fetchPriceConversionChart(req, res, next) {
+  try {
+    const data = await getPriceConversionChart(req.params?.id || '', {
+      from: req.query?.from,
+      to: req.query?.to,
+    });
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function fetchDiscountSalesChart(req, res, next) {
+  try {
+    const data = await getDiscountSalesChart(req.params?.id || '', {
+      from: req.query?.from,
+      to: req.query?.to,
+    });
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function fetchTimeSeriesChart(req, res, next) {
+  try {
+    const data = await getTimeSeriesChart(req.params?.id || '', {
+      from: req.query?.from,
+      to: req.query?.to,
+    });
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function fetchAnalyticsSummary(req, res, next) {
+  try {
+    const data = await getAnalyticsSummary({
+      from: req.query?.from,
+      to: req.query?.to,
+    });
+    return res.status(200).json({ success: true, data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   createAnalyticsEvent,
   fetchAnalyticsDashboard,
+  fetchProductAnalytics,
+  fetchPriceConversionChart,
+  fetchDiscountSalesChart,
+  fetchTimeSeriesChart,
+  fetchAnalyticsSummary,
 };

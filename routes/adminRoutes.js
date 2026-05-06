@@ -51,6 +51,13 @@ const {
   updateAdminPricingScope,
   updateAdminPricingTrial,
 } = require('../controllers/pricingAdminController');
+const {
+  overrideDispatch,
+  freezeZone,
+  unfreezeZone,
+  prioritizeOrder,
+  listZones,
+} = require('../controllers/opsController');
 
 const router = express.Router();
 
@@ -98,5 +105,10 @@ router.post('/approve-vendor', approveVendor);
 router.post('/fix-vendor-store', fixVendorStore);
 router.patch('/kyc/vendors/:id/review', reviewVendorKycRequest);
 router.patch('/kyc/riders/:id/review', reviewRiderKycRequest);
+router.get('/zones', listZones);
+router.post('/override-dispatch', overrideDispatch);
+router.post('/freeze-zone', freezeZone);
+router.post('/unfreeze-zone', unfreezeZone);
+router.post('/prioritize-order', prioritizeOrder);
 
 module.exports = router;

@@ -229,11 +229,27 @@ function startOfWeek(date = new Date()) {
   return new Date(dayStart.getFullYear(), dayStart.getMonth(), dayStart.getDate() - offset);
 }
 
+function toValidDate(value) {
+  if (!value) {
+    return null;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function sameDay(left, right) {
+  const leftDate = toValidDate(left);
+  const rightDate = toValidDate(right);
+  if (!leftDate || !rightDate) {
+    return false;
+  }
   return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
+    leftDate.getFullYear() === rightDate.getFullYear() &&
+    leftDate.getMonth() === rightDate.getMonth() &&
+    leftDate.getDate() === rightDate.getDate()
   );
 }
 
@@ -244,7 +260,7 @@ function buildDailySeries({ items, amountFor, dateFor, days = 7, labelFormatter 
     day.setDate(day.getDate() - (days - 1 - index));
     const value = items
       .filter((item) => {
-        const date = dateFor(item);
+        const date = toValidDate(dateFor(item));
         return date && sameDay(date, day);
       })
       .reduce((sum, item) => sum + Number(amountFor(item) || 0), 0);
@@ -354,7 +370,7 @@ async function getVendorDashboard(req, res, next) {
     const todayEarnings = todayCompleted.reduce((sum, order) => sum + Number(order.vendorEarnings || 0), 0);
     const todayCommission = todayCompleted.reduce((sum, order) => sum + Number(order.platformCommission || 0), 0);
     const weeklyCompleted = completedOrders.filter((order) => {
-      const date = order.updatedAt || order.createdAt;
+      const date = toValidDate(order.updatedAt || order.createdAt);
       return date && date >= weekStart;
     });
     const weeklyRevenue = weeklyCompleted.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);

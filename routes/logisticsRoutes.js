@@ -3,6 +3,7 @@ const express = require('express');
 const authMiddleware = require('../middleware/authMiddleware');
 const {
   assignRider,
+  assignRiderForOrder,
   listRiderTasks,
   listRiderActiveTasks,
   updateRiderTaskStatus,
@@ -13,13 +14,16 @@ const {
   createTrialAliasRequest,
   trialAliasUpdateStatus,
   getOperationsAnalytics,
+  checkDeliveryAvailability,
+  trackOrder,
 } = require('../controllers/logisticsController');
 
 const router = express.Router();
 
+router.get('/delivery/check', checkDeliveryAvailability);
 router.use(authMiddleware);
-
 router.post('/assign-rider', assignRider);
+router.post('/rider/assign', assignRiderForOrder);
 
 router.get('/rider/tasks', listRiderTasks);
 router.get('/rider/tasks/active', listRiderActiveTasks);
@@ -34,5 +38,6 @@ router.post('/trial/request', createTrialAliasRequest);
 router.post('/trial/update-status', trialAliasUpdateStatus);
 
 router.get('/analytics/ops', getOperationsAnalytics);
+router.get('/order/track/:id', trackOrder);
 
 module.exports = router;

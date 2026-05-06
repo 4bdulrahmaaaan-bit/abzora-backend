@@ -13,6 +13,8 @@ const {
   serializeTrialHomeSession,
 } = require('../services/trialHomeService');
 const { hasRole } = require('../middleware/authorizationMiddleware');
+const { deliveryCheck, getOrderTracking } = require('../services/hyperlocalDeliveryService');
+const { getJson } = require('../services/redisCacheService');
 
 function ensureAuth(req, res) {
   if (!req.user?.uid) {
@@ -750,6 +752,80 @@ async function getOperationsAnalytics(req, res, next) {
   }
 }
 
+async function checkDeliveryAvailability(req, res, next) {
+  try {
+    const productId = String(req.query?.product_id || '').trim();
+    const lat = Number(req.query?.lat);
+    const lng = Number(req.query?.lng);
+    const pincode = String(req.query?.pincode || '').trim();
+    if (!productId) {
+      return res.status(400).json({ success: false, message: 'product_id is required.' });
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ success: false, message: 'lat and lng are required.' });
+    }
+    const result = await deliveryCheck({ productId, lat, lng, pincode });
+    return res.status(200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function assignRiderForOrder(req, res, next) {
+  try {
+    if (!ensureRole(req, res, ['vendor', 'admin', 'super_admin'])) {
+      return;
+    }
+    req.body = {
+      ...(req.body || {}),
+      taskType: 'ORDER_DELIVERY',
+      orderId: String(req.body?.orderId || '').trim(),
+    };
+    return assignRider(req, res, next);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function trackOrder(req, res, next) {
+  try {
+    if (!ensureRole(req, res, ['user', 'customer', 'rider', 'vendor', 'admin', 'super_admin'])) {
+      return;
+    }
+    const orderId = String(req.params?.id || '').trim();
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid order id.' });
+    }
+    const order = await Order.findById(orderId).select('userId riderId deliveryStatus orderStatus');
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found.' });
+    }
+    const isOwner = String(order.userId || '') === String(req.user.uid || '');
+    const isRider = String(order.riderId || '') === String(req.user.uid || '');
+    const isAdmin = hasRole(req.user, ['admin', 'super_admin']);
+    let isVendorOwner = false;
+    if (isVendorUser(req.user)) {
+      const vendorStore = await Store.findById(order.storeId).select('ownerId').lean();
+      isVendorOwner = String(vendorStore?.ownerId || '') === String(req.user.uid || '');
+    }
+    if (!isOwner && !isRider && !isAdmin && !isVendorOwner) {
+      return res.status(403).json({ success: false, message: 'Access denied.' });
+    }
+    const riderLiveRaw = order.riderId ? await getJson(`rider:live:${order.riderId}`) : null;
+    const riderLive = riderLiveRaw
+      ? {
+          lat: Number(riderLiveRaw.location?.lat || 0),
+          lng: Number(riderLiveRaw.location?.lng || 0),
+          status: riderLiveRaw.status || 'active',
+        }
+      : null;
+    const tracking = await getOrderTracking(orderId, riderLive);
+    return res.status(200).json({ success: true, data: tracking });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   assignRider,
   listRiderTasks,
@@ -762,4 +838,7 @@ module.exports = {
   createTrialAliasRequest,
   trialAliasUpdateStatus,
   getOperationsAnalytics,
+  checkDeliveryAvailability,
+  assignRiderForOrder,
+  trackOrder,
 };

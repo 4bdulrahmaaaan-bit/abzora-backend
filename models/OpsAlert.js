@@ -8,6 +8,8 @@ const alertTypes = [
   'ETA_RISK',
   'VENDOR_DELAY',
   'PAYMENT_FAILED',
+  'HIGH_DEMAND',
+  'LOW_RIDER_COVERAGE',
 ];
 
 const severities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];

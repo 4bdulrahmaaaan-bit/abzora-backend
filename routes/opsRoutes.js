@@ -16,6 +16,13 @@ const {
   getOpsMetricsDashboard,
   getOpsLivePanel,
   runOpsSimulation,
+  listZones,
+  refreshZones,
+  freezeZone,
+  unfreezeZone,
+  prioritizeOrder,
+  overrideDispatch,
+  getOpsMapDashboard,
 } = require('../controllers/opsController');
 
 const router = express.Router();
@@ -29,6 +36,13 @@ const opsCriticalLimiter = createRateLimiter({
 router.use(authMiddleware);
 
 router.get('/alerts', listPriorityAlerts);
+router.get('/zones', listZones);
+router.get('/dashboard/map', getOpsMapDashboard);
+router.post('/zones/refresh', opsCriticalLimiter, refreshZones);
+router.post('/zones/freeze', opsCriticalLimiter, freezeZone);
+router.post('/zones/unfreeze', opsCriticalLimiter, unfreezeZone);
+router.post('/orders/prioritize', opsCriticalLimiter, prioritizeOrder);
+router.post('/override-dispatch', opsCriticalLimiter, overrideDispatch);
 router.post('/detect', opsCriticalLimiter, runOpsDetectionNow);
 router.post('/alerts/:alertId/action', opsCriticalLimiter, runAlertAction);
 router.post('/orders/:orderId/reassign', opsCriticalLimiter, manualReassignOrder);

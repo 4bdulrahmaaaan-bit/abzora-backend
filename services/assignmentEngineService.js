@@ -1,5 +1,6 @@
 const DeliveryTask = require('../models/DeliveryTask');
 const User = require('../models/User');
+const { zoneIdFromLocation, getZoneState } = require('./zoneService');
 
 const ACTIVE_STATUSES = new Set(['assigned', 'accepted', 'picked_up', 'out_for_delivery']);
 
@@ -53,8 +54,8 @@ async function activeWorkloadByRider(riderIds = []) {
 }
 
 function riderScore({ distanceKm, workload }) {
-  // Lower score is better.
-  return distanceKm * 1.25 + workload * 2.75;
+  // ABZORA hyperlocal scoring: lower is better.
+  return distanceKm * 0.5 + workload * 0.3;
 }
 
 function riderEligibilityFilter(city = '') {
@@ -80,9 +81,16 @@ async function findBestRider({
   session = null,
 }) {
   const normalizedCity = String(city || '').trim().toLowerCase();
+  const zoneId = zoneIdFromLocation(normalizedCity, pickupLat, pickupLng);
+  const zoneState = await getZoneState(zoneId);
+  if (zoneState?.frozen) {
+    const error = new Error('Dispatch blocked: zone is frozen.');
+    error.statusCode = 409;
+    throw error;
+  }
 
   const riders = await User.find(riderEligibilityFilter(normalizedCity))
-    .select('uid name latitude longitude riderCity riderCapacity')
+    .select('uid name latitude longitude riderCity riderCapacity rating riderRating')
     .session(session)
     .lean();
 
@@ -120,13 +128,21 @@ async function findBestRider({
     const riderLng = toNumber(rider.longitude);
     const distanceKm = haversineDistanceKm(pickupLat, pickupLng, riderLat, riderLng);
     const workload = workloadMap.get(rider.uid) || 0;
+    const rating = Number(rider.riderRating || rider.rating || 5);
     return {
       rider,
       workload,
       distanceKm,
-      score: riderScore({ distanceKm, workload }),
+      score: riderScore({ distanceKm, workload }) - rating * 0.2,
     };
-  }).sort((left, right) => left.score - right.score);
+  })
+    .filter((item) => Number.isFinite(item.distanceKm))
+    .sort((left, right) => left.score - right.score);
+
+  const within3Km = ranked.filter((item) => item.distanceKm <= 3);
+  if (within3Km.length > 0) return within3Km[0];
+  const within5Km = ranked.filter((item) => item.distanceKm <= 5);
+  if (within5Km.length > 0) return within5Km[0];
 
   return ranked[0] || null;
 }

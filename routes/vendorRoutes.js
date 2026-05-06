@@ -35,13 +35,19 @@ const {
   getOperationsAnalytics,
   assignRider,
 } = require('../controllers/logisticsController');
-const { listVendorProducts } = require('../controllers/productController');
+const {
+  listVendorProducts,
+  updateVendorProductPrice,
+  bulkUpdateVendorProductPrices,
+} = require('../controllers/productController');
 
 const router = express.Router();
 
 router.use(authMiddleware);
 
 router.get('/products', requireVendor, listVendorProducts);
+router.post('/product/price', requireVendor, updateVendorProductPrice);
+router.post('/product/price/bulk', requireVendor, bulkUpdateVendorProductPrices);
 router.get('/dashboard', requireVendor, getVendorDashboard);
 router.get('/custom/dashboard', requireVendor, getCustomVendorDashboard);
 router.get('/custom/profile', requireVendor, getOwnCustomVendorProfile);

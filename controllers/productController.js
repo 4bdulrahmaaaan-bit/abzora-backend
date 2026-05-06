@@ -116,6 +116,25 @@ function deriveGender(source = {}) {
   return 'unisex';
 }
 
+function calculateDiscountPercentage(price, originalPrice) {
+  const selling = Number(price);
+  const original = Number(originalPrice);
+  if (!Number.isFinite(selling) || !Number.isFinite(original) || original <= 0 || original <= selling) {
+    return 0;
+  }
+  return Math.round(((original - selling) / original) * 100);
+}
+
+function isDiscountWindowActive(startDate, endDate, now = new Date()) {
+  const start = startDate ? new Date(startDate) : null;
+  const end = endDate ? new Date(endDate) : null;
+  if (start && Number.isNaN(start.getTime())) return false;
+  if (end && Number.isNaN(end.getTime())) return false;
+  if (start && now < start) return false;
+  if (end && now > end) return false;
+  return true;
+}
+
 function deriveColors(source = {}) {
   const candidates = [
     source.colors,
@@ -362,6 +381,10 @@ function serializeProduct(product, options = {}) {
     basePrice: source.basePrice == null ? null : Number(source.basePrice),
     dynamicPrice: source.dynamicPrice == null ? null : Number(source.dynamicPrice),
     originalPrice: source.originalPrice == null ? null : Number(source.originalPrice),
+    discountPercentage: Number(source.discountPercentage || 0),
+    isDiscountActive: Boolean(source.isDiscountActive),
+    discountStartDate: source.discountStartDate || null,
+    discountEndDate: source.discountEndDate || null,
     description: source.description || '',
     stock: Number(source.stock || 0),
     category: source.category || '',
@@ -431,6 +454,13 @@ function serializeProduct(product, options = {}) {
     (Number(source.demandScore || 0) * 100) +
     (Number(source.purchaseCount || 0) * 4) +
     (Number(source.viewCount || 0) * 0.4);
+  const computedDiscount = calculateDiscountPercentage(serialized.price, serialized.originalPrice);
+  const windowActive = isDiscountWindowActive(serialized.discountStartDate, serialized.discountEndDate);
+  serialized.discountPercentage = computedDiscount;
+  serialized.isDiscountActive = computedDiscount > 0 && windowActive;
+  if (!serialized.isDiscountActive) {
+    serialized.originalPrice = null;
+  }
   return serialized;
 }
 
@@ -634,6 +664,9 @@ async function createProduct(req, res, next) {
       category,
       subcategory,
       description,
+      original_price,
+      discount_start_date,
+      discount_end_date,
       attributes,
       arAsset,
       trialHome,
@@ -644,6 +677,8 @@ async function createProduct(req, res, next) {
     const normalizedCategory = category?.toString().trim() || '';
     const normalizedDescription = description?.toString().trim() || '';
     const normalizedPrice = Number(price);
+    const normalizedOriginalPrice =
+      original_price == null || original_price === '' ? null : Number(original_price);
     const normalizedStock = Number(stock || 0);
 
     if (!req.user?.uid) {
@@ -662,6 +697,19 @@ async function createProduct(req, res, next) {
     if (normalizedPrice < 0) {
       return res.status(400).json({ success: false, message: 'Price must be zero or greater.' });
     }
+    if (normalizedOriginalPrice != null && (Number.isNaN(normalizedOriginalPrice) || normalizedOriginalPrice < 0)) {
+      return res.status(400).json({ success: false, message: 'Original price must be zero or greater.' });
+    }
+    const discountStartDate = discount_start_date ? new Date(discount_start_date) : null;
+    const discountEndDate = discount_end_date ? new Date(discount_end_date) : null;
+    if ((discountStartDate && Number.isNaN(discountStartDate.getTime())) || (discountEndDate && Number.isNaN(discountEndDate.getTime()))) {
+      return res.status(400).json({ success: false, message: 'Invalid discount date range.' });
+    }
+    if (discountStartDate && discountEndDate && discountEndDate < discountStartDate) {
+      return res.status(400).json({ success: false, message: 'Discount end date must be after start date.' });
+    }
+    const discountPercentage = calculateDiscountPercentage(normalizedPrice, normalizedOriginalPrice);
+    const discountActive = discountPercentage > 0 && isDiscountWindowActive(discountStartDate, discountEndDate);
     if (normalizedStock < 0) {
       return res.status(400).json({ success: false, message: 'Stock cannot be negative.' });
     }
@@ -692,6 +740,11 @@ async function createProduct(req, res, next) {
       name: normalizedName,
       brand: normalizedBrand,
       price: normalizedPrice,
+      originalPrice: discountPercentage > 0 ? normalizedOriginalPrice : null,
+      discountPercentage,
+      isDiscountActive: discountActive,
+      discountStartDate: discountStartDate || null,
+      discountEndDate: discountEndDate || null,
       images: Array.isArray(images)
           ? images.map((item) => item?.toString().trim()).filter(Boolean)
           : [],
@@ -726,6 +779,22 @@ async function createProduct(req, res, next) {
     }
     return next(error);
   }
+}
+
+function deriveDiscountStatus(item) {
+  if (!item || !item.discountPercentage || item.discountPercentage <= 0) {
+    return 'active';
+  }
+  const now = new Date();
+  const start = item.discountStartDate ? new Date(item.discountStartDate) : null;
+  const end = item.discountEndDate ? new Date(item.discountEndDate) : null;
+  if (start && now < start) {
+    return 'scheduled';
+  }
+  if (end && now > end) {
+    return 'expired';
+  }
+  return item.isDiscountActive ? 'active' : 'expired';
 }
 
 async function listProducts(req, res, next) {
@@ -848,13 +917,46 @@ async function listVendorProducts(req, res, next) {
       });
     }
 
-    const products = await Product.find({ storeId: store._id }).sort({
+    const categoryFilter = String(req.query?.category || '').trim();
+    const minPrice = parseNumberOrNull(req.query?.minPrice);
+    const maxPrice = parseNumberOrNull(req.query?.maxPrice);
+    const sortBy = String(req.query?.sortBy || 'newest').trim().toLowerCase();
+    const query = { storeId: store._id };
+    if (categoryFilter) {
+      query.category = categoryFilter;
+    }
+    if (minPrice != null || maxPrice != null) {
+      query.price = {};
+      if (minPrice != null) query.price.$gte = minPrice;
+      if (maxPrice != null) query.price.$lte = maxPrice;
+    }
+
+    const products = await Product.find(query).sort({
       createdAt: -1,
     });
+    const tableRows = products.map((product) => {
+      const serialized = serializeProduct(product, { store });
+      const views = Number(serialized.viewCount || 0);
+      const purchases = Number(serialized.purchaseCount || 0);
+      const conversionRate = views > 0 ? Number(((purchases / views) * 100).toFixed(2)) : 0;
+      return {
+        ...serialized,
+        conversionRate,
+        pricingStatus: deriveDiscountStatus(serialized),
+      };
+    });
+
+    if (sortBy === 'price_asc') {
+      tableRows.sort((a, b) => Number(a.price || 0) - Number(b.price || 0));
+    } else if (sortBy === 'price_desc') {
+      tableRows.sort((a, b) => Number(b.price || 0) - Number(a.price || 0));
+    } else if (sortBy === 'performance') {
+      tableRows.sort((a, b) => Number(b.conversionRate || 0) - Number(a.conversionRate || 0));
+    }
 
     return res.status(200).json({
       success: true,
-      data: products.map((product) => serializeProduct(product, { store })),
+      data: tableRows,
     });
   } catch (error) {
     return next(error);
@@ -926,6 +1028,9 @@ async function updateProduct(req, res, next) {
       category,
       subcategory,
       description,
+      original_price,
+      discount_start_date,
+      discount_end_date,
       attributes,
       arAsset,
       isActive,
@@ -941,6 +1046,10 @@ async function updateProduct(req, res, next) {
     const normalizedCategory = category?.toString().trim() || product.category;
     const normalizedPrice = price == null ? product.price : Number(price);
     const normalizedStock = stock == null ? product.stock : Number(stock);
+    const normalizedOriginalPrice =
+      original_price == null
+        ? product.originalPrice
+        : (original_price === '' ? null : Number(original_price));
     const unityValidation = validateUnityMetadata({
       unityAssetBundleUrl: unityAssetBundleUrl == null ? product.unityAssetBundleUrl : unityAssetBundleUrl,
       rigProfile: rigProfile == null ? product.rigProfile : rigProfile,
@@ -959,6 +1068,23 @@ async function updateProduct(req, res, next) {
     if (normalizedStock < 0) {
       return res.status(400).json({ success: false, message: 'Stock cannot be negative.' });
     }
+    if (normalizedOriginalPrice != null && (Number.isNaN(normalizedOriginalPrice) || normalizedOriginalPrice < 0)) {
+      return res.status(400).json({ success: false, message: 'Original price must be zero or greater.' });
+    }
+    const discountStartDate = discount_start_date == null
+      ? product.discountStartDate
+      : (discount_start_date === '' ? null : new Date(discount_start_date));
+    const discountEndDate = discount_end_date == null
+      ? product.discountEndDate
+      : (discount_end_date === '' ? null : new Date(discount_end_date));
+    if ((discountStartDate && Number.isNaN(new Date(discountStartDate).getTime())) || (discountEndDate && Number.isNaN(new Date(discountEndDate).getTime()))) {
+      return res.status(400).json({ success: false, message: 'Invalid discount date range.' });
+    }
+    if (discountStartDate && discountEndDate && new Date(discountEndDate) < new Date(discountStartDate)) {
+      return res.status(400).json({ success: false, message: 'Discount end date must be after start date.' });
+    }
+    const discountPercentage = calculateDiscountPercentage(normalizedPrice, normalizedOriginalPrice);
+    const discountActive = discountPercentage > 0 && isDiscountWindowActive(discountStartDate, discountEndDate);
     if (unityValidation.error) {
       return res.status(400).json({ success: false, message: unityValidation.error });
     }
@@ -966,6 +1092,11 @@ async function updateProduct(req, res, next) {
     product.name = normalizedName;
     product.brand = normalizedBrand;
     product.price = normalizedPrice;
+    product.originalPrice = discountPercentage > 0 ? normalizedOriginalPrice : null;
+    product.discountPercentage = discountPercentage;
+    product.isDiscountActive = discountActive;
+    product.discountStartDate = discountStartDate || null;
+    product.discountEndDate = discountEndDate || null;
     product.stock = normalizedStock;
     product.category = normalizedCategory;
     product.subcategory = subcategory == null ? product.subcategory : subcategory.toString().trim();
@@ -1028,6 +1159,194 @@ async function updateProduct(req, res, next) {
     if (error.name === 'ValidationError') {
       return res.status(400).json({ success: false, message: error.message });
     }
+    return next(error);
+  }
+}
+
+async function updateVendorProductPrice(req, res, next) {
+  try {
+    const { product_id, price, original_price, discount_start_date, discount_end_date } = req.body || {};
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    if (!mongoose.Types.ObjectId.isValid(product_id)) {
+      return res.status(400).json({ success: false, message: 'Invalid product id.' });
+    }
+
+    const product = await Product.findById(product_id);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found.' });
+    }
+    const store = await Store.findById(product.storeId);
+    if (!store || store.ownerId !== req.user.uid) {
+      return res.status(403).json({ success: false, message: 'You can only update prices for your own store products.' });
+    }
+
+    const normalizedPrice = Number(price);
+    const normalizedOriginalPrice =
+      original_price == null || original_price === '' ? null : Number(original_price);
+    if (!Number.isFinite(normalizedPrice) || normalizedPrice < 0) {
+      return res.status(400).json({ success: false, message: 'price must be a valid number >= 0.' });
+    }
+    if (normalizedOriginalPrice != null && (!Number.isFinite(normalizedOriginalPrice) || normalizedOriginalPrice < 0)) {
+      return res.status(400).json({ success: false, message: 'original_price must be a valid number >= 0.' });
+    }
+
+    const discountStartDate = discount_start_date ? new Date(discount_start_date) : null;
+    const discountEndDate = discount_end_date ? new Date(discount_end_date) : null;
+    if ((discountStartDate && Number.isNaN(discountStartDate.getTime())) || (discountEndDate && Number.isNaN(discountEndDate.getTime()))) {
+      return res.status(400).json({ success: false, message: 'Invalid discount date range.' });
+    }
+    if (discountStartDate && discountEndDate && discountEndDate < discountStartDate) {
+      return res.status(400).json({ success: false, message: 'discount_end_date must be after discount_start_date.' });
+    }
+
+    const discountPercentage = calculateDiscountPercentage(normalizedPrice, normalizedOriginalPrice);
+    const discountActive = discountPercentage > 0 && isDiscountWindowActive(discountStartDate, discountEndDate);
+
+    product.price = normalizedPrice;
+    product.originalPrice = discountPercentage > 0 ? normalizedOriginalPrice : null;
+    product.discountPercentage = discountPercentage;
+    product.isDiscountActive = discountActive;
+    product.discountStartDate = discountStartDate || null;
+    product.discountEndDate = discountEndDate || null;
+    await product.save();
+    await invalidateProductCaches(product._id?.toString() || product_id);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        product_id: product._id.toString(),
+        price: product.price,
+        original_price: product.originalPrice,
+        discount_percentage: product.discountPercentage,
+        is_discount_active: product.isDiscountActive,
+        discount_start_date: product.discountStartDate,
+        discount_end_date: product.discountEndDate,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function bulkUpdateVendorProductPrices(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const {
+      product_ids,
+      mode = 'set',
+      unit = 'amount',
+      change_value = 0,
+      set_mrp = null,
+      discount_percent = null,
+      remove_discount = false,
+      discount_start_date = null,
+      discount_end_date = null,
+      preview_only = false,
+    } = req.body || {};
+
+    const ids = Array.isArray(product_ids)
+      ? product_ids.map((id) => String(id || '').trim()).filter((id) => mongoose.Types.ObjectId.isValid(id))
+      : [];
+    if (ids.length === 0) {
+      return res.status(400).json({ success: false, message: 'product_ids are required.' });
+    }
+
+    const store = await resolveOwnedStore(req.dbUser || req.user);
+    if (!store) {
+      return res.status(404).json({ success: false, message: 'Store not found for this vendor account.' });
+    }
+
+    const products = await Product.find({
+      _id: { $in: ids.map((id) => new mongoose.Types.ObjectId(id)) },
+      storeId: store._id,
+    });
+    if (products.length === 0) {
+      return res.status(404).json({ success: false, message: 'No matching products found for this vendor store.' });
+    }
+
+    const delta = Number(change_value || 0);
+    const normalizedMrp = set_mrp == null || set_mrp === '' ? null : Number(set_mrp);
+    const normalizedDiscount =
+      discount_percent == null || discount_percent === '' ? null : Number(discount_percent);
+    const discountStartDate = discount_start_date ? new Date(discount_start_date) : null;
+    const discountEndDate = discount_end_date ? new Date(discount_end_date) : null;
+
+    if ((normalizedMrp != null && !Number.isFinite(normalizedMrp)) || (normalizedDiscount != null && !Number.isFinite(normalizedDiscount))) {
+      return res.status(400).json({ success: false, message: 'Invalid MRP or discount value.' });
+    }
+    if ((discountStartDate && Number.isNaN(discountStartDate.getTime())) || (discountEndDate && Number.isNaN(discountEndDate.getTime()))) {
+      return res.status(400).json({ success: false, message: 'Invalid discount date range.' });
+    }
+
+    const updates = [];
+    for (const product of products) {
+      let nextPrice = Number(product.price || 0);
+      if (mode === 'increase') {
+        nextPrice = unit === 'percent' ? nextPrice + (nextPrice * delta) / 100 : nextPrice + delta;
+      } else if (mode === 'decrease') {
+        nextPrice = unit === 'percent' ? nextPrice - (nextPrice * delta) / 100 : nextPrice - delta;
+      } else if (mode === 'set' && Number.isFinite(delta) && delta > 0) {
+        nextPrice = delta;
+      }
+      nextPrice = Math.max(0, Number(nextPrice.toFixed(2)));
+
+      let nextOriginal = product.originalPrice == null ? null : Number(product.originalPrice);
+      if (remove_discount) {
+        nextOriginal = null;
+      } else if (normalizedMrp != null) {
+        nextOriginal = normalizedMrp;
+      } else if (normalizedDiscount != null && normalizedDiscount > 0) {
+        nextOriginal = Number((nextPrice / (1 - normalizedDiscount / 100)).toFixed(2));
+      }
+
+      const discountPercentage = calculateDiscountPercentage(nextPrice, nextOriginal);
+      const discountActive =
+        discountPercentage > 0 && isDiscountWindowActive(discountStartDate, discountEndDate);
+      const row = {
+        product_id: product._id.toString(),
+        before: {
+          price: Number(product.price || 0),
+          original_price: product.originalPrice == null ? null : Number(product.originalPrice),
+          discount_percentage: Number(product.discountPercentage || 0),
+        },
+        after: {
+          price: nextPrice,
+          original_price: discountPercentage > 0 ? nextOriginal : null,
+          discount_percentage: discountPercentage,
+          is_discount_active: discountActive,
+          discount_start_date: discountStartDate || null,
+          discount_end_date: discountEndDate || null,
+        },
+      };
+      updates.push(row);
+      if (!preview_only) {
+        product.price = row.after.price;
+        product.originalPrice = row.after.original_price;
+        product.discountPercentage = row.after.discount_percentage;
+        product.isDiscountActive = row.after.is_discount_active;
+        product.discountStartDate = row.after.discount_start_date;
+        product.discountEndDate = row.after.discount_end_date;
+      }
+    }
+
+    if (!preview_only) {
+      await Promise.all(products.map((item) => item.save()));
+      await invalidateProductCaches();
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        preview_only: Boolean(preview_only),
+        updated_count: updates.length,
+        updates,
+      },
+    });
+  } catch (error) {
     return next(error);
   }
 }
@@ -1117,6 +1436,8 @@ module.exports = {
   listVendorProducts,
   getProduct,
   updateProduct,
+  updateVendorProductPrice,
+  bulkUpdateVendorProductPrices,
   deleteProduct,
   generateProductArAsset,
 };

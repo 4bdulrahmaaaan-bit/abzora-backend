@@ -8,6 +8,7 @@ const { recordTrackingEvent } = require('../services/trackingEventService');
 const TrackingLog = require('../models/TrackingLog');
 const { hasRole } = require('../middleware/authorizationMiddleware');
 const { settleDeliveredOrder } = require('../services/financeService');
+const { setJson, getJson } = require('../services/redisCacheService');
 
 function isVendorUser(user) {
   return hasRole(user, ['vendor']);
@@ -267,6 +268,16 @@ async function postLocationUpdate(req, res, next) {
     const snapped = maybeSnapToRoad(latitude, longitude);
 
     if (riderId) {
+      const riderStatus = String(req.body?.status || '').trim().toLowerCase() || 'active';
+      await setJson(
+        `rider:live:${riderId}`,
+        {
+          location: { lat: snapped.latitude, lng: snapped.longitude },
+          status: riderStatus,
+          updatedAt: new Date().toISOString(),
+        },
+        300,
+      );
       await User.updateOne(
         { uid: riderId },
         {
@@ -416,13 +427,14 @@ async function getOrderEtaLive(req, res, next) {
       return res.status(403).json({ success: false, message: 'ETA access denied.' });
     }
     const eta = await getEtaForOrder(orderId);
+    const riderLive = order.riderId ? await getJson(`rider:live:${order.riderId}`) : null;
     await recordTrackingEvent({
       eventType: 'eta_update',
       orderId,
       riderId: '',
-      payload: eta,
+      payload: { ...eta, riderLive: riderLive || null },
     });
-    return res.status(200).json({ success: true, data: eta });
+    return res.status(200).json({ success: true, data: { ...eta, riderLive: riderLive || null } });
   } catch (error) {
     return next(error);
   }
