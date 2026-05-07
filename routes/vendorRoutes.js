@@ -40,6 +40,12 @@ const {
   updateVendorProductPrice,
   bulkUpdateVendorProductPrices,
 } = require('../controllers/productController');
+const {
+  getGrowthSummary,
+  getGrowthRecommendations,
+  getGrowthProductPerformance,
+  getGrowthCharts,
+} = require('../controllers/growthController');
 
 const router = express.Router();
 
@@ -73,5 +79,9 @@ router.get('/ops/trials', requireVendor, listVendorTrialRequests);
 router.patch('/ops/trials/:sessionId/status', requireVendor, updateVendorTrialFlow);
 router.post('/ops/assign-rider', requireVendor, assignRider);
 router.get('/ops/analytics', requireVendor, getOperationsAnalytics);
+router.get('/growth/summary', requireVendor, getGrowthSummary);
+router.get('/growth/recommendations', requireVendor, getGrowthRecommendations);
+router.get('/growth/product-performance', requireVendor, getGrowthProductPerformance);
+router.get('/growth/charts', requireVendor, getGrowthCharts);
 
 module.exports = router;

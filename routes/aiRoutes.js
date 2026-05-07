@@ -21,6 +21,7 @@ const {
   generateProductSpecs,
   getProductSpecConfig,
 } = require('../controllers/aiController');
+const { scoreTrialRisk } = require('../controllers/aiRiskController');
 
 const router = express.Router();
 
@@ -44,5 +45,6 @@ router.get('/usage/users', listUserAiUsageStats);
 router.post('/events', logAiEvent);
 router.get('/specs/config', getProductSpecConfig);
 router.post('/specs', generateProductSpecs);
+router.post('/risk-score', scoreTrialRisk);
 
 module.exports = router;

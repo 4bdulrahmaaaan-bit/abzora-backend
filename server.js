@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
@@ -63,6 +63,7 @@ const dispatchRoutes = require('./routes/dispatchRoutes');
 const trackingRoutes = require('./routes/trackingRoutes');
 const atelierRoutes = require('./routes/atelierRoutes');
 const opsRoutes = require('./routes/opsRoutes');
+const fleetRoutes = require('./routes/fleetRoutes');
 const wardrobeRoutes = require('./routes/wardrobeRoutes');
 const debugRoutes = require('./routes/debugRoutes');
 const { attachTrackingGateway } = require('./services/trackingGateway');
@@ -226,6 +227,7 @@ app.use('/dispatch', dispatchRoutes);
 app.use('/tracking', trackingRoutes);
 app.use('/atelier', orderLimiter, atelierRoutes);
 app.use('/ops', adminLimiter, authMiddleware, requireAdmin, opsRoutes);
+app.use('/fleet', adminLimiter, fleetRoutes);
 app.use('/wardrobe', wardrobeRoutes);
 app.use('/webhooks', webhookRoutes);
 app.use('/debug', debugRoutes);
@@ -270,3 +272,4 @@ async function startServer() {
 }
 
 startServer();
+

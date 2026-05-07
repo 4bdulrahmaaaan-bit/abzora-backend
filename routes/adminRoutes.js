@@ -26,6 +26,9 @@ const {
   listTrialHomeSessions,
   getTrialHomeSession,
   updateTrialHomeSession,
+  applyUserAction,
+  updateUserRole,
+  applyProductAction,
 } = require('../controllers/adminController');
 const {
   approvePendingWithdrawal,
@@ -65,8 +68,11 @@ router.use(authMiddleware);
 
 router.get('/dashboard', getDashboardSummary);
 router.get('/users', listUsers);
+router.post('/users/:id/action', applyUserAction);
+router.post('/users/:id/role', updateUserRole);
 router.get('/stores', listStores);
 router.get('/products', listProducts);
+router.post('/products/:id/action', applyProductAction);
 router.get('/orders', listOrders);
 router.get('/settings', getPlatformSettings);
 router.put('/settings', savePlatformSettings);

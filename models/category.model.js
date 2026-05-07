@@ -60,6 +60,25 @@ const categorySchema = new mongoose.Schema(
       default: true,
       index: true,
     },
+    featured: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    seoTitle: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    seoDescription: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    priorityScore: {
+      type: Number,
+      default: 0,
+    },
     subcategories: {
       type: [subcategorySchema],
       default: [],

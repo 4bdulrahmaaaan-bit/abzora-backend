@@ -1309,6 +1309,233 @@ async function updateTrialHomeSession(req, res, next) {
   }
 }
 
+async function resolveUserByIdentifier(identifier = '') {
+  const value = String(identifier || '').trim();
+  if (!value) return null;
+  return User.findOne({
+    $or: [
+      { _id: value },
+      { firebaseUid: value },
+      { uid: value },
+      { phone: value },
+      { email: value.toLowerCase() },
+    ],
+  });
+}
+
+async function createAuditEntry(req, { action, targetType, targetId, message }) {
+  const logId = `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await AdminActivityLog.create({
+    logId,
+    actorId: req.user?.uid || 'admin',
+    actorRole: req.user?.role || 'admin',
+    action: String(action || '').trim(),
+    targetType: String(targetType || '').trim(),
+    targetId: String(targetId || '').trim(),
+    message: String(message || '').trim(),
+    timestampIso: toIsoNow(),
+  });
+}
+
+async function applyUserAction(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) return;
+    const identifier = String(req.params?.id || req.body?.id || '').trim();
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    const reason = String(req.body?.reason || '').trim();
+    if (!identifier || !action) {
+      return res.status(400).json({ success: false, message: 'User id and action are required.' });
+    }
+    const user = await resolveUserByIdentifier(identifier);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const actionMap = {
+      suspend: () => {
+        user.isActive = false;
+      },
+      block: () => {
+        user.isActive = false;
+        user.isFlagged = true;
+      },
+      verify: () => {
+        user.isActive = true;
+        if (user.role === 'rider') user.riderApprovalStatus = 'approved';
+      },
+      escalate: () => {
+        user.isFlagged = true;
+      },
+      force_logout: () => {
+        user.lastLoginAt = new Date(0);
+      },
+      reset_sessions: () => {
+        user.knownDeviceIds = [];
+        user.recentIpAddresses = [];
+      },
+      disable_payouts: () => {
+        user.payoutProfile = {
+          ...user.payoutProfile?.toObject?.(),
+          methodType: '',
+          razorpayContactId: '',
+          razorpayFundAccountId: '',
+        };
+      },
+      freeze_account: () => {
+        user.isActive = false;
+        user.isFlagged = true;
+        user.riskScore = Math.max(Number(user.riskScore || 0), 85);
+      },
+      assign_investigation: () => {
+        user.isFlagged = true;
+        user.fraudFlags = [...new Set([...(user.fraudFlags || []), 'investigation_assigned'])];
+      },
+      view_devices: () => {},
+      open_orders: () => {},
+      open_wallet: () => {},
+      open_tickets: () => {},
+      open_kyc: () => {},
+      view_fraud_analysis: () => {},
+      convert_role: () => {},
+    };
+
+    if (!actionMap[action]) {
+      return res.status(400).json({ success: false, message: 'Unsupported user action.' });
+    }
+    actionMap[action]();
+    await user.save();
+
+    await createAuditEntry(req, {
+      action: `USER_${action.toUpperCase()}`,
+      targetType: 'user',
+      targetId: user.uid || user.firebaseUid || user._id.toString(),
+      message: reason || `Applied ${action} from admin control center.`,
+    });
+
+    return res.status(200).json({ success: true, data: serializeUser(user) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function updateUserRole(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) return;
+    const identifier = String(req.params?.id || req.body?.id || '').trim();
+    const nextRole = String(req.body?.role || '').trim().toLowerCase();
+    const reason = String(req.body?.reason || '').trim();
+    const allowed = new Set(['customer', 'vendor', 'rider', 'admin', 'support', 'finance', 'operations']);
+    if (!identifier || !allowed.has(nextRole)) {
+      return res.status(400).json({ success: false, message: 'Valid user id and role are required.' });
+    }
+    if (!reason) {
+      return res.status(400).json({ success: false, message: 'Role change reason is required.' });
+    }
+    const user = await resolveUserByIdentifier(identifier);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const mappedRole = nextRole === 'operations' || nextRole === 'support' || nextRole === 'finance'
+      ? 'admin'
+      : nextRole;
+    user.role = mappedRole;
+    user.roles = {
+      ...(user.roles instanceof Map ? Object.fromEntries(user.roles.entries()) : (user.roles || {})),
+      customer: nextRole === 'customer',
+      vendor: nextRole === 'vendor',
+      rider: nextRole === 'rider',
+      admin: ['admin', 'operations', 'support', 'finance'].includes(nextRole),
+    };
+    if (nextRole === 'rider') {
+      user.riderApprovalStatus = user.riderApprovalStatus === 'approved' ? 'approved' : 'pending';
+    }
+    await user.save();
+
+    await createAuditEntry(req, {
+      action: 'USER_ROLE_CONVERT',
+      targetType: 'user',
+      targetId: user.uid || user.firebaseUid || user._id.toString(),
+      message: `Role updated to ${nextRole}. Reason: ${reason}`,
+    });
+
+    return res.status(200).json({ success: true, data: serializeUser(user) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function applyProductAction(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) return;
+    const productId = String(req.params?.id || '').trim();
+    const action = String(req.body?.action || '').trim().toLowerCase();
+    const reason = String(req.body?.reason || '').trim();
+    if (!productId || !action) {
+      return res.status(400).json({ success: false, message: 'Product id and action are required.' });
+    }
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found.' });
+    }
+
+    if (action === 'quick_edit') {
+      if (req.body?.name) product.name = String(req.body.name).trim();
+      if (req.body?.price != null) product.price = Number(req.body.price);
+      if (req.body?.stock != null) product.stock = Number(req.body.stock);
+      if (req.body?.description != null) product.description = String(req.body.description).trim();
+      if (req.body?.launchAt) {
+        product.attributes = product.attributes || new Map();
+        product.attributes.set('launchAt', String(req.body.launchAt));
+      }
+      await product.save();
+    } else if (action === 'duplicate') {
+      const duplicate = await Product.create({
+        ...product.toObject(),
+        _id: undefined,
+        isNew: true,
+        name: `${product.name} Copy`,
+      });
+      await createAuditEntry(req, {
+        action: 'PRODUCT_DUPLICATE',
+        targetType: 'product',
+        targetId: duplicate._id.toString(),
+        message: reason || `Duplicated from ${product._id.toString()}.`,
+      });
+      return res.status(200).json({ success: true, data: serializeProduct(duplicate) });
+    } else if (action === 'toggle_visibility') {
+      product.isActive = !product.isActive;
+      await product.save();
+    } else if (action === 'schedule_launch') {
+      product.attributes = product.attributes || new Map();
+      product.attributes.set('launchAt', String(req.body?.launchAt || toIsoNow()));
+      await product.save();
+    } else if (action === 'pin_featured') {
+      product.attributes = product.attributes || new Map();
+      product.attributes.set('featured', 'true');
+      await product.save();
+    } else if (action === 'ai_optimize') {
+      product.attributes = product.attributes || new Map();
+      product.attributes.set('aiOptimizedAt', toIsoNow());
+      product.attributes.set('visibilityScore', String(Math.min(100, Number(product.attributes.get('visibilityScore') || 72) + 4)));
+      await product.save();
+    } else {
+      return res.status(400).json({ success: false, message: 'Unsupported product action.' });
+    }
+
+    await createAuditEntry(req, {
+      action: `PRODUCT_${action.toUpperCase()}`,
+      targetType: 'product',
+      targetId: product._id.toString(),
+      message: reason || `Applied ${action} from product command center.`,
+    });
+
+    return res.status(200).json({ success: true, data: serializeProduct(product) });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   getDashboardSummary,
   listUsers,
@@ -1334,4 +1561,7 @@ module.exports = {
   listTrialHomeSessions,
   getTrialHomeSession,
   updateTrialHomeSession,
+  applyUserAction,
+  updateUserRole,
+  applyProductAction,
 };

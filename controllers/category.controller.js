@@ -24,12 +24,17 @@ function toSlug(value) {
 
 function toCategoryPayload(body = {}) {
   const normalizedOrder = Number(body.order ?? 0);
+  const normalizedPriority = Number(body.priorityScore ?? 0);
   return {
     name: body.name?.toString().trim() || '',
     slug: toSlug(body.slug || body.name),
     icon: body.icon?.toString().trim() || '',
     order: Number.isFinite(normalizedOrder) ? normalizedOrder : 0,
     isActive: body.isActive !== false,
+    featured: body.featured === true,
+    seoTitle: body.seoTitle?.toString().trim().slice(0, 120) || '',
+    seoDescription: body.seoDescription?.toString().trim().slice(0, 320) || '',
+    priorityScore: Number.isFinite(normalizedPriority) ? normalizedPriority : 0,
   };
 }
 
@@ -69,6 +74,10 @@ function serializeCategory(item, { activeOnly = false } = {}) {
     icon: item.icon || '',
     order: Number(item.order || 0),
     isActive: item.isActive !== false,
+    featured: item.featured === true,
+    seoTitle: item.seoTitle || '',
+    seoDescription: item.seoDescription || '',
+    priorityScore: Number(item.priorityScore || 0),
     subcategories: filteredSubcategories,
     createdAt: item.createdAt?.toISOString?.() || '',
     updatedAt: item.updatedAt?.toISOString?.() || '',
@@ -158,6 +167,10 @@ async function updateCategory(req, res, next) {
     category.icon = payload.icon;
     category.order = payload.order;
     category.isActive = payload.isActive;
+    category.featured = payload.featured;
+    category.seoTitle = payload.seoTitle;
+    category.seoDescription = payload.seoDescription;
+    category.priorityScore = payload.priorityScore;
     await category.save();
 
     return res.status(200).json({
