@@ -67,6 +67,7 @@ const vendorKycRequestSchema = new mongoose.Schema(
     latitude: { type: Number, default: 0 },
     longitude: { type: Number, default: 0 },
     kyc: { type: kycDocumentsSchema, default: () => ({}) },
+    metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
     status: {
       type: String,
       enum: ['pending', 'approved', 'rejected', 'review', 'fraud_flagged'],
