@@ -44,6 +44,7 @@ const riderKycRequestSchema = new mongoose.Schema(
     vehicle: { type: String, trim: true, default: '' },
     city: { type: String, trim: true, default: '' },
     kyc: { type: kycDocumentsSchema, default: () => ({}) },
+    metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
     status: {
       type: String,
       enum: ['pending', 'approved', 'rejected', 'review', 'fraud_flagged'],

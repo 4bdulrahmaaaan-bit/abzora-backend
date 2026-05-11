@@ -50,6 +50,39 @@ function normalizeKycDocuments(payload = {}) {
   };
 }
 
+function normalizeMetadata(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return {};
+  }
+  const metadata = {};
+  for (const [key, value] of Object.entries(payload)) {
+    const normalizedKey = normalizeText(key, 64);
+    if (!normalizedKey) {
+      continue;
+    }
+    if (value == null) {
+      continue;
+    }
+    if (typeof value === 'string') {
+      metadata[normalizedKey] = value.trim().slice(0, 280);
+      continue;
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      metadata[normalizedKey] = value;
+      continue;
+    }
+    if (Array.isArray(value)) {
+      metadata[normalizedKey] = value
+        .filter((item) => item != null)
+        .slice(0, 24)
+        .map((item) => String(item).trim().slice(0, 120));
+      continue;
+    }
+    metadata[normalizedKey] = JSON.parse(JSON.stringify(value));
+  }
+  return metadata;
+}
+
 function serializeVendorKyc(item) {
   return {
     id: item.requestId,
@@ -83,6 +116,7 @@ function serializeRiderKyc(item) {
     vehicle: item.vehicle || '',
     city: item.city || '',
     kyc: item.kyc || {},
+    metadata: item.metadata && typeof item.metadata === 'object' ? item.metadata : {},
     status: item.status || 'pending',
     createdAt: item.createdAt?.toISOString?.() || '',
     updatedAt: item.updatedAt?.toISOString?.() || '',
@@ -212,6 +246,7 @@ async function submitRiderKycRequest(req, res, next) {
         vehicle: normalizeText(payload.vehicle, 80),
         city: normalizeText(payload.city, 80),
         kyc: normalizeKycDocuments(payload.kyc),
+        metadata: normalizeMetadata(payload.metadata),
         status: 'pending',
         rejectionReason: '',
         reviewedBy: '',
