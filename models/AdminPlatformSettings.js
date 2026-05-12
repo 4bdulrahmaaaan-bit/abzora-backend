@@ -35,6 +35,11 @@ const adminPlatformSettingsSchema = new mongoose.Schema(
     trialHomeFraudDetectionEnabled: { type: Boolean, default: true },
     trialHomeMinUserScore: { type: Number, default: 45 },
     trialHomeMaxRiskScore: { type: Number, default: 80 },
+    legalPolicyVersions: {
+      customer: { type: String, default: 'v1.0.0', trim: true },
+      vendor: { type: String, default: 'v1.0.0', trim: true },
+      rider: { type: String, default: 'v1.0.0', trim: true },
+    },
   },
   { timestamps: true }
 );

@@ -66,6 +66,7 @@ const opsRoutes = require('./routes/opsRoutes');
 const fleetRoutes = require('./routes/fleetRoutes');
 const wardrobeRoutes = require('./routes/wardrobeRoutes');
 const debugRoutes = require('./routes/debugRoutes');
+const legalRoutes = require('./routes/legalRoutes');
 const { attachTrackingGateway } = require('./services/trackingGateway');
 const { attachPricingGateway } = require('./services/pricingGateway');
 const { startDispatchScheduler } = require('./services/dispatchSchedulerService');
@@ -184,6 +185,7 @@ app.get('/', (req, res) => {
 
 app.use('/auth/test-user', accountCreationLimiter);
 app.use('/auth', authLimiter, authRoutes);
+app.use('/legal', legalRoutes);
 app.get('/profile', authLimiter, authMiddleware, me);
 app.get('/eta/:orderId', authMiddleware, getOrderEta);
 app.use('/user', authLimiter, userRoutes);

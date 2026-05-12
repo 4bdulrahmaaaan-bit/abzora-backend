@@ -6,6 +6,9 @@ const {
   submitVendorKycRequest,
   getMyRiderKycRequest,
   submitRiderKycRequest,
+  lookupIfsc,
+  extractKycFields,
+  verifyRiderKyc,
 } = require('../controllers/kycController');
 
 const router = express.Router();
@@ -15,5 +18,8 @@ router.get('/vendor/me', getMyVendorKycRequest);
 router.post('/vendor', submitVendorKycRequest);
 router.get('/rider/me', getMyRiderKycRequest);
 router.post('/rider', submitRiderKycRequest);
+router.get('/ifsc/:code', lookupIfsc);
+router.post('/ocr/extract', extractKycFields);
+router.post('/rider/verify', verifyRiderKyc);
 
 module.exports = router;

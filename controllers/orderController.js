@@ -1722,11 +1722,12 @@ async function cancelOrder(req, res, next) {
     appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
     appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
     let cancellationRefund = null;
+    let refundFailureMessage = '';
     const shouldAutoRefund =
       (order.paymentMethod || '').toUpperCase() === 'RAZORPAY' &&
       (order.paymentStatus || '').toLowerCase() === 'paid';
     if (shouldAutoRefund) {
-      const refundRequest = await RefundRequest.create({
+      const refundRequest = new RefundRequest({
         orderId: order._id,
         userId: order.userId,
         reason: 'Order cancelled by customer before delivery.',
@@ -1734,19 +1735,25 @@ async function cancelOrder(req, res, next) {
         refundedAmount: 0,
         status: 'pending',
       });
-      const gatewayRefund = await processRazorpayRefund(order, refundRequest, Number(order.totalAmount || 0));
-      refundRequest.status = 'approved';
-      refundRequest.processedAt = new Date().toISOString();
-      refundRequest.processedBy = req.user.uid;
-      refundRequest.gatewayRefundId = gatewayRefund?.id || '';
-      refundRequest.refundedAmount = Number(order.totalAmount || 0);
       await refundRequest.save();
       cancellationRefund = refundRequest;
-      order.paymentStatus = 'refunded';
-      order.refundStatus = 'refunded';
       order.refundRequestId = refundRequest._id.toString();
-      order.escrowStatus = 'refunded';
-      order.escrowUpdatedAt = new Date().toISOString();
+      try {
+        const gatewayRefund = await processRazorpayRefund(order, refundRequest, Number(order.totalAmount || 0));
+        refundRequest.status = 'approved';
+        refundRequest.processedAt = new Date().toISOString();
+        refundRequest.processedBy = req.user.uid;
+        refundRequest.gatewayRefundId = gatewayRefund?.id || '';
+        refundRequest.refundedAmount = Number(order.totalAmount || 0);
+        await refundRequest.save();
+        order.paymentStatus = 'refunded';
+        order.refundStatus = 'refunded';
+        order.escrowStatus = 'refunded';
+        order.escrowUpdatedAt = new Date().toISOString();
+      } catch (refundError) {
+        refundFailureMessage = String(refundError?.message || 'Refund gateway failed');
+        order.refundStatus = 'requested';
+      }
     }
 
     await reverseOrderSettlement(order, 'Order cancelled by customer');
@@ -1756,6 +1763,9 @@ async function cancelOrder(req, res, next) {
       success: true,
       data: serializeOrder(order),
       refund: serializeRefundRequest(cancellationRefund),
+      refundPending: Boolean(refundFailureMessage),
+      refundMessage: refundFailureMessage ||
+        (shouldAutoRefund ? 'Auto-refund processed successfully.' : 'No auto-refund required.'),
     });
   } catch (error) {
     return next(error);

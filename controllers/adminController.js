@@ -254,6 +254,11 @@ function serializeSettings(item) {
     trialHomeFraudDetectionEnabled: item?.trialHomeFraudDetectionEnabled ?? true,
     trialHomeMinUserScore: Number(item?.trialHomeMinUserScore || 45),
     trialHomeMaxRiskScore: Number(item?.trialHomeMaxRiskScore || 80),
+    legalPolicyVersions: {
+      customer: String(item?.legalPolicyVersions?.customer || 'v1.0.0'),
+      vendor: String(item?.legalPolicyVersions?.vendor || 'v1.0.0'),
+      rider: String(item?.legalPolicyVersions?.rider || 'v1.0.0'),
+    },
   };
 }
 
@@ -719,6 +724,23 @@ async function savePlatformSettings(req, res, next) {
         0,
         100,
       ),
+      legalPolicyVersions: {
+        customer: String(
+          req.body?.legalPolicyVersions?.customer ||
+            settings.legalPolicyVersions?.customer ||
+            'v1.0.0',
+        ).trim(),
+        vendor: String(
+          req.body?.legalPolicyVersions?.vendor ||
+            settings.legalPolicyVersions?.vendor ||
+            'v1.0.0',
+        ).trim(),
+        rider: String(
+          req.body?.legalPolicyVersions?.rider ||
+            settings.legalPolicyVersions?.rider ||
+            'v1.0.0',
+        ).trim(),
+      },
     });
     await settings.save();
     return res.status(200).json({ success: true, data: serializeSettings(settings) });
@@ -1136,6 +1158,9 @@ async function reviewRiderKycRequest(req, res, next) {
     const requestId = String(req.params.id || '').trim();
     const status = String(req.body?.status || '').trim().toLowerCase();
     const reason = String(req.body?.reason || '').trim();
+    const override = req.body?.override && typeof req.body.override === 'object'
+      ? req.body.override
+      : null;
     if (!requestId || !['approved', 'rejected', 'review'].includes(status)) {
       return res.status(400).json({ success: false, message: 'Valid request id and status are required.' });
     }
@@ -1160,6 +1185,16 @@ async function reviewRiderKycRequest(req, res, next) {
         timestamp: item.reviewedAt,
       },
     ];
+    if (override) {
+      item.metadata = {
+        ...(item.metadata || {}),
+        overrideApproved: true,
+        overrideReason: String(override.reason || reason || '').trim(),
+        overrideBy: String(req.user.uid || '').trim(),
+        overrideByName: String(req.user.name || 'Admin').trim(),
+        overrideAt: item.reviewedAt,
+      };
+    }
     await item.save();
 
     if (status === 'approved') {
