@@ -167,9 +167,13 @@ async function publishTrackingEvent(event = {}) {
 }
 
 function extractBearerToken(requestUrl, requestHeaders) {
-  const queryToken = String(requestUrl.searchParams.get('token') || '').trim();
-  if (queryToken) {
-    return queryToken;
+  const allowQueryToken =
+    String(process.env.ALLOW_WS_QUERY_TOKEN || '').trim().toLowerCase() === 'true';
+  if (allowQueryToken) {
+    const queryToken = String(requestUrl.searchParams.get('token') || '').trim();
+    if (queryToken) {
+      return queryToken;
+    }
   }
   const authHeader = String(requestHeaders?.authorization || '').trim();
   if (authHeader.toLowerCase().startsWith('bearer ')) {

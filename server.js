@@ -3,6 +3,7 @@
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
+const sentry = require('./sentry.server');
 
 const connectDB = require('./config/db');
 require('./config/cloudinary');
@@ -83,10 +84,9 @@ app.use(requestContext);
 app.use(requestAuditLogger);
 app.use(enforceHttps);
 app.use(securityHeaders);
-app.use('/webhooks/razorpayx', express.raw({ type: 'application/json', limit: '1mb' }));
-app.use('/webhooks/razorpay', express.raw({ type: 'application/json', limit: '1mb' }));
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(sentry.requestHandler());
 
 const authLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
@@ -129,6 +129,25 @@ const supportLimiter = createRateLimiter({
   message: 'Too many support requests. Please wait and try again.',
 });
 
+const chatLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 180,
+  message: 'Too many chat requests. Please wait and try again.',
+});
+
+const socialLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 160,
+  message: 'Too many social actions. Please slow down and try again.',
+});
+
+const webhookLimiter = createRateLimiter({
+  windowMs: 1 * 60 * 1000,
+  max: 300,
+  message: 'Webhook rate exceeded. Please retry shortly.',
+  keyGenerator: (req) => `webhook:${clientIp(req)}:${req.path || req.originalUrl || ''}`,
+});
+
 const uploadLimiter = createRateLimiter({
   windowMs: 10 * 60 * 1000,
   max: 40,
@@ -148,6 +167,9 @@ const accountCreationLimiter = createRateLimiter({
   message: 'Too many account setup attempts. Please try again later.',
   keyGenerator: (req) => `account:${clientIp(req)}:${String(req.body?.phone || req.body?.email || '').trim()}`,
 });
+
+app.use('/webhooks/razorpayx', webhookLimiter, express.raw({ type: 'application/json', limit: '1mb' }));
+app.use('/webhooks/razorpay', webhookLimiter, express.raw({ type: 'application/json', limit: '1mb' }));
 
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -200,7 +222,7 @@ app.use('/rider/withdraw', withdrawalLimiter);
 app.use('/upload', uploadLimiter, uploadRoutes);
 app.use('/wishlist', wishlistRoutes);
 app.use('/cards', cardRoutes);
-app.use('/chats', chatRoutes);
+app.use('/chats', chatLimiter, chatRoutes);
 app.use('/support', supportLimiter, supportRoutes);
 app.use('/ai', aiLimiter, aiRoutes);
 app.use('/admin', adminLimiter, authMiddleware, requireAdmin, adminRoutes);
@@ -213,7 +235,7 @@ app.use('/banners', bannerRoutes);
 app.use('/home-visuals', homeVisualRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/outfits', aiLimiter, outfitRoutes);
-app.use('/', socialRoutes);
+app.use('/', socialLimiter, socialRoutes);
 app.use('/finance', adminLimiter, authMiddleware, financeRoutes);
 app.use('/wallet', withdrawalLimiter, authMiddleware, walletRoutes);
 app.use('/payouts', adminLimiter, authMiddleware, requireAdmin, payoutRoutes);
@@ -232,13 +254,21 @@ app.use('/ops', adminLimiter, authMiddleware, requireAdmin, opsRoutes);
 app.use('/fleet', adminLimiter, fleetRoutes);
 app.use('/wardrobe', wardrobeRoutes);
 app.use('/webhooks', webhookRoutes);
-app.use('/debug', debugRoutes);
+app.use('/debug', adminLimiter, authMiddleware, requireAdmin, debugRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found.' });
 });
 
+app.use(sentry.errorHandler());
+
 app.use((error, req, res, next) => {
+  sentry.captureException(error, {
+    requestId: req.requestId,
+    path: req.originalUrl,
+    method: req.method,
+    userId: req.user?.uid || req.dbUser?.uid || '',
+  });
   logSecurityError('backend_error', {
     requestId: req.requestId,
     path: req.originalUrl,

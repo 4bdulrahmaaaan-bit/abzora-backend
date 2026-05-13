@@ -33,6 +33,22 @@ function validateBody(schema) {
   };
 }
 
+function validateQuery(schema) {
+  const validate = ajv.compile(schema);
+  return (req, res, next) => {
+    const valid = validate(req.query || {});
+    if (valid) {
+      return next();
+    }
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid query parameters.',
+      errors: formatErrors(validate.errors),
+    });
+  };
+}
+
 module.exports = {
   validateBody,
+  validateQuery,
 };

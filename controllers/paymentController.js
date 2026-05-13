@@ -10,6 +10,7 @@ const {
   createRazorpayOrder,
   verifyPayment,
 } = require('./orderController');
+const { claimWebhookDelivery } = require('../services/webhookLockService');
 
 function nowIso() {
   return new Date().toISOString();
@@ -404,6 +405,19 @@ async function handleRazorpayWebhook(req, res, next) {
     }
 
     const payload = JSON.parse(rawBody.toString('utf8'));
+    const eventId = payload?.payload?.payment?.entity?.id
+      || payload?.payload?.refund?.entity?.id
+      || payload?.created_at
+      || '';
+    const firstDelivery = await claimWebhookDelivery({
+      source: 'razorpay-payment',
+      rawBody,
+      eventId,
+      signature,
+    });
+    if (!firstDelivery) {
+      return res.status(200).json({ success: true, duplicate: true });
+    }
     const event = String(payload?.event || '').trim();
 
     if (event === 'payment.captured') {

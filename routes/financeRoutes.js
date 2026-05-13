@@ -1,6 +1,11 @@
 const express = require('express');
 
 const { requireAdmin, requireRider, requireVendor } = require('../middleware/authorizationMiddleware');
+const { validateBody } = require('../validation/schemaValidator');
+const {
+  fraudAlertUpdateSchema,
+  runSettlementsSchema,
+} = require('../validation/schemas/adminFinanceOpsSchemas');
 const {
   getAdminFinance,
   getVendorDashboard,
@@ -14,7 +19,7 @@ const router = express.Router();
 router.get('/overview', requireAdmin, getAdminFinance);
 router.get('/vendor/dashboard', requireVendor, getVendorDashboard);
 router.get('/rider/dashboard', requireRider, getRiderDashboard);
-router.post('/settlements/run', requireAdmin, runScheduledSettlements);
-router.patch('/fraud-alerts/:alertId', requireAdmin, updateFraudAlertStatus);
+router.post('/settlements/run', requireAdmin, validateBody(runSettlementsSchema), runScheduledSettlements);
+router.patch('/fraud-alerts/:alertId', requireAdmin, validateBody(fraudAlertUpdateSchema), updateFraudAlertStatus);
 
 module.exports = router;

@@ -1555,7 +1555,7 @@ async function updateRiderLocation(req, res, next) {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid order id.' });
     }
-    if (!latitude.isFinite || !longitude.isFinite) {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return res.status(400).json({ success: false, message: 'Valid rider coordinates are required.' });
     }
 
@@ -1634,7 +1634,7 @@ async function updateOrderStatus(req, res, next) {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ success: false, message: 'Invalid order id.' });
     }
-    if (!statusMap.containsKey(normalizedStatus)) {
+    if (!Object.prototype.hasOwnProperty.call(statusMap, normalizedStatus)) {
       return res.status(400).json({ success: false, message: 'Unsupported order status.' });
     }
 

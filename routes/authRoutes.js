@@ -2,6 +2,12 @@ const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
 const { requireRoles } = require('../middleware/authorizationMiddleware');
+const { validateBody } = require('../validation/schemaValidator');
+const {
+  growthOfferClaimSchema,
+  growthOfferValidateSchema,
+  referralApplySchema,
+} = require('../validation/schemas/customerSchemas');
 const {
   me,
   getUserByIdentifier,
@@ -45,12 +51,12 @@ router.post('/body-profile', authMiddleware, saveBodyProfile);
 router.get('/measurements', authMiddleware, listMeasurementProfiles);
 router.post('/measurements', authMiddleware, saveMeasurementProfile);
 router.delete('/measurements/:id', authMiddleware, removeMeasurementProfile);
-router.post('/referrals/apply', authMiddleware, applyReferralCode);
+router.post('/referrals/apply', authMiddleware, validateBody(referralApplySchema), applyReferralCode);
 router.get('/referrals/history', authMiddleware, listReferralHistory);
 router.get('/referrals/dashboard', authMiddleware, getReferralDashboard);
 router.get('/growth-offers', authMiddleware, listGrowthOffers);
 router.post('/growth-offers', authMiddleware, saveGrowthOffer);
-router.post('/growth-offers/validate', authMiddleware, validateGrowthOffer);
-router.post('/growth-offers/claim', authMiddleware, claimGrowthOffer);
+router.post('/growth-offers/validate', authMiddleware, validateBody(growthOfferValidateSchema), validateGrowthOffer);
+router.post('/growth-offers/claim', authMiddleware, validateBody(growthOfferClaimSchema), claimGrowthOffer);
 
 module.exports = router;

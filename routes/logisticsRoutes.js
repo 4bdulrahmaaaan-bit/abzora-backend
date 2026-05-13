@@ -1,6 +1,12 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { validateQuery } = require('../validation/schemaValidator');
+const {
+  logisticsDeliveryCheckQuerySchema,
+  logisticsVendorOrdersQuerySchema,
+  logisticsVendorTrialsQuerySchema,
+} = require('../validation/schemas/adminFinanceOpsSchemas');
 const {
   assignRider,
   assignRiderForOrder,
@@ -20,7 +26,7 @@ const {
 
 const router = express.Router();
 
-router.get('/delivery/check', checkDeliveryAvailability);
+router.get('/delivery/check', validateQuery(logisticsDeliveryCheckQuerySchema), checkDeliveryAvailability);
 router.use(authMiddleware);
 router.post('/assign-rider', assignRider);
 router.post('/rider/assign', assignRiderForOrder);
@@ -29,9 +35,9 @@ router.get('/rider/tasks', listRiderTasks);
 router.get('/rider/tasks/active', listRiderActiveTasks);
 router.patch('/rider/tasks/:taskId/status', updateRiderTaskStatus);
 
-router.get('/vendor/ops/orders', listVendorOperationsOrders);
+router.get('/vendor/ops/orders', validateQuery(logisticsVendorOrdersQuerySchema), listVendorOperationsOrders);
 router.patch('/vendor/ops/orders/:orderId/status', updateVendorOrderFlow);
-router.get('/vendor/ops/trial-requests', listVendorTrialRequests);
+router.get('/vendor/ops/trial-requests', validateQuery(logisticsVendorTrialsQuerySchema), listVendorTrialRequests);
 router.patch('/vendor/ops/trial-requests/:sessionId/status', updateVendorTrialFlow);
 
 router.post('/trial/request', createTrialAliasRequest);

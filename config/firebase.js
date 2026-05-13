@@ -25,7 +25,11 @@ function getServiceAccountFromEnv() {
 }
 
 function getServiceAccountFromFile() {
-  if (process.env.NODE_ENV === 'production') {
+  const allowFileFallback =
+    String(process.env.ALLOW_FIREBASE_SERVICE_ACCOUNT_FILE || '')
+      .trim()
+      .toLowerCase() === 'true';
+  if (!allowFileFallback) {
     return null;
   }
   if (!fs.existsSync(serviceAccountPath)) {
@@ -45,7 +49,8 @@ function initializeFirebase() {
       if (!warnedMissingConfig) {
         warnedMissingConfig = true;
         console.warn(
-          `Firebase Admin disabled: provide FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY or add serviceAccountKey.json at ${serviceAccountPath}.`
+          'Firebase Admin disabled: provide FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY. ' +
+            'Optional local fallback requires ALLOW_FIREBASE_SERVICE_ACCOUNT_FILE=true with backend/serviceAccountKey.json present.'
         );
       }
       return null;

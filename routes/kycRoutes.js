@@ -8,6 +8,7 @@ const {
   submitRiderKycRequest,
   lookupIfsc,
   extractKycFields,
+  verifyVendorKyc,
   verifyRiderKyc,
 } = require('../controllers/kycController');
 
@@ -20,6 +21,7 @@ router.get('/rider/me', getMyRiderKycRequest);
 router.post('/rider', submitRiderKycRequest);
 router.get('/ifsc/:code', lookupIfsc);
 router.post('/ocr/extract', extractKycFields);
+router.post('/vendor/verify', verifyVendorKyc);
 router.post('/rider/verify', verifyRiderKyc);
 
 module.exports = router;

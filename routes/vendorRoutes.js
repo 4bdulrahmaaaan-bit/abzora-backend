@@ -2,6 +2,11 @@ const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
 const { requireVendor } = require('../middleware/authorizationMiddleware');
+const { validateBody } = require('../validation/schemaValidator');
+const {
+  payoutProfileSchema,
+  withdrawalRequestSchema,
+} = require('../validation/schemas/adminFinanceOpsSchemas');
 const {
   getVendorDashboard,
   getVendorPayoutProfile,
@@ -65,9 +70,9 @@ router.get('/custom/orders', requireVendor, listCustomVendorOrders);
 router.patch('/custom/orders/:orderId/status', requireVendor, updateCustomOrderStatus);
 router.get('/custom/orders/:orderId/messages', requireVendor, listCustomOrderMessages);
 router.get('/wallet', requireVendor, getVendorWallet);
-router.post('/withdraw', requireVendor, requestVendorWithdraw);
+router.post('/withdraw', requireVendor, validateBody(withdrawalRequestSchema), requestVendorWithdraw);
 router.get('/payout-account', requireVendor, getVendorPayoutProfile);
-router.post('/payout-account', requireVendor, saveVendorPayoutProfile);
+router.post('/payout-account', requireVendor, validateBody(payoutProfileSchema), saveVendorPayoutProfile);
 router.get('/trial-home/dashboard', requireVendor, getVendorTrialHomeDashboard);
 router.get('/trial-home/sessions', requireVendor, listVendorTrialHomeSessions);
 router.patch('/trial-home/:id/status', requireVendor, updateVendorTrialHomeSession);

@@ -26,6 +26,7 @@ const Store = require('../models/Store');
 const VendorWallet = require('../models/VendorWallet');
 const RiderWallet = require('../models/RiderWallet');
 const { verifyWebhookSignature } = require('../services/razorpayPayoutService');
+const { claimWebhookDelivery } = require('../services/webhookLockService');
 const { isAllowedAdminEmail } = require('./authController');
 const { hasRole } = require('../middleware/authorizationMiddleware');
 
@@ -862,6 +863,16 @@ async function handleRazorpayPayoutWebhook(req, res, next) {
     }
 
     const payload = JSON.parse(rawBody.toString('utf8'));
+    const eventId = payload?.payload?.payout?.entity?.id || payload?.created_at || '';
+    const firstDelivery = await claimWebhookDelivery({
+      source: 'razorpay-payout',
+      rawBody,
+      eventId,
+      signature,
+    });
+    if (!firstDelivery) {
+      return res.status(200).json({ success: true, duplicate: true });
+    }
     const event = String(payload?.event || '').trim();
     const payoutEntity = payload?.payload?.payout?.entity || {};
     const requestId =

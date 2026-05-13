@@ -2,6 +2,8 @@ const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
 const { requireRoles } = require('../middleware/authorizationMiddleware');
+const { validateQuery } = require('../validation/schemaValidator');
+const { storeListQuerySchema } = require('../validation/schemas/adminFinanceOpsSchemas');
 const {
   createStore,
   getStore,
@@ -14,7 +16,7 @@ const {
 
 const router = express.Router();
 
-router.get('/', listStores);
+router.get('/', validateQuery(storeListQuerySchema), listStores);
 router.get('/custom/ranked', listRankedCustomStores);
 router.get('/owner/me', authMiddleware, getOwnStore);
 router.get('/owner/:ownerId', authMiddleware, requireRoles('vendor', 'rider', 'admin', 'super_admin'), getStoreByOwner);

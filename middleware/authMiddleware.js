@@ -146,7 +146,8 @@ function serializeUser(user) {
   };
 }
 
-async function upsertFirebaseUser(decoded) {
+async function upsertFirebaseUser(decoded, options = {}) {
+  const allowCreate = options.allowCreate === true;
   const decodedEmail = decoded.email || '';
   const decodedPhone = normalizePhone(decoded.phone_number || '');
   const decodedPhoneTail10 = phoneTail10(decodedPhone);
@@ -178,6 +179,9 @@ async function upsertFirebaseUser(decoded) {
   }
 
   if (!user) {
+    if (!allowCreate) {
+      return null;
+    }
     user = await User.create({
       firebaseUid: decoded.uid,
       uid: decoded.uid,
@@ -282,7 +286,20 @@ async function authMiddleware(req, res, next) {
       });
     }
 
-    const user = await upsertFirebaseUser(decoded);
+    const allowAutoProvision = process.env.AUTH_ALLOW_AUTO_PROVISION === 'true';
+    const user = await upsertFirebaseUser(decoded, { allowCreate: allowAutoProvision });
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account is not provisioned for this environment.',
+      });
+    }
+    if (user?.isDeleted === true) {
+      return res.status(403).json({
+        success: false,
+        message: 'This account has been deleted.',
+      });
+    }
     if (user?.isActive === false) {
       return res.status(403).json({
         success: false,
