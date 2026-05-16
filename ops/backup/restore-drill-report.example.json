@@ -1,0 +1,16 @@
+{
+  "drillId": "drill-2026-05",
+  "executedAtIso": "2026-05-16T00:00:00.000Z",
+  "owner": "platform-sre",
+  "rpoMinutesAchieved": 4,
+  "rtoMinutesAchieved": 38,
+  "checks": {
+    "authHealth": true,
+    "paymentIntegrity": true,
+    "inventoryIntegrity": true,
+    "outboxReplayValidation": true,
+    "webhookIngestReplayValidation": true
+  },
+  "result": "pass",
+  "notes": "No rollback required."
+}

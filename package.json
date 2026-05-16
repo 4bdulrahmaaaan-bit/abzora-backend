@@ -6,7 +6,17 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
-    "test": "node tests/delivery-system.test.js"
+    "test": "node tests/delivery-system.test.js",
+    "test:security-races": "node tests/payment-inventory-race-hardening.test.js",
+    "test:outbox-worker": "node tests/payment-outbox-worker.test.js",
+    "test:outbox-metrics": "node tests/outbox-metrics-security.test.js",
+    "test:outbox-replay": "node tests/outbox-deadletter-replay.test.js",
+    "test:mongo-resilience": "node tests/mongo-resilience.test.js",
+    "test:ops-queue-backpressure": "node tests/ops-queue-backpressure.test.js",
+    "test:webhook-ingest": "node tests/payment-webhook-ingest.test.js",
+    "test:k8s-safety": "node tests/k8s-manifests-safety.test.js",
+    "test:dr-safety": "node tests/backup-dr-runbook-safety.test.js",
+    "ops:verify-backup-readiness": "node scripts/verifyBackupReadiness.js"
   },
   "engines": {
     "node": ">=20"

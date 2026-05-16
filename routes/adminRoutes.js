@@ -9,6 +9,7 @@ const {
   disputeUpdateSchema,
   fraudAlertUpdateSchema,
   kycReviewSchema,
+  outboxDeadLetterReplaySchema,
   paginationQuerySchema,
   processPayoutSchema,
   runSettlementsSchema,
@@ -20,6 +21,7 @@ const {
   productActionSchema,
 } = require('../validation/schemas/adminFinanceOpsSchemas');
 const { rejectRequestSchema } = require('../validation/schemas/mutationSchemas');
+const { createRateLimiter } = require('../middleware/securityMiddleware');
 const {
   getDashboardSummary,
   listUsers,
@@ -80,8 +82,14 @@ const {
   prioritizeOrder,
   listZones,
 } = require('../controllers/opsController');
+const { replayDeadLetterEvent } = require('../controllers/outboxReplayAdminController');
 
 const router = express.Router();
+const outboxReplayLimiter = createRateLimiter({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  message: 'Too many dead-letter replay attempts. Please try again later.',
+});
 
 router.use(authMiddleware);
 
@@ -135,5 +143,11 @@ router.post('/override-dispatch', overrideDispatch);
 router.post('/freeze-zone', freezeZone);
 router.post('/unfreeze-zone', unfreezeZone);
 router.post('/prioritize-order', prioritizeOrder);
+router.post(
+  '/outbox/dead-letter/:eventId/replay',
+  outboxReplayLimiter,
+  validateBody(outboxDeadLetterReplaySchema),
+  replayDeadLetterEvent,
+);
 
 module.exports = router;

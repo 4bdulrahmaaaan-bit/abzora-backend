@@ -1,10 +1,11 @@
 const OpsAlert = require('../models/OpsAlert');
-const { enqueueAlert, dequeueAlert } = require('./opsQueueService');
+const { enqueueAlert, dequeueAlertDetailed, getQueueControlSettings, getQueueHealth } = require('./opsQueueService');
 const { executeAlertAction } = require('./opsActionService');
 const { WORKER } = require('./opsConstants');
 
 let running = false;
 let inFlight = 0;
+let retryInFlight = 0;
 let loopHandle = null;
 const workerHealth = {
   processedCount: 0,
@@ -12,6 +13,8 @@ const workerHealth = {
   deferredRetries: 0,
   loopFailures: 0,
   emptyDequeues: 0,
+  deferredLowPriority: 0,
+  retryStormBlocked: 0,
   lastProcessedAt: '',
   lastErrorAt: '',
   lastError: '',
@@ -41,10 +44,15 @@ async function queueOpenAlerts(limit = 200) {
         },
       },
     );
-    await enqueueAlert({
+    const queued = await enqueueAlert({
       alertId: alert.alertId,
       severity: alert.severity,
+      tenantKey: alert.storeId || alert.userId || '',
+      jobClass: alert.type === 'PAYMENT_FAILED' ? 'payment' : 'order',
     });
+    if (!queued.accepted && queued.state === 'deferred') {
+      workerHealth.deferredLowPriority += 1;
+    }
   }
   return openAlerts.length;
 }
@@ -68,17 +76,25 @@ async function requeueDueRetries(limit = 120) {
         },
       },
     );
-    await enqueueAlert({ alertId: alert.alertId, severity: alert.severity });
+    await enqueueAlert({
+      alertId: alert.alertId,
+      severity: alert.severity,
+      tenantKey: alert.storeId || alert.userId || '',
+      isRetry: true,
+      retryCount: Number(alert.retryCount || 0),
+      jobClass: alert.type === 'PAYMENT_FAILED' ? 'payment' : 'order',
+    });
   }
   return due.length;
 }
 
 async function processSingleQueueItem() {
-  const alertId = await dequeueAlert();
-  if (!alertId) {
+  const queued = await dequeueAlertDetailed();
+  if (!queued?.alertId) {
     workerHealth.emptyDequeues += 1;
     return false;
   }
+  const alertId = queued.alertId;
 
   const alert = await OpsAlert.findOne({ alertId: String(alertId) });
   if (!alert || alert.status === 'RESOLVED' || alert.status === 'FAILED') {
@@ -87,7 +103,36 @@ async function processSingleQueueItem() {
 
   if (alert.nextRetryAt && new Date(alert.nextRetryAt).getTime() > Date.now()) {
     workerHealth.deferredRetries += 1;
+    // Reliability hardening: deferred retries are re-scheduled into delayed retry queues
+    // instead of being dropped when popped too early under race conditions.
+    await enqueueAlert({
+      alertId: alert.alertId,
+      severity: alert.severity,
+      tenantKey: alert.storeId || alert.userId || '',
+      isRetry: true,
+      retryCount: Number(alert.retryCount || 0),
+      retryAt: new Date(alert.nextRetryAt).getTime(),
+      jobClass: alert.type === 'PAYMENT_FAILED' ? 'payment' : 'order',
+    });
     return false;
+  }
+
+  if (queued.isRetry) {
+    const retryCap = Math.max(1, Number(getQueueControlSettings().retryConcurrencyCap || 1));
+    if (retryInFlight >= retryCap) {
+      workerHealth.retryStormBlocked += 1;
+      await enqueueAlert({
+        alertId: alert.alertId,
+        severity: alert.severity,
+        tenantKey: alert.storeId || alert.userId || '',
+        isRetry: true,
+        retryCount: Number(alert.retryCount || 0) + 1,
+        retryAt: Date.now() + 750,
+        jobClass: alert.type === 'PAYMENT_FAILED' ? 'payment' : 'order',
+      });
+      return false;
+    }
+    retryInFlight += 1;
   }
 
   const result = await executeAlertAction(alert, 'ops-worker');
@@ -103,8 +148,11 @@ async function processSingleQueueItem() {
 
 async function workerLoopTick() {
   if (!running) return;
+  const queueHealth = await getQueueHealth();
+  const saturationGatePct = Number(process.env.OPS_WORKER_SATURATION_GATE_PCT || 97);
+  const overloadProtected = queueHealth.saturationPct >= saturationGatePct;
 
-  await queueOpenAlerts(100);
+  await queueOpenAlerts(overloadProtected ? 30 : 100);
   await requeueDueRetries(60);
 
   while (running && inFlight < WORKER.maxConcurrency) {
@@ -117,6 +165,7 @@ async function workerLoopTick() {
         console.warn('Ops worker queue item failed:', workerHealth.lastError);
       })
       .finally(() => {
+        retryInFlight = Math.max(0, retryInFlight - 1);
         inFlight = Math.max(0, inFlight - 1);
       });
 
@@ -146,6 +195,8 @@ function getWorkerHealth() {
     ...workerHealth,
     running,
     inFlight,
+    retryInFlight,
+    utilizationPct: Number(((inFlight / Math.max(1, WORKER.maxConcurrency)) * 100).toFixed(2)),
   };
 }
 

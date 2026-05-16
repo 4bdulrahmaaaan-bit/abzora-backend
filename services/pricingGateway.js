@@ -30,14 +30,8 @@ async function decodeSocketUser(token) {
 }
 
 function extractBearerToken(requestUrl, requestHeaders) {
-  const allowQueryToken =
-    String(process.env.ALLOW_WS_QUERY_TOKEN || '').trim().toLowerCase() === 'true';
-  if (allowQueryToken) {
-    const queryToken = String(requestUrl.searchParams.get('token') || '').trim();
-    if (queryToken) {
-      return queryToken;
-    }
-  }
+  // Security hardening: block query-string token auth for WebSockets.
+  // Only Authorization header bearer tokens are accepted.
   const authHeader = String(requestHeaders?.authorization || '').trim();
   if (authHeader.toLowerCase().startsWith('bearer ')) {
     return authHeader.slice(7).trim();
@@ -95,6 +89,34 @@ function attachPricingGateway(server) {
   return wsServer;
 }
 
+function closePricingGateway() {
+  if (!wsServer) {
+    return;
+  }
+  try {
+    wsServer.clients.forEach((socket) => {
+      try {
+        socket.close(1001, 'Server shutdown');
+      } catch (_) {
+        // no-op
+      }
+    });
+    wsServer.close();
+  } catch (_) {
+    // Security hardening: continue shutdown even if websocket close fails.
+  } finally {
+    wsServer = null;
+    subscribers.clear();
+  }
+}
+
 module.exports = {
   attachPricingGateway,
+  closePricingGateway,
+  getPricingGatewayStatus() {
+    return {
+      wsEnabled: Boolean(wsServer),
+      subscriberCount: subscribers.size,
+    };
+  },
 };

@@ -97,8 +97,27 @@ async function delPattern(pattern) {
 }
 
 module.exports = {
+  async closeRedisCacheClient() {
+    if (!redisClient) {
+      return;
+    }
+    try {
+      await redisClient.quit();
+    } catch (_) {
+      // Security hardening: shutdown should not hang on redis client close.
+    } finally {
+      redisClient = null;
+      redisAvailable = false;
+    }
+  },
   getJson,
+  getRuntimeStatus() {
+    return {
+      configured: Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== 'true',
+      redisAvailable,
+      backend: redisAvailable ? 'redis' : 'memory',
+    };
+  },
   setJson,
   delPattern,
 };
-

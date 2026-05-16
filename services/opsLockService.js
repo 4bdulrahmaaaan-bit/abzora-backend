@@ -2,6 +2,15 @@ let lockClient = null;
 let redisReady = false;
 const inMemoryLocks = new Map();
 
+function failClosedOpsLockOnRedisDown() {
+  // Security hardening: production can block lock acquisition if Redis is unavailable
+  // to avoid split-brain concurrent processing across instances.
+  if (process.env.NODE_ENV === 'production') {
+    return String(process.env.OPS_LOCK_FAIL_CLOSED || 'true').trim().toLowerCase() !== 'false';
+  }
+  return String(process.env.OPS_LOCK_FAIL_CLOSED || 'false').trim().toLowerCase() === 'true';
+}
+
 async function ensureLockRedis() {
   if (lockClient || process.env.REDIS_DISABLED === 'true') {
     return lockClient;
@@ -42,6 +51,10 @@ async function acquireEntityLock({ entityType, entityId, owner, ttlMs = 20000 })
     return response === 'OK';
   }
 
+  if (process.env.NODE_ENV === 'production' && failClosedOpsLockOnRedisDown()) {
+    return false;
+  }
+
   const now = Date.now();
   const current = inMemoryLocks.get(key);
   if (current && current.expiresAt > now) {
@@ -73,7 +86,31 @@ async function releaseEntityLock({ entityType, entityId, owner }) {
   }
 }
 
+function getOpsLockRuntimeStatus() {
+  return {
+    configured: Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== 'true',
+    redisReady,
+    backend: redisReady ? 'redis' : 'memory',
+  };
+}
+
+async function closeOpsLockClient() {
+  if (!lockClient) {
+    return;
+  }
+  try {
+    await lockClient.quit();
+  } catch (_) {
+    // Security hardening: shutdown path should continue even when redis close fails.
+  } finally {
+    lockClient = null;
+    redisReady = false;
+  }
+}
+
 module.exports = {
   acquireEntityLock,
+  closeOpsLockClient,
+  getOpsLockRuntimeStatus,
   releaseEntityLock,
 };

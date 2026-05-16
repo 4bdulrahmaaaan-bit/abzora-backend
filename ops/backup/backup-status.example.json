@@ -1,0 +1,22 @@
+{
+  "generatedAtIso": "2026-05-16T00:00:00.000Z",
+  "mongo": {
+    "lastSnapshotAtIso": "2026-05-15T23:58:00.000Z",
+    "lastPitrCheckpointAtIso": "2026-05-15T23:59:30.000Z",
+    "snapshotStatus": "ok",
+    "pitrStatus": "ok"
+  },
+  "redis": {
+    "lastAofArchiveAtIso": "2026-05-15T23:57:30.000Z",
+    "lastRdbSnapshotAtIso": "2026-05-15T23:55:00.000Z",
+    "status": "ok"
+  },
+  "outbox": {
+    "pending": 14,
+    "deadLetter": 0
+  },
+  "webhookIngest": {
+    "pending": 7,
+    "deadLetter": 0
+  }
+}

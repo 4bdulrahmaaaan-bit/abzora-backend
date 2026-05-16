@@ -102,6 +102,44 @@ async function ensureRedisPubSub() {
   }
 }
 
+async function closeTrackingGateway() {
+  if (wsServer) {
+    try {
+      wsServer.clients.forEach((socket) => {
+        try {
+          socket.close(1001, 'Server shutdown');
+        } catch (_) {
+          // no-op
+        }
+      });
+      wsServer.close();
+    } catch (_) {
+      // Security hardening: graceful shutdown is best-effort for sockets.
+    } finally {
+      wsServer = null;
+    }
+  }
+  if (redisSub) {
+    try {
+      await redisSub.quit();
+    } catch (_) {
+      // no-op
+    } finally {
+      redisSub = null;
+    }
+  }
+  if (redisPub) {
+    try {
+      await redisPub.quit();
+    } catch (_) {
+      // no-op
+    } finally {
+      redisPub = null;
+    }
+  }
+  redisReady = false;
+}
+
 function inferRooms(event = {}) {
   const result = new Set();
   if (event.orderId) {
@@ -167,14 +205,9 @@ async function publishTrackingEvent(event = {}) {
 }
 
 function extractBearerToken(requestUrl, requestHeaders) {
-  const allowQueryToken =
-    String(process.env.ALLOW_WS_QUERY_TOKEN || '').trim().toLowerCase() === 'true';
-  if (allowQueryToken) {
-    const queryToken = String(requestUrl.searchParams.get('token') || '').trim();
-    if (queryToken) {
-      return queryToken;
-    }
-  }
+  // Security hardening: never accept auth tokens via query params.
+  // Query tokens leak through logs, proxies, browser history, and referrers.
+  // WebSocket auth must come only from Authorization: Bearer <token>.
   const authHeader = String(requestHeaders?.authorization || '').trim();
   if (authHeader.toLowerCase().startsWith('bearer ')) {
     return authHeader.slice(7).trim();
@@ -404,5 +437,12 @@ function attachTrackingGateway(httpServer) {
 
 module.exports = {
   attachTrackingGateway,
+  closeTrackingGateway,
+  getTrackingGatewayStatus() {
+    return {
+      wsEnabled: Boolean(wsServer),
+      redisReady,
+    };
+  },
   publishTrackingEvent,
 };

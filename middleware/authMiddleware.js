@@ -21,7 +21,19 @@ function allowedAdminEmails() {
     .filter(Boolean);
 }
 
+function allowAdminEmailPromotion() {
+  // Security hardening: production must opt in explicitly to email-based admin promotion.
+  // This prevents accidental privilege escalation from misconfigured allowlists.
+  if (String(process.env.ENABLE_ADMIN_EMAIL_PROMOTION || '').trim().toLowerCase() !== 'true') {
+    return false;
+  }
+  return true;
+}
+
 function isAllowedAdminEmail(email) {
+  if (!allowAdminEmailPromotion()) {
+    return false;
+  }
   const normalized = email?.toString().trim().toLowerCase() || '';
   return normalized ? allowedAdminEmails().includes(normalized) : false;
 }
@@ -151,7 +163,8 @@ async function upsertFirebaseUser(decoded, options = {}) {
   const decodedEmail = decoded.email || '';
   const decodedPhone = normalizePhone(decoded.phone_number || '');
   const decodedPhoneTail10 = phoneTail10(decodedPhone);
-  const shouldPromoteAdmin = isAllowedAdminEmail(decodedEmail);
+  // Security hardening: only promote by allowlisted email when token email is verified.
+  const shouldPromoteAdmin = decoded.email_verified === true && isAllowedAdminEmail(decodedEmail);
 
   let user = await User.findOne({
     $or: [
@@ -286,7 +299,11 @@ async function authMiddleware(req, res, next) {
       });
     }
 
-    const allowAutoProvision = process.env.AUTH_ALLOW_AUTO_PROVISION === 'true';
+    // Security hardening: prevent silent account auto-provision in production unless explicitly re-enabled.
+    const allowAutoProvision =
+      process.env.AUTH_ALLOW_AUTO_PROVISION === 'true' &&
+      String(process.env.DISABLE_AUTH_AUTO_PROVISION_IN_PRODUCTION || '').trim().toLowerCase() !== 'true' &&
+      process.env.NODE_ENV !== 'production';
     const user = await upsertFirebaseUser(decoded, { allowCreate: allowAutoProvision });
     if (!user) {
       return res.status(403).json({

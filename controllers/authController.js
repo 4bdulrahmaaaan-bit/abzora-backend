@@ -22,7 +22,15 @@ function allowedAdminEmails() {
     .filter(Boolean);
 }
 
+function allowAdminEmailPromotion() {
+  // Security hardening: keep email-based admin elevation disabled unless explicitly enabled.
+  return String(process.env.ENABLE_ADMIN_EMAIL_PROMOTION || '').trim().toLowerCase() === 'true';
+}
+
 function isAllowedAdminEmail(email) {
+  if (!allowAdminEmailPromotion()) {
+    return false;
+  }
   const normalized = toSafeTrimmedString(email).toLowerCase();
   if (!normalized) {
     return false;
@@ -331,7 +339,9 @@ function buildReferralCode(user) {
   const seed = `${(user?.phone || user?.uid || user?._id?.toString?.() || 'ABZORA')
     .replace(/[^a-zA-Z0-9]/g, '')
     .toUpperCase()}ABZ`;
-  return seed.length > 10 ? seed.substring(0, 10) : seed.padRight(8, 'X');
+  // Security/reliability hardening: JS has padEnd, not padRight.
+  // Using padEnd avoids runtime failure that can break referral issuance paths.
+  return seed.length > 10 ? seed.substring(0, 10) : seed.padEnd(8, 'X');
 }
 
 async function ensureReferralCodeForUser(user) {
@@ -473,7 +483,7 @@ async function ensureLinkedStoreId(user) {
 async function me(req, res, next) {
   try {
     let user = req.dbUser;
-    if (user && isAllowedAdminEmail(req.user?.email || user.email)) {
+    if (user && req.user?.emailVerified === true && isAllowedAdminEmail(req.user?.email || user.email)) {
       if (!PRIVILEGED_ROLES.has(user.role)) {
         user.role = 'admin';
       }

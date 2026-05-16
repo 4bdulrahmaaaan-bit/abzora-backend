@@ -5,12 +5,15 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const RefundRequest = require('../models/RefundRequest');
 const Transaction = require('../models/Transaction');
+const PaymentOutboxEvent = require('../models/PaymentOutboxEvent');
+const PaymentWebhookIngestEvent = require('../models/PaymentWebhookIngestEvent');
 const { recordFinanceAudit, reverseOrderSettlement } = require('../services/financeService');
 const {
   createRazorpayOrder,
   verifyPayment,
 } = require('./orderController');
 const { claimWebhookDelivery } = require('../services/webhookLockService');
+const { persistWebhookIngestEvent } = require('../services/paymentWebhookIngestService');
 
 function nowIso() {
   return new Date().toISOString();
@@ -47,6 +50,36 @@ function appendTrackingTimestamp(order, key) {
     timestamps[key] = nowIso();
   }
   order.trackingTimestamps = timestamps;
+}
+
+async function deductInventoryAtomically(items, session) {
+  // Security hardening: atomic stock reservation with stock floor checks.
+  // Prevents concurrent payment captures from driving inventory negative.
+  // Security/performance hardening: stable lock acquisition order reduces contention.
+  const orderedItems = [...(items || [])].sort((left, right) =>
+    String(left?.productId || '').localeCompare(String(right?.productId || ''))
+  );
+  for (const item of orderedItems) {
+    const quantity = Number(item?.quantity || 0);
+    const productId = item?.productId;
+    if (!productId || quantity <= 0) {
+      continue;
+    }
+    const result = await Product.updateOne(
+      { _id: productId, stock: { $gte: quantity } },
+      { $inc: { stock: -quantity } },
+      { session },
+    );
+    if (!result || result.modifiedCount !== 1) {
+      const stockError = new Error('Insufficient stock for one or more products.');
+      stockError.statusCode = 409;
+      throw stockError;
+    }
+  }
+}
+
+function buildOutboxEventId(prefix, orderId) {
+  return `${prefix}:${orderId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
 async function recordPaymentTransaction({
@@ -136,49 +169,126 @@ async function handlePaymentCaptured(paymentEntity) {
     return order;
   }
 
-  order.razorpay = {
-    ...order.razorpay,
-    orderId: razorpayOrderId || order.razorpay?.orderId || '',
-    paymentId: razorpayPaymentId || order.razorpay?.paymentId || '',
-  };
-  order.paymentStatus = 'paid';
-  order.escrowStatus = 'held';
-  order.escrowUpdatedAt = nowIso();
-  if ((order.orderStatus || '').toLowerCase() === 'pending') {
-    order.orderStatus = 'confirmed';
-  }
-  if ((order.deliveryStatus || '').toLowerCase() === 'pending') {
-    order.deliveryStatus = 'Ready for pickup';
-  }
-  appendTrackingTimestamp(order, 'Confirmed');
+  const paymentCurrency = String(paymentEntity?.currency || '').trim().toUpperCase();
+  const capturedAmountPaise = Number(paymentEntity?.amount || 0);
+  const expectedAmountPaise = Math.round(Number(order.totalAmount || 0) * 100);
+  const capturedAppOrderId = String(paymentEntity?.notes?.appOrderId || '').trim();
 
-  if (!order.inventoryDeducted) {
-    for (const item of order.items || []) {
-      await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -Number(item.quantity || 0) } });
-    }
-    order.inventoryDeducted = true;
+  // Security hardening: webhook capture must match expected amount/currency/app order.
+  // If these checks fail, we do not mark the order paid.
+  if (
+    paymentCurrency !== 'INR' ||
+    !Number.isFinite(capturedAmountPaise) ||
+    capturedAmountPaise !== expectedAmountPaise ||
+    (capturedAppOrderId && capturedAppOrderId !== order._id.toString())
+  ) {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_captured_validation_failed',
+      status: 'failed',
+      order,
+      amount: Number(order.totalAmount || 0),
+      message: 'Captured payment failed strict amount/currency/order validation.',
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+        paymentCurrency,
+        capturedAmountPaise: String(capturedAmountPaise),
+        expectedAmountPaise: String(expectedAmountPaise),
+        capturedAppOrderId,
+      },
+    });
+    return null;
   }
-  order.financialReversed = false;
-  await order.save();
-  await recordPaymentTransaction({
-    order,
-    status: 'captured',
-    note: 'Payment captured via Razorpay webhook.',
-    metadata: {
-      razorpayOrderId,
-      razorpayPaymentId,
-    },
-  });
-  await recordPaymentWebhookAudit({
-    action: 'payment_webhook_captured',
-    order,
-    amount: Number(order.totalAmount || 0),
-    message: 'Payment captured via Razorpay webhook.',
-    metadata: {
-      razorpayOrderId,
-      razorpayPaymentId,
-    },
-  });
+
+  let outboxEventId = '';
+  const session = await mongoose.startSession();
+  try {
+    await session.withTransaction(async () => {
+      // Security hardening: webhook capture state and stock mutation are atomic.
+      const txOrder = await Order.findById(order._id).session(session);
+      if (!txOrder) {
+        const missing = new Error('Order not found.');
+        missing.statusCode = 404;
+        throw missing;
+      }
+      txOrder.razorpay = {
+        ...txOrder.razorpay,
+        orderId: razorpayOrderId || txOrder.razorpay?.orderId || '',
+        paymentId: razorpayPaymentId || txOrder.razorpay?.paymentId || '',
+      };
+      txOrder.paymentStatus = 'paid';
+      txOrder.escrowStatus = 'held';
+      txOrder.escrowUpdatedAt = nowIso();
+      if ((txOrder.orderStatus || '').toLowerCase() === 'pending') {
+        txOrder.orderStatus = 'confirmed';
+      }
+      if ((txOrder.deliveryStatus || '').toLowerCase() === 'pending') {
+        txOrder.deliveryStatus = 'Ready for pickup';
+      }
+      appendTrackingTimestamp(txOrder, 'Confirmed');
+
+      if (!txOrder.inventoryDeducted) {
+        await deductInventoryAtomically(txOrder.items || [], session);
+        txOrder.inventoryDeducted = true;
+      }
+      txOrder.financialReversed = false;
+      await txOrder.save({ session });
+      // Security hardening: outbox event is written in the same transaction
+      // to preserve post-commit side-effect intent durably.
+      outboxEventId = buildOutboxEventId('payment_captured_webhook', txOrder._id.toString());
+      await PaymentOutboxEvent.create(
+        [{
+          eventId: outboxEventId,
+          eventType: 'payment_captured_webhook',
+          orderId: txOrder._id.toString(),
+          payload: {
+            razorpayOrderId,
+            razorpayPaymentId,
+          },
+        }],
+        { session },
+      );
+      order = txOrder;
+    });
+  } finally {
+    await session.endSession();
+  }
+  try {
+    await recordPaymentTransaction({
+      order,
+      status: 'captured',
+      note: 'Payment captured via Razorpay webhook.',
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+      },
+    });
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_captured',
+      order,
+      amount: Number(order.totalAmount || 0),
+      message: 'Payment captured via Razorpay webhook.',
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+      },
+    });
+    if (outboxEventId) {
+      await PaymentOutboxEvent.updateOne(
+        { eventId: outboxEventId },
+        { $set: { status: 'processed', processedAtIso: nowIso(), lastError: '' } },
+      );
+    }
+  } catch (sideEffectError) {
+    // Security hardening: preserve successful order/payment commit even if
+    // downstream observability writes fail; mark outbox for replay.
+    if (outboxEventId) {
+      await PaymentOutboxEvent.updateOne(
+        { eventId: outboxEventId },
+        { $set: { status: 'failed', processedAtIso: nowIso(), lastError: String(sideEffectError?.message || sideEffectError) } },
+      );
+    }
+  }
   return order;
 }
 
@@ -409,44 +519,115 @@ async function handleRazorpayWebhook(req, res, next) {
       || payload?.payload?.refund?.entity?.id
       || payload?.created_at
       || '';
-    const firstDelivery = await claimWebhookDelivery({
+    const deliveryLock = await claimWebhookDelivery({
       source: 'razorpay-payment',
       rawBody,
       eventId,
       signature,
     });
-    if (!firstDelivery) {
+    if (deliveryLock?.status === 'duplicate') {
       return res.status(200).json({ success: true, duplicate: true });
     }
+    if (deliveryLock?.status === 'lock_error') {
+      // Security hardening: return retriable error when idempotency lock storage is unavailable.
+      // This avoids silently dropping valid webhook events.
+      return res.status(503).json({ success: false, message: 'Webhook lock unavailable. Retry later.' });
+    }
     const event = String(payload?.event || '').trim();
+    const eventValidation = validateWebhookSchema(event, payload);
+    if (!eventValidation.valid) {
+      await recordPaymentWebhookAudit({
+        action: 'payment_webhook_schema_invalid',
+        status: 'failed',
+        message: 'Invalid webhook payload schema.',
+        metadata: { event, reason: eventValidation.reason },
+      });
+      return res.status(400).json({ success: false, message: 'Invalid webhook payload schema.' });
+    }
 
-    if (event === 'payment.captured') {
-      await handlePaymentCaptured(payload?.payload?.payment?.entity || {});
-      return res.status(200).json({ success: true, event });
-    }
-    if (event === 'payment.failed') {
-      await handlePaymentFailed(payload?.payload?.payment?.entity || {});
-      return res.status(200).json({ success: true, event });
-    }
-    if (event === 'refund.processed') {
-      await handleRefundProcessed(payload?.payload?.refund?.entity || {});
-      return res.status(200).json({ success: true, event });
-    }
-    await recordPaymentWebhookAudit({
-      action: 'payment_webhook_ignored',
-      message: `Ignored unsupported Razorpay payment webhook event: ${event || 'unknown'}.`,
+    // Security hardening: persist minimal durable ingest event and ACK quickly.
+    // Heavy payment/order/inventory mutations happen asynchronously in worker.
+    const ingest = await persistWebhookIngestEvent({
+      source: 'razorpay-payment',
+      event,
+      eventId: String(eventId || ''),
+      rawBody,
+      payload: buildMinimalIngestPayload(payload),
       metadata: {
-        event,
+        lockKey: deliveryLock?.key || '',
       },
     });
-    return res.status(200).json({ success: true, ignored: true, event });
+    if (ingest.duplicate) {
+      return res.status(200).json({ success: true, duplicate: true, event });
+    }
+    return res.status(202).json({ success: true, accepted: true, event });
   } catch (error) {
+    if (error?.name === 'MongoNetworkError' || error?.name === 'MongooseError') {
+      return res.status(503).json({ success: false, message: 'Webhook ingest unavailable. Retry later.' });
+    }
     return next(error);
   }
 }
 
+function buildMinimalIngestPayload(payload) {
+  const event = String(payload?.event || '').trim();
+  return {
+    event,
+    created_at: Number(payload?.created_at || 0),
+    payment: payload?.payload?.payment?.entity || null,
+    refund: payload?.payload?.refund?.entity || null,
+  };
+}
+
+function validateWebhookSchema(event, payload) {
+  const supported = new Set(['payment.captured', 'payment.failed', 'refund.processed']);
+  if (!supported.has(event)) {
+    return { valid: false, reason: 'unsupported_event' };
+  }
+  if (event === 'refund.processed') {
+    const refund = payload?.payload?.refund?.entity;
+    if (!refund?.id || !refund?.payment_id) {
+      return { valid: false, reason: 'missing_refund_entity' };
+    }
+    return { valid: true };
+  }
+  const payment = payload?.payload?.payment?.entity;
+  if (!payment?.id || !payment?.order_id) {
+    return { valid: false, reason: 'missing_payment_entity' };
+  }
+  return { valid: true };
+}
+
+async function processPaymentWebhookIngestEvent(eventDoc) {
+  const ingestId = String(eventDoc?.ingestId || '');
+  const event = String(eventDoc?.event || '');
+  const payload = eventDoc?.payload || {};
+
+  // Replay-safe: skip if this ingest item already marked processed elsewhere.
+  const existing = await PaymentWebhookIngestEvent.findOne({ ingestId }).select('status').lean();
+  if (existing && existing.status === 'processed') {
+    return { skippedDuplicate: true };
+  }
+
+  if (event === 'payment.captured') {
+    await handlePaymentCaptured(payload?.payment || {});
+  } else if (event === 'payment.failed') {
+    await handlePaymentFailed(payload?.payment || {});
+  } else if (event === 'refund.processed') {
+    await handleRefundProcessed(payload?.refund || {});
+  } else {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_ignored',
+      message: `Ignored unsupported Razorpay payment webhook event: ${event || 'unknown'}.`,
+      metadata: { event, ingestId },
+    });
+  }
+  return { processed: true };
+}
+
 module.exports = {
   createPaymentOrder,
+  processPaymentWebhookIngestEvent,
   verifyPaymentSignature,
   handleRazorpayWebhook,
 };

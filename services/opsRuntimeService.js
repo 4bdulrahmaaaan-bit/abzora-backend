@@ -1,6 +1,6 @@
 const OpsAlert = require('../models/OpsAlert');
 const { detectAndUpsertOperationalAlerts, detectDeadOrdersAndTasks } = require('./opsDetectionService');
-const { startOpsWorker } = require('./opsWorkerService');
+const { getWorkerHealth, startOpsWorker, stopOpsWorker } = require('./opsWorkerService');
 const { aggregateOpsMetrics } = require('./opsMetricsService');
 const { ALERT_SEVERITY } = require('./opsConstants');
 const { enqueueAlert } = require('./opsQueueService');
@@ -34,7 +34,12 @@ async function runDetectionCycle() {
       if (!alert || item?.shouldQueue === false) {
         continue;
       }
-      await enqueueAlert({ alertId: alert.alertId, severity: alert.severity });
+      await enqueueAlert({
+        alertId: alert.alertId,
+        severity: alert.severity,
+        tenantKey: alert.storeId || alert.userId || '',
+        jobClass: alert.type === 'PAYMENT_FAILED' ? 'payment' : 'order',
+      });
       await OpsAlert.updateOne(
         { _id: alert._id },
         {
@@ -88,7 +93,12 @@ async function runEscalationCycle() {
         },
       );
       if (shouldQueue) {
-        await enqueueAlert({ alertId: alert.alertId, severity: escalatedSeverity });
+        await enqueueAlert({
+          alertId: alert.alertId,
+          severity: escalatedSeverity,
+          tenantKey: alert.storeId || alert.userId || '',
+          jobClass: alert.type === 'PAYMENT_FAILED' ? 'payment' : 'order',
+        });
       }
     }
   } catch (error) {
@@ -140,8 +150,40 @@ function startOpsRuntime() {
   }
 }
 
+function stopOpsRuntime() {
+  if (detectionHandle) {
+    clearInterval(detectionHandle);
+    detectionHandle = null;
+  }
+  if (escalationHandle) {
+    clearInterval(escalationHandle);
+    escalationHandle = null;
+  }
+  if (metricsHourlyHandle) {
+    clearInterval(metricsHourlyHandle);
+    metricsHourlyHandle = null;
+  }
+  if (metricsDailyHandle) {
+    clearInterval(metricsDailyHandle);
+    metricsDailyHandle = null;
+  }
+  stopOpsWorker();
+}
+
+function getOpsRuntimeStatus() {
+  return {
+    detectionRunning: Boolean(detectionHandle),
+    escalationRunning: Boolean(escalationHandle),
+    metricsHourlyRunning: Boolean(metricsHourlyHandle),
+    metricsDailyRunning: Boolean(metricsDailyHandle),
+    worker: getWorkerHealth(),
+  };
+}
+
 module.exports = {
+  getOpsRuntimeStatus,
   startOpsRuntime,
+  stopOpsRuntime,
   runDetectionCycle,
   runEscalationCycle,
 };

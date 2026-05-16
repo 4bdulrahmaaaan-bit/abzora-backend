@@ -12,6 +12,15 @@ const { clientIp, logSecurityEvent, logSecurityWarning, requestId, safeString } 
 let redisLimiterClient = null;
 let redisLimiterAvailable = false;
 
+function failClosedRateLimitOnRedisDown() {
+  // Security hardening: production can reject requests when distributed limiter is unavailable
+  // to prevent abuse bypass across horizontally scaled instances.
+  if (process.env.NODE_ENV === 'production') {
+    return String(process.env.RATE_LIMIT_FAIL_CLOSED || 'true').trim().toLowerCase() !== 'false';
+  }
+  return String(process.env.RATE_LIMIT_FAIL_CLOSED || 'false').trim().toLowerCase() === 'true';
+}
+
 async function ensureRedisLimiterClient() {
   if (redisLimiterClient || process.env.REDIS_DISABLED === 'true') {
     return redisLimiterClient;
@@ -219,6 +228,24 @@ function createRateLimiter({
       }
     }
 
+    if (
+      process.env.NODE_ENV === 'production' &&
+      failClosedRateLimitOnRedisDown()
+    ) {
+      res.setHeader('Retry-After', '5');
+      res.status(503).json({
+        success: false,
+        message: 'Rate limiting backend unavailable. Please retry shortly.',
+      });
+      logSecurityWarning('rate_limit_backend_unavailable', {
+        requestId: req.requestId,
+        key,
+        path: req.originalUrl,
+        ip: clientIp(req),
+      });
+      return;
+    }
+
     const entry = store.get(key);
 
     if (!entry || entry.resetAt <= now) {
@@ -251,10 +278,33 @@ function createRateLimiter({
   };
 }
 
+function getRateLimiterRedisStatus() {
+  return {
+    configured: Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== 'true',
+    connected: Boolean(redisLimiterClient) && redisLimiterAvailable,
+  };
+}
+
+async function closeRateLimiterRedisClient() {
+  if (!redisLimiterClient) {
+    return;
+  }
+  try {
+    await redisLimiterClient.quit();
+  } catch (_) {
+    // Security hardening: shutdown should continue even if redis quit errors.
+  } finally {
+    redisLimiterClient = null;
+    redisLimiterAvailable = false;
+  }
+}
+
 module.exports = {
+  closeRateLimiterRedisClient,
   createCorsOptions,
   createRateLimiter,
   enforceHttps,
+  getRateLimiterRedisStatus,
   requestAuditLogger,
   requestContext,
   securityHeaders,

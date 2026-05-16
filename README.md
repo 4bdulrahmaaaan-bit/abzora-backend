@@ -28,6 +28,8 @@ npm run dev
 ## API Summary
 
 - `GET /health`
+- `GET /health/live`
+- `GET /health/ready`
 - `GET /auth/me`
 - `POST /stores`
 - `GET /stores`
@@ -119,6 +121,8 @@ npm start
 7. Set `REQUIRE_EMAIL_VERIFICATION=true` for password-based Firebase sign-ins
 8. Set `AUTH_MAX_SESSION_AGE_MINUTES` so users must re-authenticate periodically
 9. Keep `ENABLE_TEST_AUTH_ROUTES=false` in every non-local environment
+10. Keep `REDIS_REQUIRED=true` and `RATE_LIMIT_FAIL_CLOSED=true` in production so abuse controls fail closed when Redis is unavailable
+11. Configure Mongo pool and retry env vars (`MONGO_MAX_POOL_SIZE`, `MONGO_MIN_POOL_SIZE`, `MONGO_CONNECT_MAX_ATTEMPTS`, etc.) for your pod count and workload burst profile
 
 ### MongoDB Atlas
 

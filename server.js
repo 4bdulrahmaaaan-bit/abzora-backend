@@ -5,16 +5,20 @@ const cors = require('cors');
 const http = require('http');
 const sentry = require('./sentry.server');
 
-const connectDB = require('./config/db');
+const connectDBModule = require('./config/db');
+const connectDB = connectDBModule;
+const { closeDBConnection, getMongoHealth } = connectDBModule;
 require('./config/cloudinary');
 const initializeFirebase = require('./config/firebase');
 const {
   createCorsOptions,
   createRateLimiter,
   enforceHttps,
+  getRateLimiterRedisStatus,
   requestAuditLogger,
   requestContext,
   securityHeaders,
+  closeRateLimiterRedisClient,
 } = require('./middleware/securityMiddleware');
 const authMiddleware = require('./middleware/authMiddleware');
 const {
@@ -23,7 +27,7 @@ const {
   requireVendor,
 } = require('./middleware/authorizationMiddleware');
 const { me } = require('./controllers/authController');
-const { scheduleFinanceCrons } = require('./services/financeCronService');
+const { getFinanceCronStatus, scheduleFinanceCrons, stopFinanceCrons } = require('./services/financeCronService');
 const { clientIp, logSecurityError } = require('./services/auditLogger');
 
 const authRoutes = require('./routes/authRoutes');
@@ -68,16 +72,29 @@ const fleetRoutes = require('./routes/fleetRoutes');
 const wardrobeRoutes = require('./routes/wardrobeRoutes');
 const debugRoutes = require('./routes/debugRoutes');
 const legalRoutes = require('./routes/legalRoutes');
-const { attachTrackingGateway } = require('./services/trackingGateway');
-const { attachPricingGateway } = require('./services/pricingGateway');
-const { startDispatchScheduler } = require('./services/dispatchSchedulerService');
-const { startOpsRuntime } = require('./services/opsRuntimeService');
+const { attachTrackingGateway, closeTrackingGateway, getTrackingGatewayStatus } = require('./services/trackingGateway');
+const { attachPricingGateway, closePricingGateway, getPricingGatewayStatus } = require('./services/pricingGateway');
+const { getDispatchSchedulerStatus, startDispatchScheduler, stopDispatchScheduler } = require('./services/dispatchSchedulerService');
+const { getOpsRuntimeStatus, startOpsRuntime, stopOpsRuntime } = require('./services/opsRuntimeService');
+const { startPaymentOutboxWorker, stopPaymentOutboxWorker } = require('./services/paymentOutboxWorker');
+const { processPaymentWebhookIngestEvent } = require('./controllers/paymentController');
+const {
+  startPaymentWebhookIngestWorker,
+  stopPaymentWebhookIngestWorker,
+} = require('./services/paymentWebhookIngestService');
+const { closeQueueClient, getQueueRuntimeStatus } = require('./services/opsQueueService');
+const { closeOpsLockClient, getOpsLockRuntimeStatus } = require('./services/opsLockService');
+const { closeRedisCacheClient, getRuntimeStatus: getCacheRuntimeStatus } = require('./services/redisCacheService');
 const { getOrderEta } = require('./controllers/dispatchController');
+const { getOutboxMetrics, getOutboxWorkerHealth } = require('./controllers/outboxOpsController');
+const { getWebhookIngestHealth, getWebhookIngestMetrics } = require('./controllers/webhookIngestOpsController');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
 const host = process.env.HOST || '0.0.0.0';
 app.set('trust proxy', 1);
+let httpServer = null;
+let shuttingDown = false;
 
 app.use(cors(createCorsOptions()));
 app.use(requestContext);
@@ -154,6 +171,12 @@ const uploadLimiter = createRateLimiter({
   message: 'Too many upload requests. Please wait and try again.',
 });
 
+const outboxMetricsLimiter = createRateLimiter({
+  windowMs: 5 * 60 * 1000,
+  max: 30,
+  message: 'Too many outbox metrics requests. Please try again later.',
+});
+
 const aiLimiter = createRateLimiter({
   windowMs: 10 * 60 * 1000,
   max: 40,
@@ -173,11 +196,107 @@ app.use('/webhooks/razorpay', webhookLimiter, express.raw({ type: 'application/j
 
 app.get('/health', (req, res) => {
   res.status(200).json({
-    status: 'ok',
+    status: shuttingDown ? 'draining' : 'ok',
     service: 'abzora-backend',
     timestamp: new Date().toISOString(),
   });
 });
+
+app.get('/health/live', (req, res) => {
+  res.status(200).json({
+    status: 'alive',
+    service: 'abzora-backend',
+    shuttingDown,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/health/ready', async (req, res) => {
+  // Security hardening: readiness reflects dependency health, not just process uptime.
+  const mongoHealth = getMongoHealth();
+  const mongoReady = mongoHealth.connected;
+  const mongoPoolExhausted = mongoHealth.pool?.poolExhausted === true;
+  const rateLimiterRedis = getRateLimiterRedisStatus();
+  const queueRuntime = getQueueRuntimeStatus();
+  const lockRuntime = getOpsLockRuntimeStatus();
+  const cacheRuntime = getCacheRuntimeStatus();
+  const dispatchStatus = getDispatchSchedulerStatus();
+  const opsStatus = getOpsRuntimeStatus();
+  const financeStatus = getFinanceCronStatus();
+  const trackingStatus = getTrackingGatewayStatus();
+  const pricingStatus = getPricingGatewayStatus();
+
+  const redisRequired = process.env.NODE_ENV === 'production'
+    && String(process.env.REDIS_REQUIRED || 'true').trim().toLowerCase() === 'true';
+  const redisHealthy = !redisRequired || (
+    rateLimiterRedis.connected
+    && queueRuntime.redisAvailable
+    && lockRuntime.redisReady
+  );
+  const ready = !shuttingDown && mongoReady && !mongoPoolExhausted && redisHealthy;
+  const statusCode = ready ? 200 : 503;
+
+  res.status(statusCode).json({
+    status: ready ? 'ready' : 'not_ready',
+    service: 'abzora-backend',
+    timestamp: new Date().toISOString(),
+    checks: {
+      mongoReady,
+      mongoPoolExhausted,
+      redisRequired,
+      redisHealthy,
+      shuttingDown,
+      mongoHealth,
+      rateLimiterRedis,
+      queueRuntime,
+      lockRuntime,
+      cacheRuntime,
+      dispatchStatus,
+      financeStatus,
+      trackingStatus,
+      pricingStatus,
+      opsStatus: {
+        detectionRunning: opsStatus.detectionRunning,
+        escalationRunning: opsStatus.escalationRunning,
+        metricsHourlyRunning: opsStatus.metricsHourlyRunning,
+        metricsDailyRunning: opsStatus.metricsDailyRunning,
+        workerRunning: Boolean(opsStatus.worker?.running),
+      },
+    },
+  });
+});
+
+app.get(
+  '/health/outbox-worker',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  getOutboxWorkerHealth,
+);
+
+app.get(
+  '/metrics/outbox',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  getOutboxMetrics,
+);
+
+app.get(
+  '/health/webhook-ingest',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  getWebhookIngestHealth,
+);
+
+app.get(
+  '/metrics/webhook-ingest',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  getWebhookIngestMetrics,
+);
 
 app.get('/', (req, res) => {
   res.status(200).json({
@@ -291,10 +410,34 @@ async function startServer() {
     scheduleFinanceCrons();
     startDispatchScheduler();
     startOpsRuntime();
-    const server = http.createServer(app);
-    attachTrackingGateway(server);
-    attachPricingGateway(server);
-    server.listen(port, host, () => {
+    // Security hardening: durable outbox replay worker recovers missed side effects
+    // after crashes/restarts and supports horizontal multi-worker processing.
+    if (String(process.env.PAYMENT_OUTBOX_WORKER_ENABLED || 'true').trim().toLowerCase() === 'true') {
+      startPaymentOutboxWorker({
+        pollIntervalMs: Number(process.env.PAYMENT_OUTBOX_POLL_INTERVAL_MS || 1000),
+        batchSize: Number(process.env.PAYMENT_OUTBOX_BATCH_SIZE || 5),
+        leaseMs: Number(process.env.PAYMENT_OUTBOX_LEASE_MS || 15000),
+        maxAttemptsDefault: Number(process.env.PAYMENT_OUTBOX_MAX_ATTEMPTS || 8),
+        cleanupEveryMs: Number(process.env.PAYMENT_OUTBOX_CLEANUP_EVERY_MS || 600000),
+        completedRetentionMs: Number(process.env.PAYMENT_OUTBOX_COMPLETED_RETENTION_MS || 259200000),
+      });
+    }
+    if (String(process.env.PAYMENT_WEBHOOK_INGEST_WORKER_ENABLED || 'true').trim().toLowerCase() === 'true') {
+      startPaymentWebhookIngestWorker({
+        processor: processPaymentWebhookIngestEvent,
+        pollIntervalMs: Number(process.env.PAYMENT_WEBHOOK_INGEST_POLL_INTERVAL_MS || 500),
+        batchSize: Number(process.env.PAYMENT_WEBHOOK_INGEST_BATCH_SIZE || 20),
+        concurrency: Number(process.env.PAYMENT_WEBHOOK_INGEST_CONCURRENCY || 6),
+        leaseMs: Number(process.env.PAYMENT_WEBHOOK_INGEST_LEASE_MS || 15000),
+        maxAttemptsDefault: Number(process.env.PAYMENT_WEBHOOK_INGEST_MAX_ATTEMPTS || 8),
+        cleanupEveryMs: Number(process.env.PAYMENT_WEBHOOK_INGEST_CLEANUP_EVERY_MS || 600000),
+        retentionMs: Number(process.env.PAYMENT_WEBHOOK_INGEST_RETENTION_MS || 172800000),
+      });
+    }
+    httpServer = http.createServer(app);
+    attachTrackingGateway(httpServer);
+    attachPricingGateway(httpServer);
+    httpServer.listen(port, host, () => {
       console.log(`ABZORA backend running on ${host}:${port}`);
     });
   } catch (error) {
@@ -304,4 +447,56 @@ async function startServer() {
 }
 
 startServer();
+
+async function gracefulShutdown(signal) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  console.log(`Received ${signal}. Starting graceful shutdown.`);
+
+  const forceExitTimer = setTimeout(() => {
+    console.error('Graceful shutdown timeout reached. Forcing exit.');
+    process.exit(1);
+  }, Number(process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS || 30000));
+  forceExitTimer.unref?.();
+
+  try {
+    if (httpServer) {
+      await new Promise((resolve) => {
+        httpServer.close(() => resolve());
+      });
+    }
+    await Promise.all([
+      stopPaymentOutboxWorker(),
+      stopPaymentWebhookIngestWorker(),
+      closeTrackingGateway(),
+      Promise.resolve(closePricingGateway()),
+    ]);
+    stopDispatchScheduler();
+    stopFinanceCrons();
+    stopOpsRuntime();
+    await Promise.all([
+      closeRateLimiterRedisClient(),
+      closeQueueClient(),
+      closeOpsLockClient(),
+      closeRedisCacheClient(),
+    ]);
+    await closeDBConnection();
+    clearTimeout(forceExitTimer);
+    process.exit(0);
+  } catch (error) {
+    clearTimeout(forceExitTimer);
+    console.error('Graceful shutdown failed:', error);
+    process.exit(1);
+  }
+}
+
+process.on('SIGTERM', () => {
+  gracefulShutdown('SIGTERM');
+});
+
+process.on('SIGINT', () => {
+  gracefulShutdown('SIGINT');
+});
 

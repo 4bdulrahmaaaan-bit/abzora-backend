@@ -11,6 +11,7 @@ const ReferralRecord = require('../models/ReferralRecord');
 const RefundRequest = require('../models/RefundRequest');
 const ReturnRequest = require('../models/ReturnRequest');
 const Transaction = require('../models/Transaction');
+const PaymentOutboxEvent = require('../models/PaymentOutboxEvent');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
 const { generatePremiumInvoicePdf } = require('../services/invoicePdfService');
 const { recordTrackingEvent } = require('../services/trackingEventService');
@@ -469,6 +470,36 @@ function canManageRefunds(req) {
 
 function canManageReturns(req) {
   return hasRole(req.user, ['rider', 'admin', 'super_admin']);
+}
+
+async function deductInventoryAtomically(items, session) {
+  // Security hardening: enforce stock >= quantity in a transaction-safe write.
+  // This prevents overselling when multiple payment/order requests race.
+  // Security/performance hardening: deterministic lock order lowers contention risk.
+  const orderedItems = [...(items || [])].sort((left, right) =>
+    String(left?.productId || '').localeCompare(String(right?.productId || ''))
+  );
+  for (const item of orderedItems) {
+    const quantity = Number(item?.quantity || 0);
+    const productId = item?.productId;
+    if (!productId || quantity <= 0) {
+      continue;
+    }
+    const result = await Product.updateOne(
+      { _id: productId, stock: { $gte: quantity } },
+      { $inc: { stock: -quantity } },
+      { session },
+    );
+    if (!result || result.modifiedCount !== 1) {
+      const stockError = new Error('Insufficient stock for one or more products.');
+      stockError.statusCode = 409;
+      throw stockError;
+    }
+  }
+}
+
+function buildOutboxEventId(prefix, orderId) {
+  return `${prefix}:${orderId}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function shippingAddressLabel(order) {
@@ -1080,13 +1111,25 @@ async function createOrder(req, res, next) {
       });
     }
 
-    if (normalizedPaymentMethod === 'COD' && !order.inventoryDeducted) {
-      for (const item of normalizedItems) {
-        await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.quantity } });
+    if (normalizedPaymentMethod === 'COD') {
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          // Security hardening: persist order and deduct inventory in one transaction.
+          // Either both succeed or both rollback.
+          await order.save({ session });
+          if (!order.inventoryDeducted) {
+            await deductInventoryAtomically(normalizedItems, session);
+            order.inventoryDeducted = true;
+          }
+          await order.save({ session });
+        });
+      } finally {
+        await session.endSession();
       }
-      order.inventoryDeducted = true;
+    } else {
+      await order.save();
     }
-    await order.save();
     if (normalizedPaymentMethod === 'COD') {
       await processReferralRewardIfEligible(req.user.uid, order);
     }
@@ -1727,15 +1770,24 @@ async function cancelOrder(req, res, next) {
       (order.paymentMethod || '').toUpperCase() === 'RAZORPAY' &&
       (order.paymentStatus || '').toLowerCase() === 'paid';
     if (shouldAutoRefund) {
-      const refundRequest = new RefundRequest({
+      // Security hardening: cancellation refund intent is idempotent.
+      // Repeated cancel retries reuse an existing pending/approved refund request.
+      let refundRequest = await RefundRequest.findOne({
         orderId: order._id,
         userId: order.userId,
-        reason: 'Order cancelled by customer before delivery.',
-        requestedAmount: Number(order.totalAmount || 0),
-        refundedAmount: 0,
-        status: 'pending',
-      });
-      await refundRequest.save();
+        status: { $in: ['pending', 'approved'] },
+      }).sort({ createdAt: -1, _id: -1 });
+      if (!refundRequest) {
+        refundRequest = new RefundRequest({
+          orderId: order._id,
+          userId: order.userId,
+          reason: 'Order cancelled by customer before delivery.',
+          requestedAmount: Number(order.totalAmount || 0),
+          refundedAmount: 0,
+          status: 'pending',
+        });
+        await refundRequest.save();
+      }
       cancellationRefund = refundRequest;
       order.refundRequestId = refundRequest._id.toString();
       try {
@@ -2503,57 +2555,136 @@ async function verifyPayment(req, res, next) {
     const razorpay = getRazorpayClient();
     const payment = await razorpay.payments.fetch(razorpayPaymentId);
     const paymentOrderId = String(payment?.order_id || '').trim();
-    const paid = payment && payment.status === 'captured' && paymentOrderId === razorpayOrderId;
+    const paymentCurrency = String(payment?.currency || '').trim().toUpperCase();
+    const paymentAmountPaise = Number(payment?.amount || 0);
+    const expectedAmountPaise = Math.round(Number(order.totalAmount || 0) * 100);
+    const paymentAppOrderId = String(payment?.notes?.appOrderId || '').trim();
 
-    order.paymentStatus = paid ? 'paid' : 'failed';
-    order.orderStatus = paid ? 'confirmed' : 'pending';
-    order.deliveryStatus = paid ? 'Ready for pickup' : 'Pending';
-    order.razorpay = {
-      ...order.razorpay,
-      paymentId: razorpayPaymentId,
-      signature: razorpaySignature,
-    };
-    order.escrowStatus = paid ? 'held' : order.escrowStatus;
-    order.escrowUpdatedAt = paid ? new Date().toISOString() : order.escrowUpdatedAt;
-    appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
-    appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
+    // Security hardening: payment verification now binds gateway payment to
+    // expected order id + expected appOrderId + expected currency + exact amount.
+    // This prevents payment tampering/underpayment acceptance.
+    const paid = Boolean(
+      payment &&
+      payment.status === 'captured' &&
+      paymentOrderId === razorpayOrderId &&
+      paymentCurrency === 'INR' &&
+      Number.isFinite(paymentAmountPaise) &&
+      paymentAmountPaise === expectedAmountPaise &&
+      paymentAppOrderId === order._id.toString()
+    );
 
-    if (paid && !order.inventoryDeducted) {
-      for (const item of order.items) {
-        await Product.findByIdAndUpdate(item.productId, { $inc: { stock: -item.quantity } });
+    let savedOrder = order;
+    let outboxEventId = '';
+    if (paid) {
+      const session = await mongoose.startSession();
+      try {
+        await session.withTransaction(async () => {
+          // Security hardening: payment state + inventory deduction must be atomic.
+          const txOrder = await Order.findById(order._id).session(session);
+          if (!txOrder) {
+            const missing = new Error('Order not found.');
+            missing.statusCode = 404;
+            throw missing;
+          }
+          txOrder.paymentStatus = 'paid';
+          txOrder.orderStatus = 'confirmed';
+          txOrder.deliveryStatus = 'Ready for pickup';
+          txOrder.razorpay = {
+            ...txOrder.razorpay,
+            paymentId: razorpayPaymentId,
+            signature: razorpaySignature,
+          };
+          txOrder.escrowStatus = 'held';
+          txOrder.escrowUpdatedAt = new Date().toISOString();
+          appendTrackingTimestamp(txOrder, trackingKeyForOrderStatus(txOrder.orderStatus));
+          appendTrackingTimestamp(txOrder, trackingKeyForDeliveryStatus(txOrder.deliveryStatus));
+          if (!txOrder.inventoryDeducted) {
+            await deductInventoryAtomically(txOrder.items, session);
+            txOrder.inventoryDeducted = true;
+          }
+          txOrder.financialReversed = false;
+          await txOrder.save({ session });
+          // Security hardening: durable outbox marker is committed in the same transaction.
+          // If post-commit logging fails, this event remains for replay/reconciliation.
+          outboxEventId = buildOutboxEventId('payment_captured_verify', txOrder._id.toString());
+          await PaymentOutboxEvent.create(
+            [{
+              eventId: outboxEventId,
+              eventType: 'payment_captured_verify',
+              orderId: txOrder._id.toString(),
+              payload: {
+                razorpayOrderId,
+                razorpayPaymentId,
+              },
+            }],
+            { session },
+          );
+          savedOrder = txOrder;
+        });
+      } finally {
+        await session.endSession();
       }
-      order.inventoryDeducted = true;
+    } else {
+      order.paymentStatus = 'failed';
+      order.orderStatus = 'pending';
+      order.deliveryStatus = 'Pending';
+      order.razorpay = {
+        ...order.razorpay,
+        paymentId: razorpayPaymentId,
+        signature: razorpaySignature,
+      };
+      appendTrackingTimestamp(order, trackingKeyForOrderStatus(order.orderStatus));
+      appendTrackingTimestamp(order, trackingKeyForDeliveryStatus(order.deliveryStatus));
+      await order.save();
+      savedOrder = order;
+    }
+    try {
+      await Transaction.create({
+        transactionId: `payment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        type: 'payment',
+        userType: 'admin',
+        userId: savedOrder.userId,
+        storeId: savedOrder.storeId?.toString() || '',
+        orderId: savedOrder._id.toString(),
+        amount: Number(savedOrder.totalAmount || 0),
+        status: paid ? 'captured' : 'failed',
+        note: paid ? 'Payment captured and escrow held.' : 'Payment verification failed.',
+        createdAtIso: new Date().toISOString(),
+          metadata: {
+            razorpayOrderId,
+            razorpayPaymentId,
+            paymentCurrency,
+            paymentAmountPaise: String(paymentAmountPaise),
+            expectedAmountPaise: String(expectedAmountPaise),
+            paymentAppOrderId,
+          },
+        });
+    } catch (sideEffectError) {
+      // Security hardening: do not rollback successful payment/order commit because
+      // of telemetry/logging write failures. Keep a durable outbox marker for replay.
+      if (outboxEventId) {
+        await PaymentOutboxEvent.updateOne(
+          { eventId: outboxEventId },
+          { $set: { status: 'failed', processedAtIso: new Date().toISOString(), lastError: String(sideEffectError?.message || sideEffectError) } },
+        );
+      }
     }
     if (paid) {
-      order.financialReversed = false;
-    }
-    await order.save();
-    await Transaction.create({
-      transactionId: `payment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      type: 'payment',
-      userType: 'admin',
-      userId: order.userId,
-      storeId: order.storeId?.toString() || '',
-      orderId: order._id.toString(),
-      amount: Number(order.totalAmount || 0),
-      status: paid ? 'captured' : 'failed',
-      note: paid ? 'Payment captured and escrow held.' : 'Payment verification failed.',
-      createdAtIso: new Date().toISOString(),
-      metadata: {
-        razorpayOrderId,
-        razorpayPaymentId,
-      },
-    });
-    if (paid) {
-      await processReferralRewardIfEligible(req.user.uid, order);
+      await processReferralRewardIfEligible(req.user.uid, savedOrder);
+      if (outboxEventId) {
+        await PaymentOutboxEvent.updateOne(
+          { eventId: outboxEventId },
+          { $set: { status: 'processed', processedAtIso: new Date().toISOString(), lastError: '' } },
+        );
+      }
     }
 
     return res.status(200).json({
       success: true,
       data: {
         verified: paid,
-        paymentStatus: order.paymentStatus,
-        orderStatus: order.orderStatus,
+        paymentStatus: savedOrder.paymentStatus,
+        orderStatus: savedOrder.orderStatus,
         payment,
       },
     });

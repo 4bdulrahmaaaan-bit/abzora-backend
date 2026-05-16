@@ -29,6 +29,22 @@ function startDispatchScheduler() {
   schedulerHandle.unref?.();
 }
 
+function stopDispatchScheduler() {
+  if (!schedulerHandle) {
+    return;
+  }
+  clearInterval(schedulerHandle);
+  schedulerHandle = null;
+}
+
+function getDispatchSchedulerStatus() {
+  return {
+    running: Boolean(schedulerHandle),
+  };
+}
+
 module.exports = {
+  getDispatchSchedulerStatus,
   startDispatchScheduler,
+  stopDispatchScheduler,
 };

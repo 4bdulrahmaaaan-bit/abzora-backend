@@ -327,6 +327,15 @@ const bulkFleetActionSchema = {
   required: ['action'],
 };
 
+const outboxDeadLetterReplaySchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    reason: { type: 'string', minLength: 8, maxLength: 500 },
+  },
+  required: ['reason'],
+};
+
 module.exports = {
   activityLogCreateSchema,
   adminNotificationSchema,
@@ -339,6 +348,7 @@ module.exports = {
   opsAlertsQuerySchema,
   opsMapQuerySchema,
   opsMetricsQuerySchema,
+  outboxDeadLetterReplaySchema,
   orderStatusListQuerySchema,
   paginationQuerySchema,
   payoutProfileSchema,

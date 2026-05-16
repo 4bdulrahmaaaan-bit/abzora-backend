@@ -42,13 +42,17 @@ async function claimWebhookDelivery({ source, rawBody, eventId, signature }) {
       },
       { upsert: true },
     );
-    return result?.upsertedCount === 1;
+    if (result?.upsertedCount === 1) {
+      return { status: 'claimed', key };
+    }
+    return { status: 'duplicate', key };
   } catch (_) {
-    return false;
+    // Security hardening: explicit lock_error lets callers return retriable errors
+    // instead of silently dropping real webhook events as "duplicates".
+    return { status: 'lock_error', key };
   }
 }
 
 module.exports = {
   claimWebhookDelivery,
 };
-
