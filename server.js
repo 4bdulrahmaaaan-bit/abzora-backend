@@ -435,14 +435,6 @@ app.use((error, req, res, next) => {
 async function startServer() {
   try {
     await connectDB();
-    await warmupRedisClient();
-    await Promise.all([
-      initializeRateLimiterRedis(),
-      initializeOpsQueueRedis(),
-      initializeOpsLockRedis(),
-      initializeRedisCacheClient(),
-      initializeTrackingRedis(),
-    ]);
     initializeFirebase();
     scheduleFinanceCrons();
     startDispatchScheduler();
@@ -474,18 +466,34 @@ async function startServer() {
     httpServer = http.createServer(app);
     attachTrackingGateway(httpServer);
     attachPricingGateway(httpServer);
-    const redisConfig = getRedisConfigSummary();
-    console.log('[startup] redis.config', redisConfig);
-    console.log('[startup] redis.subsystems', {
-      rateLimiterRedis: getRateLimiterRedisStatus(),
-      lockRuntime: getOpsLockRuntimeStatus(),
-      queueRuntime: getQueueRuntimeStatus(),
-      cacheRuntime: getCacheRuntimeStatus(),
-      trackingStatus: getTrackingGatewayStatus(),
-    });
     httpServer.listen(port, host, () => {
       console.log(`ABZORA backend running on ${host}:${port}`);
     });
+
+    // Do not block port binding on Redis warmup; readiness endpoint gates traffic.
+    Promise.resolve()
+      .then(async () => {
+        await warmupRedisClient();
+        await Promise.all([
+          initializeRateLimiterRedis(),
+          initializeOpsQueueRedis(),
+          initializeOpsLockRedis(),
+          initializeRedisCacheClient(),
+          initializeTrackingRedis(),
+        ]);
+        const redisConfig = getRedisConfigSummary();
+        console.log('[startup] redis.config', redisConfig);
+        console.log('[startup] redis.subsystems', {
+          rateLimiterRedis: getRateLimiterRedisStatus(),
+          lockRuntime: getOpsLockRuntimeStatus(),
+          queueRuntime: getQueueRuntimeStatus(),
+          cacheRuntime: getCacheRuntimeStatus(),
+          trackingStatus: getTrackingGatewayStatus(),
+        });
+      })
+      .catch((error) => {
+        console.error('[startup] redis initialization failed:', error?.message || error);
+      });
   } catch (error) {
     console.error('Failed to start backend:', error);
     process.exit(1);
