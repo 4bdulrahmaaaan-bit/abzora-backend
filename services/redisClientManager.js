@@ -37,6 +37,7 @@ function clearRetryTimer() {
 function markError(error) {
   lastErrorAt = Date.now();
   lastErrorMessage = String(error?.message || error || 'redis_connect_failed');
+  reconnecting = false;
 }
 
 function buildClient() {
@@ -109,7 +110,7 @@ function scheduleReconnect() {
   retryTimer = setTimeout(async () => {
     connectPromise = null;
     await ensureRedisClient();
-    if (!(sharedClient?.isOpen)) {
+    if (!(sharedClient?.isReady)) {
       scheduleReconnect();
     }
   }, backoffMs(2));
@@ -118,7 +119,7 @@ function scheduleReconnect() {
 
 async function ensureRedisClient() {
   if (isRedisDisabled()) return null;
-  if (sharedClient?.isOpen) return sharedClient;
+  if (sharedClient?.isReady) return sharedClient;
   if (connectPromise) return connectPromise;
 
   connectPromise = connectWithRetry();
@@ -134,11 +135,14 @@ async function ensureRedisClient() {
 
 function getRedisManagerStatus() {
   const config = getRedisConfigSummary();
+  const isReady = Boolean(sharedClient?.isReady);
+  const isOpen = Boolean(sharedClient?.isOpen);
   return {
     configured: config.configured && !config.disabled,
     required: config.required,
-    connected: Boolean(sharedClient?.isOpen),
-    reconnecting,
+    connected: isReady,
+    reconnecting: reconnecting || (isOpen && !isReady),
+    open: isOpen,
     lastConnectAt,
     lastErrorAt,
     lastErrorMessage,
@@ -169,4 +173,3 @@ module.exports = {
   getRedisManagerStatus,
   warmupRedisClient,
 };
-

@@ -132,6 +132,10 @@ function bindPoolEvents() {
 
   client.on('connectionCheckedOut', () => {
     poolStats.checkedOut += 1;
+    poolStats.waitQueueExited += 1;
+    if (poolStats.waitQueueExited > poolStats.waitQueueEntered) {
+      poolStats.waitQueueExited = poolStats.waitQueueEntered;
+    }
   });
   client.on('connectionCheckedIn', () => {
     poolStats.checkedIn += 1;
