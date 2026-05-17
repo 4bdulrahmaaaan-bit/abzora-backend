@@ -496,6 +496,3 @@ module.exports = {
   getQueueRuntimeStatus,
   promoteDueRetries,
 };
-  if (!allowMemoryFallback() && !(redis && redisAvailable)) {
-    return { total: Number.POSITIVE_INFINITY, bySeverity };
-  }
