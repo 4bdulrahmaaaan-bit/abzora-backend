@@ -7,6 +7,8 @@ const AnalyticsEvent = require('../models/AnalyticsEvent');
 const AdminNotification = require('../models/AdminNotification');
 const FinanceAuditLog = require('../models/FinanceAuditLog');
 const { logSecurityEvent, logSecurityWarning, logSecurityError } = require('./auditLogger');
+const telemetry = require('./telemetryContext');
+const telemetryMetrics = require('./telemetryMetrics');
 
 function nowMs() {
   return Date.now();
@@ -329,7 +331,23 @@ function createPaymentOutboxWorker(options = {}) {
 
   async function processEvent(eventDoc) {
     let heartbeatTimer = null;
-    try {
+    const traceContext = telemetry.extractContext({
+      traceContext: {
+        traceId: eventDoc?.metadata?.get?.('traceId') || eventDoc?.metadata?.traceId || '',
+        spanId: eventDoc?.metadata?.get?.('spanId') || eventDoc?.metadata?.spanId || '',
+        requestId: eventDoc?.metadata?.get?.('requestId') || eventDoc?.metadata?.requestId || '',
+      },
+    });
+    return telemetry.runWithContext(
+      telemetry.createChildContext(traceContext || {}, {
+        operation: 'payment_outbox_replay',
+        workerId: id,
+        module: 'paymentOutboxWorker',
+        jobId: String(eventDoc?.eventId || ''),
+      }),
+      async () => {
+        const started = nowMs();
+        try {
       heartbeatTimer = setInterval(() => {
         heartbeat(eventDoc).catch((error) => {
           logSecurityWarning('payment_outbox_heartbeat_failed', {
@@ -345,6 +363,9 @@ function createPaymentOutboxWorker(options = {}) {
         throw new Error('Outbox lock lost while processing event.');
       }
       await markProcessed(eventDoc);
+          telemetryMetrics.observe('outbox_replay_latency_ms', nowMs() - started, {
+            eventType: String(eventDoc?.eventType || 'unknown'),
+          });
       logSecurityEvent('payment_outbox_processed', {
         workerId: id,
         eventId: eventDoc.eventId,
@@ -361,11 +382,16 @@ function createPaymentOutboxWorker(options = {}) {
         attempts: Number(eventDoc.attempts || 0),
         message: String(error?.message || error),
       });
+          telemetryMetrics.inc('outbox_replay_retry_total', 1, {
+            eventType: String(eventDoc?.eventType || 'unknown'),
+          });
     } finally {
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
       }
     }
+      },
+    );
   }
 
   async function processOnce() {

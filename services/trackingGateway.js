@@ -21,6 +21,9 @@ const rooms = new Map(); // room -> Set(ws)
 const sockets = new Map(); // ws -> { rooms:Set<string>, uid, role, user }
 const { allowMemoryFallback, getRedisUrl, isRedisDisabled } = require('./redisRuntimeConfig');
 const { ensureRedisClient, getRedisManagerStatus } = require('./redisClientManager');
+const logger = require('./structuredLogger');
+const telemetryMetrics = require('./telemetryMetrics');
+const telemetry = require('./telemetryContext');
 
 function safeJsonParse(text) {
   try {
@@ -60,6 +63,7 @@ function removeSocket(ws) {
 }
 
 function broadcastToRooms(targetRooms = [], payload = {}) {
+  const started = Date.now();
   const delivered = new Set();
   for (const room of targetRooms) {
     const group = rooms.get(room);
@@ -71,10 +75,13 @@ function broadcastToRooms(targetRooms = [], payload = {}) {
       delivered.add(ws);
     }
   }
-  return {
+  const result = {
     roomCount: targetRooms.length,
     deliveredSockets: delivered.size,
   };
+  telemetryMetrics.observe('websocket_fanout_latency_ms', Date.now() - started, { rooms: targetRooms.length });
+  telemetryMetrics.inc('websocket_events_total', 1, { backend: redisReady ? 'redis' : 'local' });
+  return result;
 }
 
 async function ensureRedisPubSub() {
@@ -166,6 +173,7 @@ function inferRooms(event = {}) {
 }
 
 async function publishTrackingEvent(event = {}) {
+  const ctx = telemetry.getContext();
   const payload = {
     namespace: event.namespace || 'customer',
     eventType: event.eventType || 'tracking_event',
@@ -175,10 +183,15 @@ async function publishTrackingEvent(event = {}) {
     taskId: event.taskId || '',
     data: event.data || {},
     timestamp: new Date().toISOString(),
+    trace: {
+      requestId: ctx.requestId || '',
+      traceId: ctx.traceId || '',
+      spanId: ctx.spanId || '',
+    },
   };
   const targetRooms = inferRooms(event);
 
-  if (redisReady && redisPub) {
+      if (redisReady && redisPub) {
     await redisPub.publish(
       REDIS_CHANNEL,
       JSON.stringify({
@@ -370,6 +383,7 @@ function attachTrackingGateway(httpServer) {
         user: authState.user,
       };
       sockets.set(ws, state);
+      telemetryMetrics.inc('websocket_connections_total', 1, { role: state.role || 'unknown' });
 
       const guardedJoin = async (room) => {
         if (!room) return false;
@@ -423,8 +437,15 @@ function attachTrackingGateway(httpServer) {
         }
       });
 
-      ws.on('close', () => removeSocket(ws));
-      ws.on('error', () => removeSocket(ws));
+      ws.on('error', () => {
+        telemetryMetrics.inc('websocket_disconnect_total', 1, { reason: 'error' });
+        removeSocket(ws);
+      });
+      ws.on('close', (code) => {
+        telemetryMetrics.inc('websocket_disconnect_total', 1, { reason: `code_${code}` });
+        logger.info('websocket_disconnected', { module: 'trackingGateway', code, uid: state.uid, role: state.role });
+        removeSocket(ws);
+      });
     } catch (_) {
       closeUnauthorizedSocket(ws, 'Socket handshake failed.');
       removeSocket(ws);
@@ -451,6 +472,8 @@ module.exports = {
       wsEnabled: Boolean(wsServer),
       redisReady,
       redisBackend: managerStatus.connected ? 'redis' : 'unavailable',
+      activeConnections: sockets.size,
+      roomSubscriptions: rooms.size,
     };
   },
   publishTrackingEvent,

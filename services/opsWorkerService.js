@@ -2,6 +2,8 @@ const OpsAlert = require('../models/OpsAlert');
 const { enqueueAlert, dequeueAlertDetailed, getQueueControlSettings, getQueueHealth } = require('./opsQueueService');
 const { executeAlertAction } = require('./opsActionService');
 const { WORKER } = require('./opsConstants');
+const telemetry = require('./telemetryContext');
+const logger = require('./structuredLogger');
 
 let running = false;
 let inFlight = 0;
@@ -95,8 +97,17 @@ async function processSingleQueueItem() {
     return false;
   }
   const alertId = queued.alertId;
+  const baseTrace = queued.traceContext || {};
 
-  const alert = await OpsAlert.findOne({ alertId: String(alertId) });
+  return telemetry.runWithContext(
+    telemetry.createChildContext(baseTrace, {
+      operation: 'ops_worker_process_alert',
+      module: 'opsWorkerService',
+      queueName: 'opsQueue',
+      jobId: String(alertId),
+    }),
+    async () => {
+      const alert = await OpsAlert.findOne({ alertId: String(alertId) });
   if (!alert || alert.status === 'RESOLVED' || alert.status === 'FAILED') {
     return false;
   }
@@ -144,6 +155,8 @@ async function processSingleQueueItem() {
   workerHealth.processedCount += 1;
   workerHealth.lastProcessedAt = new Date().toISOString();
   return true;
+    },
+  );
 }
 
 async function workerLoopTick() {
@@ -162,7 +175,7 @@ async function workerLoopTick() {
         workerHealth.loopFailures += 1;
         workerHealth.lastErrorAt = new Date().toISOString();
         workerHealth.lastError = String(error?.message || error || 'Unknown worker loop failure');
-        console.warn('Ops worker queue item failed:', workerHealth.lastError);
+        logger.warn('ops_worker_queue_item_failed', { module: 'opsWorkerService', message: workerHealth.lastError });
       })
       .finally(() => {
         retryInFlight = Math.max(0, retryInFlight - 1);

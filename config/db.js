@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const metrics = require('../services/telemetryMetrics');
 
 let isConnected = false;
 let lifecycleEventsBound = false;
@@ -186,14 +187,19 @@ async function connectDB() {
   const options = buildMongoOptions();
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const started = nowMs();
     startupAttempts += 1;
     startupLastAttemptAt = nowMs();
     try {
       await mongoose.connect(mongoUri, options);
+      metrics.observe('mongo_connect_latency_ms', nowMs() - started, { attempt });
+      metrics.inc('mongo_connect_success_total', 1);
       isConnected = true;
       bindPoolEvents();
       return mongoose.connection;
     } catch (error) {
+      metrics.observe('mongo_connect_latency_ms', nowMs() - started, { attempt });
+      metrics.inc('mongo_connect_failure_total', 1);
       lastErrorAt = nowMs();
       lastErrorMessage = String(error?.message || error || 'mongo_connect_failed');
       logDb('error', 'mongo_connect_attempt_failed', {

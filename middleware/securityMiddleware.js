@@ -8,6 +8,8 @@ const DEFAULT_DEV_ORIGINS = [
 ];
 
 const { clientIp, logSecurityEvent, logSecurityWarning, requestId, safeString } = require('../services/auditLogger');
+const telemetry = require('../services/telemetryContext');
+const metrics = require('../services/telemetryMetrics');
 const {
   getRedisConfigSummary,
   getRedisUrl,
@@ -137,10 +139,21 @@ function enforceHttps(req, res, next) {
 }
 
 function requestContext(req, res, next) {
-  req.requestId = requestId();
+  const incoming = telemetry.parseIncomingContext(req.headers || {});
+  req.requestId = incoming.requestId || requestId();
+  req.traceId = incoming.traceId;
+  req.spanId = incoming.spanId;
   req.requestStartedAt = Date.now();
   res.setHeader('X-Request-Id', req.requestId);
-  return next();
+  res.setHeader('X-Trace-Id', req.traceId);
+  res.setHeader('traceparent', telemetry.traceparentHeader(incoming));
+  return telemetry.runWithContext({
+    requestId: req.requestId,
+    traceId: req.traceId,
+    spanId: req.spanId,
+    operation: `${req.method}:${req.path || req.originalUrl || ''}`,
+    module: 'http',
+  }, next);
 }
 
 function requestAuditLogger(req, res, next) {
@@ -158,8 +171,19 @@ function requestAuditLogger(req, res, next) {
 
   res.on('finish', () => {
     const durationMs = Date.now() - startedAt;
+    metrics.observe('http_request_latency_ms', durationMs, {
+      method: req.method,
+      route: req.route?.path || req.path || 'unknown',
+      status: res.statusCode,
+    });
+    metrics.inc('http_requests_total', 1, {
+      method: req.method,
+      status: res.statusCode,
+    });
     const payload = {
       requestId: req.requestId,
+      traceId: req.traceId,
+      spanId: req.spanId,
       method: req.method,
       path: req.originalUrl,
       statusCode: res.statusCode,

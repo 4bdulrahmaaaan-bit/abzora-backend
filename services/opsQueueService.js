@@ -7,6 +7,8 @@ const {
   isRedisRequired,
 } = require('./redisRuntimeConfig');
 const { ensureRedisClient } = require('./redisClientManager');
+const telemetry = require('./telemetryContext');
+const telemetryMetrics = require('./telemetryMetrics');
 
 const QUEUE_KEYS = {
   [ALERT_SEVERITY.CRITICAL]: 'ops:queue:critical',
@@ -98,7 +100,9 @@ function normalizeEnvelope({
   retryCount = 0,
   jobClass = 'operational',
   enqueuedAt = Date.now(),
+  traceContext = null,
 }) {
+  const currentTrace = traceContext || telemetry.getContext();
   return {
     alertId: String(alertId || '').trim(),
     severity: QUEUE_KEYS[severity] ? severity : ALERT_SEVERITY.LOW,
@@ -107,6 +111,12 @@ function normalizeEnvelope({
     retryCount: Number(retryCount || 0),
     jobClass: String(jobClass || 'operational').trim().toLowerCase(),
     enqueuedAt: Number(enqueuedAt || Date.now()),
+    traceContext: {
+      requestId: currentTrace?.requestId || '',
+      traceId: currentTrace?.traceId || '',
+      spanId: currentTrace?.spanId || '',
+      parentSpanId: currentTrace?.parentSpanId || '',
+    },
   };
 }
 
@@ -246,6 +256,7 @@ async function enqueueAlert({
   retryCount = 0,
   retryAt = 0,
   jobClass = 'operational',
+  traceContext = null,
 } = {}) {
   const queueSeverity = QUEUE_KEYS[severity] ? severity : ALERT_SEVERITY.LOW;
   const envelope = normalizeEnvelope({
@@ -255,6 +266,7 @@ async function enqueueAlert({
     isRetry,
     retryCount,
     jobClass,
+    traceContext,
   });
   if (!envelope.alertId) {
     queueMetrics.rejected += 1;
@@ -293,6 +305,7 @@ async function enqueueAlert({
       retryAt: Date.now() + numberEnv('OPS_QUEUE_DEFER_MS', 3000, 500),
       isRetry: true,
       retryCount: envelope.retryCount + 1,
+      traceContext: envelope.traceContext,
     });
   }
   if (admission.status === 'rejected') {
@@ -314,6 +327,7 @@ async function enqueueAlert({
     return { accepted: false, state: 'rejected', reason: 'redis_required_unavailable' };
   }
   queueMetrics.enqueued += 1;
+  telemetryMetrics.inc('ops_queue_enqueued_total', 1, { severity: queueSeverity });
   return { accepted: true, state: 'enqueued', reason: admission.reason };
 }
 
@@ -383,6 +397,7 @@ async function dequeueAlertDetailed() {
       if (envelope) {
         queueMetrics.dequeued += 1;
         const lag = Math.max(0, Date.now() - Number(envelope.enqueuedAt || Date.now()));
+        telemetryMetrics.observe('ops_queue_lag_ms', lag, { severity });
         queueMetrics.dequeueLagMsTotal += lag;
         queueMetrics.dequeueLagSamples += 1;
         return envelope;

@@ -14,6 +14,8 @@
     "test:mongo-resilience": "node tests/mongo-resilience.test.js",
     "test:ops-queue-backpressure": "node tests/ops-queue-backpressure.test.js",
     "test:webhook-ingest": "node tests/payment-webhook-ingest.test.js",
+    "test:telemetry-tracing": "node tests/telemetry-trace-propagation.test.js",
+    "test:telemetry-logging": "node tests/structured-logging-redaction.test.js",
     "test:k8s-safety": "node tests/k8s-manifests-safety.test.js",
     "test:dr-safety": "node tests/backup-dr-runbook-safety.test.js",
     "ops:verify-backup-readiness": "node scripts/verifyBackupReadiness.js"

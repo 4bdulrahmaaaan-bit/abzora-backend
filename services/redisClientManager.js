@@ -4,6 +4,7 @@ const {
   getRedisUrl,
   isRedisDisabled,
 } = require('./redisRuntimeConfig');
+const metrics = require('./telemetryMetrics');
 
 let sharedClient = null;
 let connectPromise = null;
@@ -80,6 +81,7 @@ async function connectWithRetry(maxAttempts = numberEnv('REDIS_CONNECT_INIT_MAX_
   }
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const started = Date.now();
     try {
       if (!sharedClient) {
         sharedClient = buildClient();
@@ -87,9 +89,13 @@ async function connectWithRetry(maxAttempts = numberEnv('REDIS_CONNECT_INIT_MAX_
       if (!sharedClient) return null;
       await sharedClient.connect();
       lastConnectAt = Date.now();
+      metrics.observe('redis_connect_latency_ms', Date.now() - started, { attempt });
+      metrics.inc('redis_connect_success_total', 1);
       return sharedClient;
     } catch (error) {
       markError(error);
+      metrics.observe('redis_connect_latency_ms', Date.now() - started, { attempt });
+      metrics.inc('redis_connect_failure_total', 1);
       try {
         await sharedClient?.quit();
       } catch (_) {

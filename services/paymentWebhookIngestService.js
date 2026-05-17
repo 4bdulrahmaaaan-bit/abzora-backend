@@ -3,6 +3,8 @@ const os = require('os');
 
 const PaymentWebhookIngestEvent = require('../models/PaymentWebhookIngestEvent');
 const { logSecurityEvent, logSecurityWarning, logSecurityError } = require('./auditLogger');
+const telemetry = require('./telemetryContext');
+const metricsTelemetry = require('./telemetryMetrics');
 
 function nowMs() {
   return Date.now();
@@ -46,6 +48,7 @@ async function persistWebhookIngestEvent({
   payload,
   metadata = {},
 }) {
+  const context = telemetry.getContext();
   const ingestId = buildIngestId(source, eventId);
   try {
     await PaymentWebhookIngestEvent.create({
@@ -55,7 +58,12 @@ async function persistWebhookIngestEvent({
       eventId: String(eventId || '').trim(),
       payloadHash: hashPayload(rawBody),
       payload,
-      metadata: Object.fromEntries(Object.entries(metadata).map(([k, v]) => [k, String(v ?? '')])),
+      metadata: Object.fromEntries(Object.entries({
+        ...metadata,
+        traceId: context.traceId || '',
+        spanId: context.spanId || '',
+        requestId: context.requestId || '',
+      }).map(([k, v]) => [k, String(v ?? '')])),
     });
     return { ingestId, duplicate: false };
   } catch (error) {
@@ -216,7 +224,23 @@ function createPaymentWebhookIngestWorker(options = {}) {
   }
 
   async function processOne(eventDoc) {
-    try {
+    const traceContext = telemetry.extractContext({
+      traceContext: {
+        traceId: eventDoc?.metadata?.get?.('traceId') || eventDoc?.metadata?.traceId || '',
+        spanId: eventDoc?.metadata?.get?.('spanId') || eventDoc?.metadata?.spanId || '',
+        requestId: eventDoc?.metadata?.get?.('requestId') || eventDoc?.metadata?.requestId || '',
+      },
+    });
+    return telemetry.runWithContext(
+      telemetry.createChildContext(traceContext || {}, {
+        operation: 'payment_webhook_ingest_process',
+        workerId: id,
+        module: 'paymentWebhookIngestService',
+        jobId: String(eventDoc?.ingestId || ''),
+      }),
+      async () => {
+        const opStart = nowMs();
+        try {
       if (!(await heartbeat(eventDoc))) {
         throw new Error('ingest_lock_lost');
       }
@@ -225,6 +249,7 @@ function createPaymentWebhookIngestWorker(options = {}) {
         throw new Error('ingest_lock_lost');
       }
       await markProcessed(eventDoc);
+          metricsTelemetry.observe('webhook_ingest_latency_ms', nowMs() - opStart, { event: eventDoc.event || 'unknown' });
     } catch (error) {
       await markRetry(eventDoc, error);
       logSecurityWarning('payment_webhook_ingest_retry', {
@@ -233,7 +258,10 @@ function createPaymentWebhookIngestWorker(options = {}) {
         webhookEvent: eventDoc.event,
         message: String(error?.message || error),
       });
+          metricsTelemetry.inc('webhook_ingest_retry_total', 1, { event: eventDoc.event || 'unknown' });
     }
+      },
+    );
   }
 
   async function processBatch() {

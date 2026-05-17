@@ -109,6 +109,9 @@ const {
   getRedisManagerStatus,
   warmupRedisClient,
 } = require('./services/redisClientManager');
+const { getLoggerHealth } = require('./services/structuredLogger');
+const telemetryMetrics = require('./services/telemetryMetrics');
+const logger = require('./services/structuredLogger');
 const { getOrderEta } = require('./controllers/dispatchController');
 const { getOutboxMetrics, getOutboxWorkerHealth } = require('./controllers/outboxOpsController');
 const { getWebhookIngestHealth, getWebhookIngestMetrics } = require('./controllers/webhookIngestOpsController');
@@ -250,6 +253,7 @@ app.get('/health/ready', async (req, res) => {
   const financeStatus = getFinanceCronStatus();
   const trackingStatus = getTrackingGatewayStatus();
   const pricingStatus = getPricingGatewayStatus();
+  const loggerHealth = getLoggerHealth();
 
   const redisRequired = process.env.NODE_ENV === 'production'
     && String(process.env.REDIS_REQUIRED || 'true').trim().toLowerCase() === 'true';
@@ -284,6 +288,18 @@ app.get('/health/ready', async (req, res) => {
       financeStatus,
       trackingStatus,
       pricingStatus,
+      telemetry: {
+        tracing: {
+          asyncContextEnabled: true,
+          redisTraceBacklog: Number(redisManager.reconnecting ? 1 : 0),
+        },
+        logger: loggerHealth,
+        exporter: {
+          otelCompatible: true,
+          mode: 'logs+context',
+          status: 'ready',
+        },
+      },
       opsStatus: {
         detectionRunning: opsStatus.detectionRunning,
         escalationRunning: opsStatus.escalationRunning,
@@ -325,6 +341,23 @@ app.get(
   authMiddleware,
   requireAdmin,
   getWebhookIngestMetrics,
+);
+
+app.get(
+  '/metrics/telemetry',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  (req, res) => {
+    res.status(200).json({
+      success: true,
+      data: {
+        logger: getLoggerHealth(),
+        redisTracing: getRedisManagerStatus(),
+        metrics: telemetryMetrics.snapshot(),
+      },
+    });
+  },
 );
 
 app.get('/', (req, res) => {
@@ -419,6 +452,8 @@ app.use((error, req, res, next) => {
   });
   logSecurityError('backend_error', {
     requestId: req.requestId,
+    traceId: req.traceId,
+    spanId: req.spanId,
     path: req.originalUrl,
     method: req.method,
     ip: clientIp(req),
@@ -467,7 +502,7 @@ async function startServer() {
     attachTrackingGateway(httpServer);
     attachPricingGateway(httpServer);
     httpServer.listen(port, host, () => {
-      console.log(`ABZORA backend running on ${host}:${port}`);
+      logger.info('backend_started', { module: 'server', host, port });
     });
 
     // Do not block port binding on Redis warmup; readiness endpoint gates traffic.
@@ -482,20 +517,20 @@ async function startServer() {
           initializeTrackingRedis(),
         ]);
         const redisConfig = getRedisConfigSummary();
-        console.log('[startup] redis.config', redisConfig);
-        console.log('[startup] redis.subsystems', {
+        logger.info('startup_redis_config', { module: 'server', redisConfig });
+        logger.info('startup_redis_subsystems', { module: 'server', subsystems: {
           rateLimiterRedis: getRateLimiterRedisStatus(),
           lockRuntime: getOpsLockRuntimeStatus(),
           queueRuntime: getQueueRuntimeStatus(),
           cacheRuntime: getCacheRuntimeStatus(),
           trackingStatus: getTrackingGatewayStatus(),
-        });
+        } });
       })
       .catch((error) => {
-        console.error('[startup] redis initialization failed:', error?.message || error);
+        logger.error('startup_redis_initialization_failed', { module: 'server', message: error?.message || String(error) });
       });
   } catch (error) {
-    console.error('Failed to start backend:', error);
+    logger.error('backend_start_failed', { module: 'server', message: error?.message || String(error) });
     process.exit(1);
   }
 }
@@ -507,10 +542,10 @@ async function gracefulShutdown(signal) {
     return;
   }
   shuttingDown = true;
-  console.log(`Received ${signal}. Starting graceful shutdown.`);
+  logger.info('graceful_shutdown_started', { module: 'server', signal });
 
   const forceExitTimer = setTimeout(() => {
-    console.error('Graceful shutdown timeout reached. Forcing exit.');
+    logger.error('graceful_shutdown_timeout', { module: 'server' });
     process.exit(1);
   }, Number(process.env.GRACEFUL_SHUTDOWN_TIMEOUT_MS || 30000));
   forceExitTimer.unref?.();
@@ -542,7 +577,7 @@ async function gracefulShutdown(signal) {
     process.exit(0);
   } catch (error) {
     clearTimeout(forceExitTimer);
-    console.error('Graceful shutdown failed:', error);
+    logger.error('graceful_shutdown_failed', { module: 'server', message: error?.message || String(error) });
     process.exit(1);
   }
 }
@@ -553,5 +588,20 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   gracefulShutdown('SIGINT');
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('process_unhandled_rejection', {
+    module: 'server',
+    message: reason?.message || String(reason),
+  });
+});
+
+process.on('uncaughtException', (error) => {
+  logger.error('process_uncaught_exception', {
+    module: 'server',
+    message: error?.message || String(error),
+    stack: process.env.NODE_ENV === 'production' ? '' : String(error?.stack || ''),
+  });
 });
 

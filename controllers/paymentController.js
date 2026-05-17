@@ -14,6 +14,7 @@ const {
 } = require('./orderController');
 const { claimWebhookDelivery } = require('../services/webhookLockService');
 const { persistWebhookIngestEvent } = require('../services/paymentWebhookIngestService');
+const telemetry = require('../services/telemetryContext');
 
 function nowIso() {
   return new Date().toISOString();
@@ -244,6 +245,11 @@ async function handlePaymentCaptured(paymentEntity) {
           payload: {
             razorpayOrderId,
             razorpayPaymentId,
+          },
+          metadata: {
+            traceId: telemetry.getContext().traceId || '',
+            spanId: telemetry.getContext().spanId || '',
+            requestId: telemetry.getContext().requestId || '',
           },
         }],
         { session },

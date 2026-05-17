@@ -12,6 +12,7 @@ const RefundRequest = require('../models/RefundRequest');
 const ReturnRequest = require('../models/ReturnRequest');
 const Transaction = require('../models/Transaction');
 const PaymentOutboxEvent = require('../models/PaymentOutboxEvent');
+const telemetry = require('../services/telemetryContext');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
 const { generatePremiumInvoicePdf } = require('../services/invoicePdfService');
 const { recordTrackingEvent } = require('../services/trackingEventService');
@@ -2615,6 +2616,11 @@ async function verifyPayment(req, res, next) {
               payload: {
                 razorpayOrderId,
                 razorpayPaymentId,
+              },
+              metadata: {
+                traceId: telemetry.getContext().traceId || '',
+                spanId: telemetry.getContext().spanId || '',
+                requestId: telemetry.getContext().requestId || '',
               },
             }],
             { session },
