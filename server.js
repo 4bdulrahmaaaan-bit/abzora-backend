@@ -112,6 +112,7 @@ const {
 const { getLoggerHealth } = require('./services/structuredLogger');
 const telemetryMetrics = require('./services/telemetryMetrics');
 const logger = require('./services/structuredLogger');
+const { getOtelHealth, shutdownOpenTelemetry, startOpenTelemetry } = require('./services/otelService');
 const { getOrderEta } = require('./controllers/dispatchController');
 const { getOutboxMetrics, getOutboxWorkerHealth } = require('./controllers/outboxOpsController');
 const { getWebhookIngestHealth, getWebhookIngestMetrics } = require('./controllers/webhookIngestOpsController');
@@ -254,6 +255,7 @@ app.get('/health/ready', async (req, res) => {
   const trackingStatus = getTrackingGatewayStatus();
   const pricingStatus = getPricingGatewayStatus();
   const loggerHealth = getLoggerHealth();
+  const otelHealth = getOtelHealth();
 
   const redisRequired = process.env.NODE_ENV === 'production'
     && String(process.env.REDIS_REQUIRED || 'true').trim().toLowerCase() === 'true';
@@ -294,11 +296,8 @@ app.get('/health/ready', async (req, res) => {
           redisTraceBacklog: Number(redisManager.reconnecting ? 1 : 0),
         },
         logger: loggerHealth,
-        exporter: {
-          otelCompatible: true,
-          mode: 'logs+context',
-          status: 'ready',
-        },
+        exporter: otelHealth.exporter,
+        openTelemetry: otelHealth,
       },
       opsStatus: {
         detectionRunning: opsStatus.detectionRunning,
@@ -354,6 +353,7 @@ app.get(
       data: {
         logger: getLoggerHealth(),
         redisTracing: getRedisManagerStatus(),
+        openTelemetry: getOtelHealth(),
         metrics: telemetryMetrics.snapshot(),
       },
     });
@@ -469,6 +469,7 @@ app.use((error, req, res, next) => {
 
 async function startServer() {
   try {
+    await startOpenTelemetry();
     await connectDB();
     initializeFirebase();
     scheduleFinanceCrons();
@@ -572,6 +573,7 @@ async function gracefulShutdown(signal) {
       closeRedisCacheClient(),
     ]);
     await closeRedisClientManager();
+    await shutdownOpenTelemetry();
     await closeDBConnection();
     clearTimeout(forceExitTimer);
     process.exit(0);

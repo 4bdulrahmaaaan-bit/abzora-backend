@@ -9,6 +9,7 @@ const {
 const { ensureRedisClient } = require('./redisClientManager');
 const telemetry = require('./telemetryContext');
 const telemetryMetrics = require('./telemetryMetrics');
+const otel = require('./otelService');
 
 const QUEUE_KEYS = {
   [ALERT_SEVERITY.CRITICAL]: 'ops:queue:critical',
@@ -258,30 +259,36 @@ async function enqueueAlert({
   jobClass = 'operational',
   traceContext = null,
 } = {}) {
-  const queueSeverity = QUEUE_KEYS[severity] ? severity : ALERT_SEVERITY.LOW;
-  const envelope = normalizeEnvelope({
-    alertId,
-    severity: queueSeverity,
-    tenantKey,
-    isRetry,
-    retryCount,
-    jobClass,
-    traceContext,
+  const span = otel.startSpan('ops.queue.enqueue', {
+    'abzora.flow': 'ops_queue',
+    'abzora.severity': String(severity || 'LOW'),
   });
-  if (!envelope.alertId) {
-    queueMetrics.rejected += 1;
-    return { accepted: false, state: 'rejected', reason: 'missing_alert_id' };
-  }
+  const started = Date.now();
+  try {
+    const queueSeverity = QUEUE_KEYS[severity] ? severity : ALERT_SEVERITY.LOW;
+    const envelope = normalizeEnvelope({
+      alertId,
+      severity: queueSeverity,
+      tenantKey,
+      isRetry,
+      retryCount,
+      jobClass,
+      traceContext,
+    });
+    if (!envelope.alertId) {
+      queueMetrics.rejected += 1;
+      return { accepted: false, state: 'rejected', reason: 'missing_alert_id' };
+    }
 
-  const redis = await ensureRedis();
-  const limits = queueLimits();
+    const redis = await ensureRedis();
+    const limits = queueLimits();
 
-  if (!(await tenantAllowed(redis, envelope.tenantKey, limits))) {
-    queueMetrics.rejected += 1;
-    return { accepted: false, state: 'rejected', reason: 'tenant_throttled' };
-  }
+    if (!(await tenantAllowed(redis, envelope.tenantKey, limits))) {
+      queueMetrics.rejected += 1;
+      return { accepted: false, state: 'rejected', reason: 'tenant_throttled' };
+    }
 
-  if (Number(retryAt || 0) > Date.now()) {
+    if (Number(retryAt || 0) > Date.now()) {
     const scheduledAt = Number(retryAt || 0) + jitterMs(numberEnv('OPS_QUEUE_RETRY_JITTER_MS', 750, 0));
     const payload = JSON.stringify(envelope);
     if (redis && redisAvailable) {
@@ -292,13 +299,13 @@ async function enqueueAlert({
       queueMetrics.rejected += 1;
       return { accepted: false, state: 'rejected', reason: 'redis_required_unavailable' };
     }
-    queueMetrics.retryScheduled += 1;
-    return { accepted: true, state: 'retry_scheduled', reason: '' };
-  }
+      queueMetrics.retryScheduled += 1;
+      return { accepted: true, state: 'retry_scheduled', reason: '' };
+    }
 
-  const depth = await currentDepthBySeverity(redis);
-  const admission = decideAdmission(envelope, depth, limits);
-  if (admission.status === 'deferred') {
+    const depth = await currentDepthBySeverity(redis);
+    const admission = decideAdmission(envelope, depth, limits);
+    if (admission.status === 'deferred') {
     queueMetrics.deferred += 1;
     return enqueueAlert({
       ...envelope,
@@ -307,28 +314,32 @@ async function enqueueAlert({
       retryCount: envelope.retryCount + 1,
       traceContext: envelope.traceContext,
     });
-  }
-  if (admission.status === 'rejected') {
+    }
+    if (admission.status === 'rejected') {
     queueMetrics.rejected += 1;
     return { accepted: false, state: 'rejected', reason: admission.reason };
-  }
-  if (admission.status === 'dropped') {
+    }
+    if (admission.status === 'dropped') {
     queueMetrics.dropped += 1;
     return { accepted: false, state: 'dropped', reason: admission.reason };
-  }
+    }
 
-  const payload = JSON.stringify(envelope);
-  if (redis && redisAvailable) {
+    const payload = JSON.stringify(envelope);
+    if (redis && redisAvailable) {
     await redis.rPush(QUEUE_KEYS[queueSeverity], payload);
-  } else if (allowMemoryFallback()) {
+    } else if (allowMemoryFallback()) {
     localQueue[queueSeverity].push(payload);
-  } else {
+    } else {
     queueMetrics.rejected += 1;
     return { accepted: false, state: 'rejected', reason: 'redis_required_unavailable' };
+    }
+    queueMetrics.enqueued += 1;
+    telemetryMetrics.inc('ops_queue_enqueued_total', 1, { severity: queueSeverity });
+    return { accepted: true, state: 'enqueued', reason: admission.reason };
+  } finally {
+    span.setAttribute('abzora.latency_ms', Date.now() - started);
+    span.end();
   }
-  queueMetrics.enqueued += 1;
-  telemetryMetrics.inc('ops_queue_enqueued_total', 1, { severity: queueSeverity });
-  return { accepted: true, state: 'enqueued', reason: admission.reason };
 }
 
 async function promoteDueRetries(limit = queueLimits().retryPromotePerTick) {
@@ -366,6 +377,8 @@ async function promoteDueRetries(limit = queueLimits().retryPromotePerTick) {
 }
 
 async function dequeueAlertDetailed() {
+  const span = otel.startSpan('ops.queue.dequeue', { 'abzora.flow': 'ops_queue' });
+  const started = Date.now();
   await promoteDueRetries(queueLimits().retryPromotePerTick);
   const ordered = [ALERT_SEVERITY.CRITICAL, ALERT_SEVERITY.HIGH, ALERT_SEVERITY.MEDIUM, ALERT_SEVERITY.LOW];
   const redis = await ensureRedis();
@@ -380,10 +393,14 @@ async function dequeueAlertDetailed() {
           const lag = Math.max(0, Date.now() - Number(envelope.enqueuedAt || Date.now()));
           queueMetrics.dequeueLagMsTotal += lag;
           queueMetrics.dequeueLagSamples += 1;
+          span.setAttribute('abzora.latency_ms', Date.now() - started);
+          span.end();
           return envelope;
         }
       }
     }
+    span.setAttribute('abzora.latency_ms', Date.now() - started);
+    span.end();
     return null;
   }
 
@@ -400,10 +417,14 @@ async function dequeueAlertDetailed() {
         telemetryMetrics.observe('ops_queue_lag_ms', lag, { severity });
         queueMetrics.dequeueLagMsTotal += lag;
         queueMetrics.dequeueLagSamples += 1;
+        span.setAttribute('abzora.latency_ms', Date.now() - started);
+        span.end();
         return envelope;
       }
     }
   }
+  span.setAttribute('abzora.latency_ms', Date.now() - started);
+  span.end();
   return null;
 }
 

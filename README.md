@@ -122,6 +122,39 @@ npm start
 8. Set `AUTH_MAX_SESSION_AGE_MINUTES` so users must re-authenticate periodically
 9. Keep `ENABLE_TEST_AUTH_ROUTES=false` in every non-local environment
 10. Keep `REDIS_REQUIRED=true` and `RATE_LIMIT_FAIL_CLOSED=true` in production so abuse controls fail closed when Redis is unavailable
+
+## OpenTelemetry rollout
+
+The backend supports OpenTelemetry with production-safe defaults and keeps existing custom telemetry context.
+
+Required environment variables:
+
+- `OTEL_ENABLED=true|false` (default `false`)
+- `OTEL_SERVICE_NAME=abzora-backend`
+- `OTEL_EXPORTER_PROTOCOL=http|grpc|console` (default `http`)
+- `OTEL_EXPORTER_OTLP_ENDPOINT=https://<otel-endpoint>/v1/traces` (HTTP) or `host:4317` (gRPC)
+- `OTEL_SAMPLING_RATIO=0.0..1.0` (recommended `0.10` to `0.25` in production)
+
+Recommended production baseline:
+
+```bash
+OTEL_ENABLED=true
+OTEL_SERVICE_NAME=abzora-backend
+OTEL_EXPORTER_PROTOCOL=http
+OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo.monitoring.svc.cluster.local:4318/v1/traces
+OTEL_SAMPLING_RATIO=0.15
+```
+
+Kubernetes env wiring guidance:
+
+- Add OTEL env vars to API/worker/websocket deployments in ConfigMap or Secret.
+- Use staging first with low sampling (`0.05`) and verify `/health/ready` telemetry.openTelemetry status.
+- Keep exporters non-blocking; request paths must not wait for export completion.
+
+Tempo/Jaeger compatibility:
+
+- OTLP HTTP endpoint works with Grafana Tempo collector (`:4318/v1/traces`).
+- OTLP gRPC works with Tempo/Jaeger collectors supporting `:4317`.
 11. Configure Mongo pool and retry env vars (`MONGO_MAX_POOL_SIZE`, `MONGO_MIN_POOL_SIZE`, `MONGO_CONNECT_MAX_ATTEMPTS`, etc.) for your pod count and workload burst profile
 
 ### MongoDB Atlas

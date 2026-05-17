@@ -9,6 +9,7 @@ const FinanceAuditLog = require('../models/FinanceAuditLog');
 const { logSecurityEvent, logSecurityWarning, logSecurityError } = require('./auditLogger');
 const telemetry = require('./telemetryContext');
 const telemetryMetrics = require('./telemetryMetrics');
+const otel = require('./otelService');
 
 function nowMs() {
   return Date.now();
@@ -347,6 +348,10 @@ function createPaymentOutboxWorker(options = {}) {
       }),
       async () => {
         const started = nowMs();
+        const span = otel.startSpan('outbox.replay.process', {
+          'abzora.flow': 'outbox_replay',
+          'abzora.event_type': String(eventDoc?.eventType || 'unknown'),
+        });
         try {
       heartbeatTimer = setInterval(() => {
         heartbeat(eventDoc).catch((error) => {
@@ -372,7 +377,7 @@ function createPaymentOutboxWorker(options = {}) {
         eventType: eventDoc.eventType,
         orderId: eventDoc.orderId,
       });
-    } catch (error) {
+        } catch (error) {
       metrics.targetReplayFailures += 1;
       await markRetry(eventDoc, error);
       logSecurityWarning('payment_outbox_retry_scheduled', {
@@ -386,6 +391,8 @@ function createPaymentOutboxWorker(options = {}) {
             eventType: String(eventDoc?.eventType || 'unknown'),
           });
     } finally {
+      span.setAttribute('abzora.latency_ms', nowMs() - started);
+      span.end();
       if (heartbeatTimer) {
         clearInterval(heartbeatTimer);
       }

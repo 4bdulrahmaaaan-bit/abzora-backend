@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { AsyncLocalStorage } = require('async_hooks');
+const { getSpanContext } = require('./otelService');
 
 const store = new AsyncLocalStorage();
 
@@ -58,7 +59,14 @@ function runWithContext(context, fn) {
 }
 
 function getContext() {
-  return store.getStore() || createChildContext({});
+  const local = store.getStore() || createChildContext({});
+  const otel = getSpanContext();
+  if (!otel) return local;
+  return {
+    ...local,
+    traceId: local.traceId || otel.traceId || '',
+    spanId: local.spanId || otel.spanId || '',
+  };
 }
 
 function withSpan(patch, fn) {
@@ -110,4 +118,3 @@ module.exports = {
   traceparentHeader,
   withSpan,
 };
-

@@ -10,6 +10,7 @@ const DEFAULT_DEV_ORIGINS = [
 const { clientIp, logSecurityEvent, logSecurityWarning, requestId, safeString } = require('../services/auditLogger');
 const telemetry = require('../services/telemetryContext');
 const metrics = require('../services/telemetryMetrics');
+const otel = require('../services/otelService');
 const {
   getRedisConfigSummary,
   getRedisUrl,
@@ -147,13 +148,27 @@ function requestContext(req, res, next) {
   res.setHeader('X-Request-Id', req.requestId);
   res.setHeader('X-Trace-Id', req.traceId);
   res.setHeader('traceparent', telemetry.traceparentHeader(incoming));
-  return telemetry.runWithContext({
-    requestId: req.requestId,
-    traceId: req.traceId,
-    spanId: req.spanId,
-    operation: `${req.method}:${req.path || req.originalUrl || ''}`,
-    module: 'http',
-  }, next);
+  const extracted = otel.setActiveContextFromCarrier(req.headers || {});
+  return otel.runWithOtelContext(extracted, () => {
+    const span = otel.startSpan('http.request', {
+      'http.method': req.method,
+      'http.route': req.path || req.originalUrl || '',
+      'abzora.request_id': req.requestId,
+    });
+    return telemetry.runWithContext({
+      requestId: req.requestId,
+      traceId: req.traceId,
+      spanId: req.spanId,
+      operation: `${req.method}:${req.path || req.originalUrl || ''}`,
+      module: 'http',
+    }, () => {
+      res.on('finish', () => {
+        span.setAttribute('http.status_code', res.statusCode);
+        span.end();
+      });
+      return next();
+    });
+  });
 }
 
 function requestAuditLogger(req, res, next) {

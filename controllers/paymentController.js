@@ -15,6 +15,7 @@ const {
 const { claimWebhookDelivery } = require('../services/webhookLockService');
 const { persistWebhookIngestEvent } = require('../services/paymentWebhookIngestService');
 const telemetry = require('../services/telemetryContext');
+const otel = require('../services/otelService');
 
 function nowIso() {
   return new Date().toISOString();
@@ -129,6 +130,12 @@ async function recordPaymentWebhookAudit({
 }
 
 async function handlePaymentCaptured(paymentEntity) {
+  const span = otel.startSpan('payment.captured.process', {
+    'abzora.flow': 'payment',
+    'abzora.event': 'payment.captured',
+  });
+  const startedAt = Date.now();
+  try {
   const razorpayOrderId = paymentEntity?.order_id?.toString() || '';
   const razorpayPaymentId = paymentEntity?.id?.toString() || '';
   const appOrderId = paymentEntity?.notes?.appOrderId?.toString() || '';
@@ -205,6 +212,7 @@ async function handlePaymentCaptured(paymentEntity) {
   const session = await mongoose.startSession();
   try {
     await session.withTransaction(async () => {
+      span.addEvent('mongo.transaction.started');
       // Security hardening: webhook capture state and stock mutation are atomic.
       const txOrder = await Order.findById(order._id).session(session);
       if (!txOrder) {
@@ -254,6 +262,7 @@ async function handlePaymentCaptured(paymentEntity) {
         }],
         { session },
       );
+      span.addEvent('mongo.transaction.committed_intent');
       order = txOrder;
     });
   } finally {
@@ -296,6 +305,10 @@ async function handlePaymentCaptured(paymentEntity) {
     }
   }
   return order;
+  } finally {
+    span.setAttribute('abzora.latency_ms', Date.now() - startedAt);
+    span.end();
+  }
 }
 
 async function handlePaymentFailed(paymentEntity) {
@@ -505,6 +518,10 @@ async function verifyPaymentSignature(req, res, next) {
 }
 
 async function handleRazorpayWebhook(req, res, next) {
+  const span = otel.startSpan('webhook.razorpay.verify_and_enqueue', {
+    'abzora.flow': 'webhook',
+  });
+  const startedAt = Date.now();
   try {
     const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body || {}));
     const signature = req.headers['x-razorpay-signature'];
@@ -521,6 +538,7 @@ async function handleRazorpayWebhook(req, res, next) {
     }
 
     const payload = JSON.parse(rawBody.toString('utf8'));
+    span.setAttribute('abzora.webhook_event', String(payload?.event || 'unknown'));
     const eventId = payload?.payload?.payment?.entity?.id
       || payload?.payload?.refund?.entity?.id
       || payload?.created_at
@@ -572,6 +590,9 @@ async function handleRazorpayWebhook(req, res, next) {
       return res.status(503).json({ success: false, message: 'Webhook ingest unavailable. Retry later.' });
     }
     return next(error);
+  } finally {
+    span.setAttribute('abzora.latency_ms', Date.now() - startedAt);
+    span.end();
   }
 }
 
@@ -605,6 +626,10 @@ function validateWebhookSchema(event, payload) {
 }
 
 async function processPaymentWebhookIngestEvent(eventDoc) {
+  const span = otel.startSpan('webhook.ingest.process', {
+    'abzora.flow': 'webhook_ingest',
+    'abzora.event': String(eventDoc?.event || 'unknown'),
+  });
   const ingestId = String(eventDoc?.ingestId || '');
   const event = String(eventDoc?.event || '');
   const payload = eventDoc?.payload || {};
@@ -612,6 +637,8 @@ async function processPaymentWebhookIngestEvent(eventDoc) {
   // Replay-safe: skip if this ingest item already marked processed elsewhere.
   const existing = await PaymentWebhookIngestEvent.findOne({ ingestId }).select('status').lean();
   if (existing && existing.status === 'processed') {
+    span.addEvent('duplicate_skip');
+    span.end();
     return { skippedDuplicate: true };
   }
 
@@ -628,6 +655,7 @@ async function processPaymentWebhookIngestEvent(eventDoc) {
       metadata: { event, ingestId },
     });
   }
+  span.end();
   return { processed: true };
 }
 
