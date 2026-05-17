@@ -8,6 +8,13 @@ const DEFAULT_DEV_ORIGINS = [
 ];
 
 const { clientIp, logSecurityEvent, logSecurityWarning, requestId, safeString } = require('../services/auditLogger');
+const {
+  getRedisConfigSummary,
+  getRedisUrl,
+  isRedisDisabled,
+  isRedisRequired,
+} = require('../services/redisRuntimeConfig');
+const { ensureRedisClient } = require('../services/redisClientManager');
 
 let redisLimiterClient = null;
 let redisLimiterAvailable = false;
@@ -15,6 +22,9 @@ let redisLimiterAvailable = false;
 function failClosedRateLimitOnRedisDown() {
   // Security hardening: production can reject requests when distributed limiter is unavailable
   // to prevent abuse bypass across horizontally scaled instances.
+  if (isRedisRequired()) {
+    return true;
+  }
   if (process.env.NODE_ENV === 'production') {
     return String(process.env.RATE_LIMIT_FAIL_CLOSED || 'true').trim().toLowerCase() !== 'false';
   }
@@ -22,22 +32,28 @@ function failClosedRateLimitOnRedisDown() {
 }
 
 async function ensureRedisLimiterClient() {
-  if (redisLimiterClient || process.env.REDIS_DISABLED === 'true') {
+  if (redisLimiterClient || isRedisDisabled()) {
     return redisLimiterClient;
   }
-  const redisUrl = process.env.REDIS_URL || '';
+  const redisUrl = getRedisUrl();
   if (!redisUrl) {
+    if (isRedisRequired()) {
+      logSecurityWarning('rate_limiter_redis_required_missing_url', {});
+    }
     return null;
   }
   try {
-    // Lazy require keeps local/dev environments working even without redis package.
-    // eslint-disable-next-line global-require
-    const { createClient } = require('redis');
-    redisLimiterClient = createClient({ url: redisUrl });
+    redisLimiterClient = await ensureRedisClient();
+    if (!redisLimiterClient) {
+      redisLimiterAvailable = false;
+      return null;
+    }
     redisLimiterClient.on('error', () => {
       redisLimiterAvailable = false;
     });
-    await redisLimiterClient.connect();
+    redisLimiterClient.on('ready', () => {
+      redisLimiterAvailable = true;
+    });
     redisLimiterAvailable = true;
     return redisLimiterClient;
   } catch (_) {
@@ -279,9 +295,12 @@ function createRateLimiter({
 }
 
 function getRateLimiterRedisStatus() {
+  const config = getRedisConfigSummary();
   return {
-    configured: Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== 'true',
-    connected: Boolean(redisLimiterClient) && redisLimiterAvailable,
+    configured: config.configured && !config.disabled,
+    required: config.required,
+    connected: Boolean(redisLimiterClient?.isOpen) && redisLimiterAvailable,
+    backend: (Boolean(redisLimiterClient) && redisLimiterAvailable) ? 'redis' : 'unavailable',
   };
 }
 
@@ -289,17 +308,14 @@ async function closeRateLimiterRedisClient() {
   if (!redisLimiterClient) {
     return;
   }
-  try {
-    await redisLimiterClient.quit();
-  } catch (_) {
-    // Security hardening: shutdown should continue even if redis quit errors.
-  } finally {
-    redisLimiterClient = null;
-    redisLimiterAvailable = false;
-  }
+  redisLimiterClient = null;
+  redisLimiterAvailable = false;
 }
 
 module.exports = {
+  async initializeRateLimiterRedis() {
+    await ensureRedisLimiterClient();
+  },
   closeRateLimiterRedisClient,
   createCorsOptions,
   createRateLimiter,

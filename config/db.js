@@ -212,10 +212,14 @@ function getMongoHealth() {
   const maxPoolSize = Number(poolStats.maxPoolSize || options.maxPoolSize || 1);
   const saturationRatio = maxPoolSize > 0 ? (poolStats.checkedOut / maxPoolSize) : 0;
   const saturationThreshold = Number(process.env.MONGO_POOL_SATURATION_THRESHOLD || 0.95);
+  const pressureThreshold = Number(process.env.MONGO_POOL_PRESSURE_THRESHOLD || 0.8);
   const recentTimeoutWindowMs = numberEnv('MONGO_POOL_TIMEOUT_WINDOW_MS', 30000, { min: 1000, max: 300000 });
   const hadRecentCheckoutTimeout = poolStats.recentlyTimedOutAt > 0
     && (nowMs() - poolStats.recentlyTimedOutAt) <= recentTimeoutWindowMs;
-  const poolExhausted = saturationRatio >= saturationThreshold || hadRecentCheckoutTimeout;
+  const waitQueueDepthApprox = Math.max(0, Number(poolStats.waitQueueEntered || 0) - Number(poolStats.waitQueueExited || 0));
+  const underLivePressure = saturationRatio >= pressureThreshold || waitQueueDepthApprox > 5;
+  // Do not mark pool exhausted based only on stale timeout telemetry after pressure recovers.
+  const poolExhausted = saturationRatio >= saturationThreshold || (hadRecentCheckoutTimeout && underLivePressure);
 
   return {
     readyState: mongoose.connection.readyState,
@@ -232,6 +236,9 @@ function getMongoHealth() {
       ...poolStats,
       saturationRatio: Number(saturationRatio.toFixed(4)),
       saturationThreshold,
+      pressureThreshold,
+      waitQueueDepthApprox,
+      underLivePressure,
       poolExhausted,
     },
   };

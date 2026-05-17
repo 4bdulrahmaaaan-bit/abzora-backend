@@ -19,6 +19,8 @@ let wsServer = null;
 const REDIS_CHANNEL = 'abzora:tracking:events';
 const rooms = new Map(); // room -> Set(ws)
 const sockets = new Map(); // ws -> { rooms:Set<string>, uid, role, user }
+const { allowMemoryFallback, getRedisUrl, isRedisDisabled } = require('./redisRuntimeConfig');
+const { ensureRedisClient, getRedisManagerStatus } = require('./redisClientManager');
 
 function safeJsonParse(text) {
   try {
@@ -76,17 +78,18 @@ function broadcastToRooms(targetRooms = [], payload = {}) {
 }
 
 async function ensureRedisPubSub() {
-  if (redisReady || process.env.REDIS_DISABLED === 'true') {
+  if (redisReady || isRedisDisabled()) {
     return;
   }
-  const redisUrl = process.env.REDIS_URL || '';
+  const redisUrl = getRedisUrl();
   if (!redisUrl) return;
   try {
-    // eslint-disable-next-line global-require
-    const { createClient } = require('redis');
-    redisPub = createClient({ url: redisUrl });
-    redisSub = createClient({ url: redisUrl });
-    await redisPub.connect();
+    redisPub = await ensureRedisClient();
+    if (!redisPub) {
+      redisReady = false;
+      return;
+    }
+    redisSub = redisPub.duplicate();
     await redisSub.connect();
     await redisSub.subscribe(REDIS_CHANNEL, (raw) => {
       const event = safeJsonParse(raw);
@@ -129,13 +132,7 @@ async function closeTrackingGateway() {
     }
   }
   if (redisPub) {
-    try {
-      await redisPub.quit();
-    } catch (_) {
-      // no-op
-    } finally {
-      redisPub = null;
-    }
+    redisPub = null;
   }
   redisReady = false;
 }
@@ -195,6 +192,13 @@ async function publishTrackingEvent(event = {}) {
       deliveredSockets: 0,
     };
   } else {
+    if (!allowMemoryFallback()) {
+      return {
+        backend: 'unavailable',
+        roomCount: targetRooms.length,
+        deliveredSockets: 0,
+      };
+    }
     const publishResult = broadcastToRooms(targetRooms, payload);
     localBus.emit(REDIS_CHANNEL, { rooms: targetRooms, payload });
     return {
@@ -438,10 +442,15 @@ function attachTrackingGateway(httpServer) {
 module.exports = {
   attachTrackingGateway,
   closeTrackingGateway,
+  async initializeTrackingRedis() {
+    await ensureRedisPubSub();
+  },
   getTrackingGatewayStatus() {
+    const managerStatus = getRedisManagerStatus();
     return {
       wsEnabled: Boolean(wsServer),
       redisReady,
+      redisBackend: managerStatus.connected ? 'redis' : 'unavailable',
     };
   },
   publishTrackingEvent,

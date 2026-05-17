@@ -1,4 +1,12 @@
 const { ALERT_SEVERITY } = require('./opsConstants');
+const {
+  allowMemoryFallback,
+  getRedisConfigSummary,
+  getRedisUrl,
+  isRedisDisabled,
+  isRedisRequired,
+} = require('./redisRuntimeConfig');
+const { ensureRedisClient } = require('./redisClientManager');
 
 const QUEUE_KEYS = {
   [ALERT_SEVERITY.CRITICAL]: 'ops:queue:critical',
@@ -123,19 +131,23 @@ function jitterMs(maxJitterMs = 500) {
 }
 
 async function ensureRedis() {
-  if (client || process.env.REDIS_DISABLED === 'true') {
+  if (client || isRedisDisabled()) {
     return client;
   }
-  const redisUrl = process.env.REDIS_URL || '';
+  const redisUrl = getRedisUrl();
   if (!redisUrl) return null;
   try {
-    // eslint-disable-next-line global-require
-    const { createClient } = require('redis');
-    client = createClient({ url: redisUrl });
+    client = await ensureRedisClient();
+    if (!client) {
+      redisAvailable = false;
+      return null;
+    }
     client.on('error', () => {
       redisAvailable = false;
     });
-    await client.connect();
+    client.on('ready', () => {
+      redisAvailable = true;
+    });
     redisAvailable = true;
     return client;
   } catch (_) {
@@ -193,6 +205,7 @@ async function tenantAllowed(redis, tenantKey, limits) {
     }
     return count <= limits.perTenantWindowMax;
   }
+  if (isRedisRequired()) return false;
   return localTenantAllowed(tenantKey, limits);
 }
 
@@ -261,8 +274,11 @@ async function enqueueAlert({
     const payload = JSON.stringify(envelope);
     if (redis && redisAvailable) {
       await redis.zAdd(RETRY_QUEUE_KEYS[queueSeverity], [{ score: scheduledAt, value: payload }]);
-    } else {
+    } else if (allowMemoryFallback()) {
       localRetryQueue[queueSeverity].push({ score: scheduledAt, value: payload });
+    } else {
+      queueMetrics.rejected += 1;
+      return { accepted: false, state: 'rejected', reason: 'redis_required_unavailable' };
     }
     queueMetrics.retryScheduled += 1;
     return { accepted: true, state: 'retry_scheduled', reason: '' };
@@ -291,8 +307,11 @@ async function enqueueAlert({
   const payload = JSON.stringify(envelope);
   if (redis && redisAvailable) {
     await redis.rPush(QUEUE_KEYS[queueSeverity], payload);
-  } else {
+  } else if (allowMemoryFallback()) {
     localQueue[queueSeverity].push(payload);
+  } else {
+    queueMetrics.rejected += 1;
+    return { accepted: false, state: 'rejected', reason: 'redis_required_unavailable' };
   }
   queueMetrics.enqueued += 1;
   return { accepted: true, state: 'enqueued', reason: admission.reason };
@@ -315,6 +334,9 @@ async function promoteDueRetries(limit = queueLimits().retryPromotePerTick) {
       // eslint-disable-next-line no-await-in-loop
       await redis.rPush(QUEUE_KEYS[severity], due);
       promoted += due.length;
+      continue;
+    }
+    if (!allowMemoryFallback()) {
       continue;
     }
     const bucket = localRetryQueue[severity];
@@ -352,6 +374,9 @@ async function dequeueAlertDetailed() {
   }
 
   for (const severity of ordered) {
+    if (!allowMemoryFallback()) {
+      break;
+    }
     const item = localQueue[severity].shift();
     if (item) {
       const envelope = parseEnvelope(item, severity);
@@ -392,7 +417,7 @@ async function getQueueHealth() {
       totalDepth += depth;
       retryBacklog += retryDepth;
     }
-  } else {
+  } else if (allowMemoryFallback()) {
     for (const severity of ordered) {
       const depth = localQueue[severity].length;
       const retryDepth = localRetryQueue[severity].length;
@@ -419,7 +444,7 @@ async function getQueueHealth() {
   }
 
   return {
-    backend: redis && redisAvailable ? 'redis' : 'memory',
+    backend: redis && redisAvailable ? 'redis' : 'unavailable',
     totalDepth,
     bySeverity,
     retryBacklog,
@@ -433,10 +458,12 @@ async function getQueueHealth() {
 }
 
 function getQueueRuntimeStatus() {
+  const config = getRedisConfigSummary();
   return {
-    configured: Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== 'true',
-    redisAvailable,
-    backend: redisAvailable ? 'redis' : 'memory',
+    configured: config.configured && !config.disabled,
+    required: config.required,
+    redisAvailable: Boolean(client?.isOpen) && redisAvailable,
+    backend: (Boolean(client?.isOpen) && redisAvailable) ? 'redis' : 'unavailable',
   };
 }
 
@@ -452,18 +479,15 @@ async function closeQueueClient() {
   if (!client) {
     return;
   }
-  try {
-    await client.quit();
-  } catch (_) {
-    // Security hardening: do not block shutdown on redis client close errors.
-  } finally {
-    client = null;
-    redisAvailable = false;
-  }
+  client = null;
+  redisAvailable = false;
 }
 
 module.exports = {
   closeQueueClient,
+  async initializeOpsQueueRedis() {
+    await ensureRedis();
+  },
   dequeueAlertDetailed,
   enqueueAlert,
   dequeueAlert,
@@ -472,3 +496,6 @@ module.exports = {
   getQueueRuntimeStatus,
   promoteDueRetries,
 };
+  if (!allowMemoryFallback() && !(redis && redisAvailable)) {
+    return { total: Number.POSITIVE_INFINITY, bySeverity };
+  }

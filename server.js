@@ -11,6 +11,7 @@ const { closeDBConnection, getMongoHealth } = connectDBModule;
 require('./config/cloudinary');
 const initializeFirebase = require('./config/firebase');
 const {
+  initializeRateLimiterRedis,
   createCorsOptions,
   createRateLimiter,
   enforceHttps,
@@ -72,7 +73,12 @@ const fleetRoutes = require('./routes/fleetRoutes');
 const wardrobeRoutes = require('./routes/wardrobeRoutes');
 const debugRoutes = require('./routes/debugRoutes');
 const legalRoutes = require('./routes/legalRoutes');
-const { attachTrackingGateway, closeTrackingGateway, getTrackingGatewayStatus } = require('./services/trackingGateway');
+const {
+  attachTrackingGateway,
+  closeTrackingGateway,
+  getTrackingGatewayStatus,
+  initializeTrackingRedis,
+} = require('./services/trackingGateway');
 const { attachPricingGateway, closePricingGateway, getPricingGatewayStatus } = require('./services/pricingGateway');
 const { getDispatchSchedulerStatus, startDispatchScheduler, stopDispatchScheduler } = require('./services/dispatchSchedulerService');
 const { getOpsRuntimeStatus, startOpsRuntime, stopOpsRuntime } = require('./services/opsRuntimeService');
@@ -82,9 +88,27 @@ const {
   startPaymentWebhookIngestWorker,
   stopPaymentWebhookIngestWorker,
 } = require('./services/paymentWebhookIngestService');
-const { closeQueueClient, getQueueRuntimeStatus } = require('./services/opsQueueService');
-const { closeOpsLockClient, getOpsLockRuntimeStatus } = require('./services/opsLockService');
-const { closeRedisCacheClient, getRuntimeStatus: getCacheRuntimeStatus } = require('./services/redisCacheService');
+const {
+  closeQueueClient,
+  getQueueRuntimeStatus,
+  initializeOpsQueueRedis,
+} = require('./services/opsQueueService');
+const {
+  closeOpsLockClient,
+  getOpsLockRuntimeStatus,
+  initializeOpsLockRedis,
+} = require('./services/opsLockService');
+const {
+  closeRedisCacheClient,
+  getRuntimeStatus: getCacheRuntimeStatus,
+  initializeRedisCacheClient,
+} = require('./services/redisCacheService');
+const { getRedisConfigSummary } = require('./services/redisRuntimeConfig');
+const {
+  closeRedisClientManager,
+  getRedisManagerStatus,
+  warmupRedisClient,
+} = require('./services/redisClientManager');
 const { getOrderEta } = require('./controllers/dispatchController');
 const { getOutboxMetrics, getOutboxWorkerHealth } = require('./controllers/outboxOpsController');
 const { getWebhookIngestHealth, getWebhookIngestMetrics } = require('./controllers/webhookIngestOpsController');
@@ -220,6 +244,7 @@ app.get('/health/ready', async (req, res) => {
   const queueRuntime = getQueueRuntimeStatus();
   const lockRuntime = getOpsLockRuntimeStatus();
   const cacheRuntime = getCacheRuntimeStatus();
+  const redisManager = getRedisManagerStatus();
   const dispatchStatus = getDispatchSchedulerStatus();
   const opsStatus = getOpsRuntimeStatus();
   const financeStatus = getFinanceCronStatus();
@@ -229,9 +254,12 @@ app.get('/health/ready', async (req, res) => {
   const redisRequired = process.env.NODE_ENV === 'production'
     && String(process.env.REDIS_REQUIRED || 'true').trim().toLowerCase() === 'true';
   const redisHealthy = !redisRequired || (
-    rateLimiterRedis.connected
+    redisManager.connected
+    && rateLimiterRedis.connected
     && queueRuntime.redisAvailable
-    && lockRuntime.redisReady
+    && lockRuntime.redisAvailable
+    && cacheRuntime.redisAvailable
+    && trackingStatus.redisReady
   );
   const ready = !shuttingDown && mongoReady && !mongoPoolExhausted && redisHealthy;
   const statusCode = ready ? 200 : 503;
@@ -245,6 +273,7 @@ app.get('/health/ready', async (req, res) => {
       mongoPoolExhausted,
       redisRequired,
       redisHealthy,
+      redisManager,
       shuttingDown,
       mongoHealth,
       rateLimiterRedis,
@@ -406,6 +435,14 @@ app.use((error, req, res, next) => {
 async function startServer() {
   try {
     await connectDB();
+    await warmupRedisClient();
+    await Promise.all([
+      initializeRateLimiterRedis(),
+      initializeOpsQueueRedis(),
+      initializeOpsLockRedis(),
+      initializeRedisCacheClient(),
+      initializeTrackingRedis(),
+    ]);
     initializeFirebase();
     scheduleFinanceCrons();
     startDispatchScheduler();
@@ -437,6 +474,15 @@ async function startServer() {
     httpServer = http.createServer(app);
     attachTrackingGateway(httpServer);
     attachPricingGateway(httpServer);
+    const redisConfig = getRedisConfigSummary();
+    console.log('[startup] redis.config', redisConfig);
+    console.log('[startup] redis.subsystems', {
+      rateLimiterRedis: getRateLimiterRedisStatus(),
+      lockRuntime: getOpsLockRuntimeStatus(),
+      queueRuntime: getQueueRuntimeStatus(),
+      cacheRuntime: getCacheRuntimeStatus(),
+      trackingStatus: getTrackingGatewayStatus(),
+    });
     httpServer.listen(port, host, () => {
       console.log(`ABZORA backend running on ${host}:${port}`);
     });
@@ -482,6 +528,7 @@ async function gracefulShutdown(signal) {
       closeOpsLockClient(),
       closeRedisCacheClient(),
     ]);
+    await closeRedisClientManager();
     await closeDBConnection();
     clearTimeout(forceExitTimer);
     process.exit(0);

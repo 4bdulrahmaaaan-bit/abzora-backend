@@ -1,6 +1,14 @@
 let lockClient = null;
 let redisReady = false;
 const inMemoryLocks = new Map();
+const {
+  allowMemoryFallback,
+  getRedisConfigSummary,
+  getRedisUrl,
+  isRedisDisabled,
+  isRedisRequired,
+} = require('./redisRuntimeConfig');
+const { ensureRedisClient } = require('./redisClientManager');
 
 function failClosedOpsLockOnRedisDown() {
   // Security hardening: production can block lock acquisition if Redis is unavailable
@@ -12,19 +20,23 @@ function failClosedOpsLockOnRedisDown() {
 }
 
 async function ensureLockRedis() {
-  if (lockClient || process.env.REDIS_DISABLED === 'true') {
+  if (lockClient || isRedisDisabled()) {
     return lockClient;
   }
-  const redisUrl = process.env.REDIS_URL || '';
+  const redisUrl = getRedisUrl();
   if (!redisUrl) return null;
   try {
-    // eslint-disable-next-line global-require
-    const { createClient } = require('redis');
-    lockClient = createClient({ url: redisUrl });
+    lockClient = await ensureRedisClient();
+    if (!lockClient) {
+      redisReady = false;
+      return null;
+    }
     lockClient.on('error', () => {
       redisReady = false;
     });
-    await lockClient.connect();
+    lockClient.on('ready', () => {
+      redisReady = true;
+    });
     redisReady = true;
     return lockClient;
   } catch (_) {
@@ -51,7 +63,11 @@ async function acquireEntityLock({ entityType, entityId, owner, ttlMs = 20000 })
     return response === 'OK';
   }
 
-  if (process.env.NODE_ENV === 'production' && failClosedOpsLockOnRedisDown()) {
+  if (isRedisRequired() || (process.env.NODE_ENV === 'production' && failClosedOpsLockOnRedisDown())) {
+    return false;
+  }
+
+  if (!allowMemoryFallback()) {
     return false;
   }
 
@@ -80,6 +96,9 @@ async function releaseEntityLock({ entityType, entityId, owner }) {
     return;
   }
 
+  if (!allowMemoryFallback()) {
+    return;
+  }
   const current = inMemoryLocks.get(key);
   if (current && current.owner === normalizedOwner) {
     inMemoryLocks.delete(key);
@@ -87,10 +106,12 @@ async function releaseEntityLock({ entityType, entityId, owner }) {
 }
 
 function getOpsLockRuntimeStatus() {
+  const config = getRedisConfigSummary();
   return {
-    configured: Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== 'true',
-    redisReady,
-    backend: redisReady ? 'redis' : 'memory',
+    configured: config.configured && !config.disabled,
+    required: config.required,
+    redisAvailable: Boolean(lockClient?.isOpen) && redisReady,
+    backend: (Boolean(lockClient?.isOpen) && redisReady) ? 'redis' : 'unavailable',
   };
 }
 
@@ -98,18 +119,15 @@ async function closeOpsLockClient() {
   if (!lockClient) {
     return;
   }
-  try {
-    await lockClient.quit();
-  } catch (_) {
-    // Security hardening: shutdown path should continue even when redis close fails.
-  } finally {
-    lockClient = null;
-    redisReady = false;
-  }
+  lockClient = null;
+  redisReady = false;
 }
 
 module.exports = {
   acquireEntityLock,
+  async initializeOpsLockRedis() {
+    await ensureLockRedis();
+  },
   closeOpsLockClient,
   getOpsLockRuntimeStatus,
   releaseEntityLock,

@@ -1,4 +1,12 @@
 const DEFAULT_TTL_SECONDS = 90;
+const {
+  allowMemoryFallback,
+  getRedisConfigSummary,
+  getRedisUrl,
+  isRedisDisabled,
+  isRedisRequired,
+} = require('./redisRuntimeConfig');
+const { ensureRedisClient: ensureSharedRedisClient } = require('./redisClientManager');
 
 let redisClient = null;
 let redisAvailable = false;
@@ -16,23 +24,29 @@ function cleanupExpiredLocalKeys() {
 }
 
 async function ensureRedisClient() {
-  if (redisClient || process.env.REDIS_DISABLED === 'true') {
+  if (redisClient || isRedisDisabled()) {
     return redisClient;
   }
-  const redisUrl = process.env.REDIS_URL || '';
+  const redisUrl = getRedisUrl();
   if (!redisUrl) {
     return null;
   }
   try {
-    // Lazy require keeps local/dev environments working even without redis package.
-    // eslint-disable-next-line global-require
-    const { createClient } = require('redis');
-    redisClient = createClient({ url: redisUrl });
+    redisClient = await ensureSharedRedisClient();
+    if (!redisClient) {
+      redisAvailable = false;
+      return null;
+    }
     redisClient.on('error', () => {
       redisAvailable = false;
     });
-    await redisClient.connect();
+    redisClient.on('ready', () => {
+      redisAvailable = true;
+    });
     redisAvailable = true;
+    // stale local fallback state must be purged once redis is authoritative.
+    localStore.clear();
+    keyRegistry.clear();
     return redisClient;
   } catch (error) {
     redisClient = null;
@@ -53,6 +67,9 @@ async function getJson(key) {
       return null;
     }
   }
+  if (!allowMemoryFallback() && isRedisRequired()) {
+    return null;
+  }
   cleanupExpiredLocalKeys();
   const local = localStore.get(key);
   if (!local) return null;
@@ -64,6 +81,9 @@ async function setJson(key, value, ttlSeconds = DEFAULT_TTL_SECONDS) {
   if (client && redisAvailable) {
     await client.set(key, JSON.stringify(value), { EX: Math.max(1, ttlSeconds) });
     keyRegistry.add(key);
+    return;
+  }
+  if (!allowMemoryFallback() && isRedisRequired()) {
     return;
   }
   localStore.set(key, {
@@ -89,6 +109,9 @@ async function delPattern(pattern) {
   if (client && redisAvailable) {
     await Promise.all(keys.map((key) => client.del(key)));
   }
+  if (!allowMemoryFallback() && isRedisRequired()) {
+    return 0;
+  }
   for (const key of keys) {
     localStore.delete(key);
     keyRegistry.delete(key);
@@ -97,25 +120,24 @@ async function delPattern(pattern) {
 }
 
 module.exports = {
+  async initializeRedisCacheClient() {
+    await ensureRedisClient();
+  },
   async closeRedisCacheClient() {
     if (!redisClient) {
       return;
     }
-    try {
-      await redisClient.quit();
-    } catch (_) {
-      // Security hardening: shutdown should not hang on redis client close.
-    } finally {
-      redisClient = null;
-      redisAvailable = false;
-    }
+    redisClient = null;
+    redisAvailable = false;
   },
   getJson,
   getRuntimeStatus() {
+    const config = getRedisConfigSummary();
     return {
-      configured: Boolean(process.env.REDIS_URL) && process.env.REDIS_DISABLED !== 'true',
-      redisAvailable,
-      backend: redisAvailable ? 'redis' : 'memory',
+      configured: config.configured && !config.disabled,
+      required: config.required,
+      redisAvailable: Boolean(redisClient?.isOpen) && redisAvailable,
+      backend: (Boolean(redisClient?.isOpen) && redisAvailable) ? 'redis' : 'unavailable',
     };
   },
   setJson,
