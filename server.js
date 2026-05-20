@@ -1,4 +1,4 @@
-﻿require('dotenv').config();
+require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
@@ -73,6 +73,9 @@ const fleetRoutes = require('./routes/fleetRoutes');
 const wardrobeRoutes = require('./routes/wardrobeRoutes');
 const debugRoutes = require('./routes/debugRoutes');
 const legalRoutes = require('./routes/legalRoutes');
+const invoiceRoutes = require('./routes/invoiceRoutes');
+const adminInvoiceRoutes = require('./routes/adminInvoiceRoutes');
+const { verifyInvoicePublic } = require('./controllers/invoiceController');
 const {
   attachTrackingGateway,
   closeTrackingGateway,
@@ -81,6 +84,9 @@ const {
 } = require('./services/trackingGateway');
 const { attachPricingGateway, closePricingGateway, getPricingGatewayStatus } = require('./services/pricingGateway');
 const { getDispatchSchedulerStatus, startDispatchScheduler, stopDispatchScheduler } = require('./services/dispatchSchedulerService');
+const { startInvoiceQueueWorker, stopInvoiceQueueWorker, getInvoiceQueueWorkerStatus } = require('./services/invoiceQueueWorkerService');
+const { startInvoiceBullMqWorkers } = require('./services/invoiceBullMqOrchestrator');
+const { bullMqHealth, closeBullMq } = require('./services/bullMqService');
 const { getOpsRuntimeStatus, startOpsRuntime, stopOpsRuntime } = require('./services/opsRuntimeService');
 const { startPaymentOutboxWorker, stopPaymentOutboxWorker } = require('./services/paymentOutboxWorker');
 const { processPaymentWebhookIngestEvent } = require('./controllers/paymentController');
@@ -116,6 +122,14 @@ const { getOtelHealth, shutdownOpenTelemetry, startOpenTelemetry } = require('./
 const { getOrderEta } = require('./controllers/dispatchController');
 const { getOutboxMetrics, getOutboxWorkerHealth } = require('./controllers/outboxOpsController');
 const { getWebhookIngestHealth, getWebhookIngestMetrics } = require('./controllers/webhookIngestOpsController');
+const { renderInvoicePrometheusMetrics } = require('./services/invoicePrometheusMetricsService');
+const { startInvoiceQueueSelfHealing, stopInvoiceQueueSelfHealing } = require('./services/invoiceQueueSelfHealingService');
+const {
+  getStorageHealth,
+  getEmailHealth,
+  getInvoiceHealth,
+  getQueueHealth,
+} = require('./services/invoiceDiagnosticsService');
 
 const app = express();
 const port = Number(process.env.PORT || 5000);
@@ -255,6 +269,7 @@ app.get('/health/ready', async (req, res) => {
   const trackingStatus = getTrackingGatewayStatus();
   const pricingStatus = getPricingGatewayStatus();
   const loggerHealth = getLoggerHealth();
+  const invoiceQueue = getInvoiceQueueWorkerStatus();
   const otelHealth = getOtelHealth();
 
   const redisRequired = process.env.NODE_ENV === 'production'
@@ -299,6 +314,7 @@ app.get('/health/ready', async (req, res) => {
         exporter: otelHealth.exporter,
         openTelemetry: otelHealth,
       },
+      invoiceQueue,
       opsStatus: {
         detectionRunning: opsStatus.detectionRunning,
         escalationRunning: opsStatus.escalationRunning,
@@ -360,6 +376,95 @@ app.get(
   },
 );
 
+app.get(
+  '/health/queue',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  (req, res) => {
+    res.status(200).json({
+      success: true,
+      data: bullMqHealth(),
+    });
+  },
+);
+
+app.get(
+  '/health/storage',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const data = await getStorageHealth();
+      res.status(data.status === 'ok' ? 200 : 503).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  '/health/email',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const data = await getEmailHealth();
+      res.status(data.status === 'ok' ? 200 : 503).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  '/health/invoices',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const data = await getInvoiceHealth();
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  '/metrics/invoices/queues',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const data = await getQueueHealth();
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.get(
+  '/metrics/invoices/prometheus',
+  outboxMetricsLimiter,
+  authMiddleware,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const body = await renderInvoicePrometheusMetrics();
+      res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+      res.status(200).send(body);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 app.get('/', (req, res) => {
   res.status(200).json({
     message: 'ABZORA backend is running.',
@@ -385,6 +490,8 @@ app.get('/', (req, res) => {
     },
   });
 });
+
+app.get('/verify/invoice/:invoiceId', verifyInvoicePublic);
 
 app.use('/auth/test-user', accountCreationLimiter);
 app.use('/auth', authLimiter, authRoutes);
@@ -436,6 +543,9 @@ app.use('/fleet', adminLimiter, fleetRoutes);
 app.use('/wardrobe', wardrobeRoutes);
 app.use('/webhooks', webhookRoutes);
 app.use('/debug', adminLimiter, authMiddleware, requireAdmin, debugRoutes);
+app.use('/api/invoices', invoiceRoutes);
+app.use('/api/admin', adminInvoiceRoutes);
+app.use('/files/invoices', express.static(require('path').join(__dirname, 'storage', 'invoices')));
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found.' });
@@ -475,6 +585,16 @@ async function startServer() {
     scheduleFinanceCrons();
     startDispatchScheduler();
     startOpsRuntime();
+    startInvoiceQueueWorker();
+    try {
+      await startInvoiceBullMqWorkers();
+      startInvoiceQueueSelfHealing();
+    } catch (error) {
+      logger.error('invoice_bullmq_start_failed', {
+        module: 'server',
+        message: error?.message || String(error),
+      });
+    }
     // Security hardening: durable outbox replay worker recovers missed side effects
     // after crashes/restarts and supports horizontal multi-worker processing.
     if (String(process.env.PAYMENT_OUTBOX_WORKER_ENABLED || 'true').trim().toLowerCase() === 'true') {
@@ -566,6 +686,9 @@ async function gracefulShutdown(signal) {
     stopDispatchScheduler();
     stopFinanceCrons();
     stopOpsRuntime();
+    stopInvoiceQueueWorker();
+    stopInvoiceQueueSelfHealing();
+    await closeBullMq();
     await Promise.all([
       closeRateLimiterRedisClient(),
       closeQueueClient(),
@@ -606,4 +729,6 @@ process.on('uncaughtException', (error) => {
     stack: process.env.NODE_ENV === 'production' ? '' : String(error?.stack || ''),
   });
 });
+
+
 

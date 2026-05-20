@@ -1,0 +1,14 @@
+{
+  "info": {
+    "name": "ABZORA Invoice APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    { "name": "Generate Invoice", "request": { "method": "POST", "url": "{{baseUrl}}/api/invoices/generate/{{orderId}}" } },
+    { "name": "My Invoices", "request": { "method": "GET", "url": "{{baseUrl}}/api/invoices/my" } },
+    { "name": "Invoice By Id", "request": { "method": "GET", "url": "{{baseUrl}}/api/invoices/{{invoiceId}}" } },
+    { "name": "Signed Link", "request": { "method": "GET", "url": "{{baseUrl}}/api/invoices/download-link/{{invoiceId}}" } },
+    { "name": "Admin List", "request": { "method": "GET", "url": "{{baseUrl}}/api/invoices/admin/list" } },
+    { "name": "Admin GST Report", "request": { "method": "GET", "url": "{{baseUrl}}/api/invoices/admin/reports/gst" } }
+  ]
+}
