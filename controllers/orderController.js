@@ -15,6 +15,7 @@ const PaymentOutboxEvent = require('../models/PaymentOutboxEvent');
 const telemetry = require('../services/telemetryContext');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
 const { generatePremiumInvoicePdf } = require('../services/invoicePdfService');
+const { enqueueInvoiceJob } = require('../services/invoiceService');
 const { recordTrackingEvent } = require('../services/trackingEventService');
 const { calculateOrderPricing, toPricingEngineConfig } = require('../services/pricingService');
 const { getPricingConfig } = require('../services/pricingConfigService');
@@ -2677,6 +2678,7 @@ async function verifyPayment(req, res, next) {
     }
     if (paid) {
       await processReferralRewardIfEligible(req.user.uid, savedOrder);
+      await enqueueInvoiceJob(savedOrder._id.toString(), 'payment_verify_success');
       if (outboxEventId) {
         await PaymentOutboxEvent.updateOne(
           { eventId: outboxEventId },
@@ -2732,3 +2734,5 @@ module.exports = {
   processRazorpayRefund,
   verifyPayment,
 };
+
+

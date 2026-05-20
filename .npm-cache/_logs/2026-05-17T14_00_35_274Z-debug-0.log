@@ -1,0 +1,1038 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@11.9.0
+2 info using node@v24.14.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\Users\AAA\Documents\abzio\backend\.npmrc
+5 silly config load:file:C:\Users\AAA\.npmrc
+6 silly config load:file:C:\Users\AAA\AppData\Roaming\npm\etc\npmrc
+7 verbose title npm install
+8 verbose argv "install" "--cache" ".npm-cache"
+9 verbose logfile logs-max:10 dir:C:\Users\AAA\Documents\abzio\backend\.npm-cache\_logs\2026-05-17T14_00_35_274Z-
+10 verbose logfile C:\Users\AAA\Documents\abzio\backend\.npm-cache\_logs\2026-05-17T14_00_35_274Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly packumentCache heap:2348810240 maxSize:587202560 maxEntrySize:293601280
+13 silly logfile done cleaning log files
+14 verbose shrinkwrap failed to load node_modules/.package-lock.json out of date, updated: node_modules
+15 silly idealTree buildDeps
+16 silly fetch manifest @opentelemetry/exporter-trace-otlp-grpc@^0.218.0
+17 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-grpc cache-miss
+18 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-grpc 303ms (cache hit)
+19 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-grpc set size:255203 disposed:false
+20 silly fetch manifest @opentelemetry/api@^1.9.0
+21 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi cache-miss
+22 http cache https://registry.npmjs.org/@opentelemetry%2fapi 1902ms (cache hit)
+23 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi set size:272967 disposed:false
+24 silly fetch manifest @opentelemetry/exporter-trace-otlp-http@^0.218.0
+25 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-http cache-miss
+26 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-http 65ms (cache hit)
+27 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-http set size:311511 disposed:false
+28 silly fetch manifest @opentelemetry/instrumentation-express@^0.66.0
+29 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-express cache-miss
+30 http cache https://registry.npmjs.org/@opentelemetry%2finstrumentation-express 38ms (cache hit)
+31 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-express set size:251255 disposed:false
+32 silly fetch manifest @opentelemetry/instrumentation-http@^0.218.0
+33 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-http cache-miss
+34 http cache https://registry.npmjs.org/@opentelemetry%2finstrumentation-http 41ms (cache hit)
+35 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-http set size:891634 disposed:false
+36 silly fetch manifest @opentelemetry/instrumentation-mongodb@^0.71.0
+37 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-mongodb cache-miss
+38 http cache https://registry.npmjs.org/@opentelemetry%2finstrumentation-mongodb 75ms (cache hit)
+39 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-mongodb set size:281213 disposed:false
+40 silly fetch manifest @opentelemetry/instrumentation-redis-4@^0.49.0
+41 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-redis-4 cache-miss
+42 http cache https://registry.npmjs.org/@opentelemetry%2finstrumentation-redis-4 17ms (cache hit)
+43 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-redis-4 set size:138620 disposed:false
+44 silly fetch manifest @opentelemetry/sdk-node@^0.218.0
+45 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-node cache-miss
+46 http cache https://registry.npmjs.org/@opentelemetry%2fsdk-node 25ms (cache hit)
+47 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-node set size:980527 disposed:false
+48 silly placeDep ROOT @opentelemetry/exporter-trace-otlp-grpc@0.218.0 OK for: abzora-backend@1.0.0 want: ^0.218.0
+49 silly placeDep ROOT @opentelemetry/exporter-trace-otlp-http@0.218.0 OK for: abzora-backend@1.0.0 want: ^0.218.0
+50 silly placeDep ROOT @opentelemetry/instrumentation-express@0.66.0 OK for: abzora-backend@1.0.0 want: ^0.66.0
+51 silly placeDep ROOT @opentelemetry/instrumentation-http@0.218.0 REPLACE for: abzora-backend@1.0.0 want: ^0.218.0
+52 silly placeDep ROOT @opentelemetry/instrumentation-mongodb@0.71.0 REPLACE for: abzora-backend@1.0.0 want: ^0.71.0
+53 silly placeDep ROOT @opentelemetry/instrumentation-redis-4@0.49.0 OK for: abzora-backend@1.0.0 want: ^0.49.0
+54 silly placeDep ROOT @opentelemetry/sdk-node@0.218.0 OK for: abzora-backend@1.0.0 want: ^0.218.0
+55 silly fetch manifest @opentelemetry/otlp-exporter-base@0.218.0
+56 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fotlp-exporter-base cache-miss
+57 silly fetch manifest @opentelemetry/otlp-grpc-exporter-base@0.218.0
+58 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fotlp-grpc-exporter-base cache-miss
+59 silly fetch manifest @opentelemetry/otlp-transformer@0.218.0
+60 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fotlp-transformer cache-miss
+61 http cache https://registry.npmjs.org/@opentelemetry%2fotlp-grpc-exporter-base 33ms (cache hit)
+62 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fotlp-grpc-exporter-base set size:237520 disposed:false
+63 silly fetch manifest @opentelemetry/otlp-exporter-base@0.218.0
+64 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fotlp-exporter-base cache-miss
+65 http cache https://registry.npmjs.org/@opentelemetry%2fotlp-transformer 47ms (cache hit)
+66 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fotlp-transformer set size:271185 disposed:false
+67 silly fetch manifest @opentelemetry/instrumentation@^0.218.0
+68 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation cache-miss
+69 http cache https://registry.npmjs.org/@opentelemetry%2fotlp-exporter-base 65ms (cache hit)
+70 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fotlp-exporter-base set size:279418 disposed:false
+71 silly fetch manifest @opentelemetry/instrumentation@0.218.0
+72 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation cache-miss
+73 http cache https://registry.npmjs.org/@opentelemetry%2fotlp-exporter-base 44ms (cache hit)
+74 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fotlp-exporter-base set size:279418 disposed:false
+75 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fotlp-exporter-base dispose
+76 silly fetch manifest @opentelemetry/instrumentation@^0.218.0
+77 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation cache-miss
+78 http cache https://registry.npmjs.org/@opentelemetry%2finstrumentation 51ms (cache hit)
+79 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation set size:711006 disposed:false
+80 silly fetch manifest @opentelemetry/redis-common@^0.37.0
+81 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fredis-common cache-miss
+82 http cache https://registry.npmjs.org/@opentelemetry%2finstrumentation 67ms (cache hit)
+83 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation set size:711006 disposed:false
+84 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation dispose
+85 silly fetch manifest @opentelemetry/instrumentation@^0.202.0
+86 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation cache-hit
+87 silly fetch manifest @opentelemetry/api-logs@0.218.0
+88 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi-logs cache-miss
+89 http cache https://registry.npmjs.org/@opentelemetry%2finstrumentation 86ms (cache hit)
+90 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation set size:711006 disposed:true
+91 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation dispose
+92 silly fetch manifest @opentelemetry/configuration@0.218.0
+93 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fconfiguration cache-miss
+94 http cache https://registry.npmjs.org/@opentelemetry%2fapi-logs 52ms (cache hit)
+95 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi-logs set size:221599 disposed:false
+96 silly fetch manifest @opentelemetry/context-async-hooks@2.7.1
+97 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fcontext-async-hooks cache-miss
+98 http cache https://registry.npmjs.org/@opentelemetry%2fredis-common 98ms (cache hit)
+99 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fredis-common set size:31878 disposed:false
+100 silly fetch manifest @opentelemetry/exporter-logs-otlp-grpc@0.218.0
+101 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-logs-otlp-grpc cache-miss
+102 http cache https://registry.npmjs.org/@opentelemetry%2fconfiguration 45ms (cache hit)
+103 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fconfiguration set size:35567 disposed:false
+104 silly fetch manifest @opentelemetry/exporter-logs-otlp-http@0.218.0
+105 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-logs-otlp-http cache-miss
+106 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-logs-otlp-grpc 28ms (cache hit)
+107 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-logs-otlp-grpc set size:187128 disposed:false
+108 silly fetch manifest @opentelemetry/exporter-logs-otlp-proto@0.218.0
+109 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-logs-otlp-proto cache-miss
+110 http cache https://registry.npmjs.org/@opentelemetry%2fcontext-async-hooks 45ms (cache hit)
+111 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fcontext-async-hooks set size:454700 disposed:false
+112 silly fetch manifest @opentelemetry/exporter-metrics-otlp-grpc@0.218.0
+113 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-metrics-otlp-grpc cache-miss
+114 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-logs-otlp-http 94ms (cache hit)
+115 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-logs-otlp-http set size:222121 disposed:false
+116 silly fetch manifest @opentelemetry/exporter-metrics-otlp-http@0.218.0
+117 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-metrics-otlp-http cache-miss
+118 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-logs-otlp-proto 91ms (cache hit)
+119 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-logs-otlp-proto set size:216601 disposed:false
+120 silly fetch manifest @opentelemetry/exporter-metrics-otlp-proto@0.218.0
+121 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-metrics-otlp-proto cache-miss
+122 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-metrics-otlp-grpc 44ms (cache hit)
+123 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-metrics-otlp-grpc set size:261556 disposed:false
+124 silly fetch manifest @opentelemetry/exporter-prometheus@0.218.0
+125 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-prometheus cache-miss
+126 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-metrics-otlp-http 49ms (cache hit)
+127 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-metrics-otlp-http set size:313460 disposed:false
+128 silly fetch manifest @opentelemetry/exporter-trace-otlp-proto@0.218.0
+129 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-proto cache-miss
+130 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-metrics-otlp-proto 52ms (cache hit)
+131 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-metrics-otlp-proto set size:274953 disposed:false
+132 silly fetch manifest @opentelemetry/exporter-zipkin@2.7.1
+133 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-zipkin cache-miss
+134 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-prometheus 54ms (cache hit)
+135 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-prometheus set size:752490 disposed:false
+136 silly fetch manifest @opentelemetry/propagator-b3@2.7.1
+137 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fpropagator-b3 cache-miss
+138 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-proto 63ms (cache hit)
+139 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-trace-otlp-proto set size:292914 disposed:false
+140 silly fetch manifest @opentelemetry/propagator-jaeger@2.7.1
+141 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fpropagator-jaeger cache-miss
+142 http cache https://registry.npmjs.org/@opentelemetry%2fexporter-zipkin 72ms (cache hit)
+143 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fexporter-zipkin set size:978033 disposed:false
+144 silly fetch manifest @opentelemetry/sdk-logs@0.218.0
+145 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-logs cache-miss
+146 http cache https://registry.npmjs.org/@opentelemetry%2fpropagator-b3 69ms (cache hit)
+147 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fpropagator-b3 set size:482978 disposed:false
+148 silly fetch manifest @opentelemetry/sdk-metrics@2.7.1
+149 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-metrics cache-miss
+150 http cache https://registry.npmjs.org/@opentelemetry%2fpropagator-jaeger 79ms (cache hit)
+151 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fpropagator-jaeger set size:614662 disposed:false
+152 silly fetch manifest @opentelemetry/sdk-trace-node@2.7.1
+153 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-trace-node cache-miss
+154 http cache https://registry.npmjs.org/@opentelemetry%2fsdk-logs 73ms (cache hit)
+155 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-logs set size:216379 disposed:false
+156 http cache https://registry.npmjs.org/@opentelemetry%2fsdk-metrics 61ms (cache hit)
+157 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-metrics set size:183519 disposed:false
+158 http cache https://registry.npmjs.org/@opentelemetry%2fsdk-trace-node 48ms (cache hit)
+159 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fsdk-trace-node set size:279428 disposed:false
+160 silly fetch manifest @opentelemetry/api@^1.3.0
+161 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi cache-hit
+162 silly placeDep ROOT @opentelemetry/otlp-exporter-base@0.218.0 OK for: @opentelemetry/exporter-trace-otlp-grpc@0.218.0 want: 0.218.0
+163 silly placeDep ROOT @opentelemetry/otlp-grpc-exporter-base@0.218.0 OK for: @opentelemetry/exporter-trace-otlp-grpc@0.218.0 want: 0.218.0
+164 silly placeDep ROOT @opentelemetry/otlp-transformer@0.218.0 OK for: @opentelemetry/exporter-trace-otlp-grpc@0.218.0 want: 0.218.0
+165 silly placeDep node_modules/@opentelemetry/instrumentation-express @opentelemetry/instrumentation@0.218.0 OK for: @opentelemetry/instrumentation-express@0.66.0 want: ^0.218.0
+166 silly placeDep node_modules/@opentelemetry/instrumentation-http @opentelemetry/instrumentation@0.218.0 OK for: @opentelemetry/instrumentation-http@0.218.0 want: 0.218.0
+167 silly placeDep node_modules/@opentelemetry/instrumentation-mongodb @opentelemetry/instrumentation@0.218.0 OK for: @opentelemetry/instrumentation-mongodb@0.71.0 want: ^0.218.0
+168 silly placeDep node_modules/@opentelemetry/instrumentation-redis-4 @opentelemetry/instrumentation@0.202.0 OK for: @opentelemetry/instrumentation-redis-4@0.49.0 want: ^0.202.0
+169 silly placeDep ROOT @opentelemetry/redis-common@0.37.0 OK for: @opentelemetry/instrumentation-redis-4@0.49.0 want: ^0.37.0
+170 silly fetch manifest import-in-the-middle@^1.8.1
+171 silly packumentCache full:https://registry.npmjs.org/import-in-the-middle cache-miss
+172 silly fetch manifest require-in-the-middle@^7.1.1
+173 silly packumentCache full:https://registry.npmjs.org/require-in-the-middle cache-miss
+174 silly fetch manifest @opentelemetry/api-logs@0.202.0
+175 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi-logs cache-hit
+176 http cache https://registry.npmjs.org/import-in-the-middle 37ms (cache hit)
+177 silly packumentCache full:https://registry.npmjs.org/import-in-the-middle set size:152397 disposed:false
+178 http cache https://registry.npmjs.org/require-in-the-middle 50ms (cache hit)
+179 silly packumentCache full:https://registry.npmjs.org/require-in-the-middle set size:87691 disposed:false
+180 silly placeDep node_modules/@opentelemetry/otlp-transformer @opentelemetry/api-logs@0.218.0 OK for: @opentelemetry/otlp-transformer@0.218.0 want: 0.218.0
+181 silly placeDep ROOT @opentelemetry/sdk-logs@0.218.0 OK for: @opentelemetry/otlp-transformer@0.218.0 want: 0.218.0
+182 silly placeDep ROOT @opentelemetry/sdk-metrics@2.7.1 OK for: @opentelemetry/otlp-transformer@0.218.0 want: 2.7.1
+183 silly placeDep node_modules/@opentelemetry/sdk-logs @opentelemetry/api-logs@0.218.0 OK for: @opentelemetry/sdk-logs@0.218.0 want: 0.218.0
+184 silly fetch manifest @opentelemetry/api@>=1.3.0 <1.10.0
+185 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi cache-hit
+186 silly placeDep node_modules/@opentelemetry/sdk-node @opentelemetry/api-logs@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+187 silly placeDep ROOT @opentelemetry/configuration@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+188 silly placeDep ROOT @opentelemetry/context-async-hooks@2.7.1 OK for: @opentelemetry/sdk-node@0.218.0 want: 2.7.1
+189 silly placeDep ROOT @opentelemetry/exporter-logs-otlp-grpc@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+190 silly placeDep ROOT @opentelemetry/exporter-logs-otlp-http@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+191 silly placeDep ROOT @opentelemetry/exporter-logs-otlp-proto@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+192 silly placeDep ROOT @opentelemetry/exporter-metrics-otlp-grpc@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+193 silly placeDep ROOT @opentelemetry/exporter-metrics-otlp-http@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+194 silly placeDep ROOT @opentelemetry/exporter-metrics-otlp-proto@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+195 silly placeDep ROOT @opentelemetry/exporter-prometheus@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+196 silly placeDep ROOT @opentelemetry/exporter-trace-otlp-proto@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+197 silly placeDep ROOT @opentelemetry/exporter-zipkin@2.7.1 OK for: @opentelemetry/sdk-node@0.218.0 want: 2.7.1
+198 silly placeDep node_modules/@opentelemetry/sdk-node @opentelemetry/instrumentation@0.218.0 OK for: @opentelemetry/sdk-node@0.218.0 want: 0.218.0
+199 silly placeDep ROOT @opentelemetry/propagator-b3@2.7.1 OK for: @opentelemetry/sdk-node@0.218.0 want: 2.7.1
+200 silly placeDep ROOT @opentelemetry/propagator-jaeger@2.7.1 OK for: @opentelemetry/sdk-node@0.218.0 want: 2.7.1
+201 silly placeDep ROOT @opentelemetry/sdk-trace-node@2.7.1 OK for: @opentelemetry/sdk-node@0.218.0 want: 2.7.1
+202 silly fetch manifest yaml@^2.0.0
+203 silly packumentCache full:https://registry.npmjs.org/yaml cache-miss
+204 http cache https://registry.npmjs.org/yaml 30ms (cache hit)
+205 silly packumentCache full:https://registry.npmjs.org/yaml set size:385754 disposed:false
+206 silly placeDep ROOT yaml@2.9.0 OK for: @opentelemetry/configuration@0.218.0 want: ^2.0.0
+207 silly placeDep node_modules/@opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs@0.218.0 OK for: @opentelemetry/exporter-logs-otlp-http@0.218.0 want: 0.218.0
+208 silly placeDep node_modules/@opentelemetry/exporter-logs-otlp-proto @opentelemetry/api-logs@0.218.0 OK for: @opentelemetry/exporter-logs-otlp-proto@0.218.0 want: 0.218.0
+209 silly fetch manifest @opentelemetry/instrumentation-http@0.214.0
+210 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-http cache-hit
+211 silly fetch manifest @opentelemetry/api@^1.9.1
+212 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fapi cache-hit
+213 silly fetch manifest @opentelemetry/instrumentation-mongodb@0.67.0
+214 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2finstrumentation-mongodb cache-hit
+215 silly placeDep node_modules/@sentry/node @opentelemetry/instrumentation-http@0.214.0 OK for: @sentry/node@10.53.1 want: 0.214.0
+216 silly placeDep node_modules/@sentry/node @opentelemetry/instrumentation-mongodb@0.67.0 OK for: @sentry/node@10.53.1 want: 0.67.0
+217 silly fetch manifest @opentelemetry/core@2.6.1
+218 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fcore cache-miss
+219 http cache https://registry.npmjs.org/@opentelemetry%2fcore 25ms (cache hit)
+220 silly packumentCache full:https://registry.npmjs.org/@opentelemetry%2fcore set size:820532 disposed:false
+221 silly placeDep node_modules/@opentelemetry/instrumentation-express @opentelemetry/api-logs@0.218.0 OK for: @opentelemetry/instrumentation@0.218.0 want: 0.218.0
+222 silly placeDep node_modules/@opentelemetry/instrumentation-http @opentelemetry/api-logs@0.218.0 OK for: @opentelemetry/instrumentation@0.218.0 want: 0.218.0
+223 silly placeDep node_modules/@opentelemetry/instrumentation-mongodb @opentelemetry/api-logs@0.218.0 OK for: @opentelemetry/instrumentation@0.218.0 want: 0.218.0
+224 silly placeDep node_modules/@opentelemetry/instrumentation-redis-4 @opentelemetry/api-logs@0.202.0 OK for: @opentelemetry/instrumentation@0.202.0 want: 0.202.0
+225 silly placeDep node_modules/@opentelemetry/instrumentation-redis-4 import-in-the-middle@1.15.0 OK for: @opentelemetry/instrumentation@0.202.0 want: ^1.8.1
+226 silly placeDep node_modules/@opentelemetry/instrumentation-redis-4 require-in-the-middle@7.5.2 OK for: @opentelemetry/instrumentation@0.202.0 want: ^7.1.1
+227 silly fetch manifest cjs-module-lexer@^1.2.2
+228 silly packumentCache full:https://registry.npmjs.org/cjs-module-lexer cache-miss
+229 silly fetch manifest debug@^4.3.5
+230 silly packumentCache full:https://registry.npmjs.org/debug cache-miss
+231 silly fetch manifest resolve@^1.22.8
+232 silly packumentCache full:https://registry.npmjs.org/resolve cache-miss
+233 http cache https://registry.npmjs.org/cjs-module-lexer 56ms (cache hit)
+234 silly packumentCache full:https://registry.npmjs.org/cjs-module-lexer set size:147092 disposed:false
+235 http cache https://registry.npmjs.org/debug 62ms (cache hit)
+236 silly packumentCache full:https://registry.npmjs.org/debug set size:195840 disposed:false
+237 http cache https://registry.npmjs.org/resolve 69ms (cache hit)
+238 silly packumentCache full:https://registry.npmjs.org/resolve set size:244568 disposed:false
+239 silly placeDep node_modules/@opentelemetry/instrumentation-redis-4 cjs-module-lexer@1.4.3 OK for: import-in-the-middle@1.15.0 want: ^1.2.2
+240 silly placeDep node_modules/@opentelemetry/instrumentation-redis-4 debug@4.4.3 OK for: require-in-the-middle@7.5.2 want: ^4.3.5
+241 silly placeDep ROOT resolve@1.22.12 OK for: require-in-the-middle@7.5.2 want: ^1.22.8
+242 silly fetch manifest ms@^2.1.3
+243 silly packumentCache full:https://registry.npmjs.org/ms cache-miss
+244 silly fetch manifest path-parse@^1.0.7
+245 silly packumentCache full:https://registry.npmjs.org/path-parse cache-miss
+246 silly fetch manifest is-core-module@^2.16.1
+247 silly packumentCache full:https://registry.npmjs.org/is-core-module cache-miss
+248 http cache https://registry.npmjs.org/ms 30ms (cache hit)
+249 silly packumentCache full:https://registry.npmjs.org/ms set size:92208 disposed:false
+250 silly fetch manifest supports-preserve-symlinks-flag@^1.0.0
+251 silly packumentCache full:https://registry.npmjs.org/supports-preserve-symlinks-flag cache-miss
+252 http cache https://registry.npmjs.org/is-core-module 37ms (cache hit)
+253 silly packumentCache full:https://registry.npmjs.org/is-core-module set size:74378 disposed:false
+254 http cache https://registry.npmjs.org/path-parse 49ms (cache hit)
+255 silly packumentCache full:https://registry.npmjs.org/path-parse set size:14523 disposed:false
+256 http cache https://registry.npmjs.org/supports-preserve-symlinks-flag 33ms (cache hit)
+257 silly packumentCache full:https://registry.npmjs.org/supports-preserve-symlinks-flag set size:6802 disposed:false
+258 silly placeDep ROOT is-core-module@2.16.2 OK for: resolve@1.22.12 want: ^2.16.1
+259 silly placeDep ROOT path-parse@1.0.7 OK for: resolve@1.22.12 want: ^1.0.7
+260 silly placeDep ROOT supports-preserve-symlinks-flag@1.0.0 OK for: resolve@1.22.12 want: ^1.0.0
+261 silly fetch manifest hasown@^2.0.3
+262 silly packumentCache full:https://registry.npmjs.org/hasown cache-miss
+263 http cache https://registry.npmjs.org/hasown 10ms (cache hit)
+264 silly packumentCache full:https://registry.npmjs.org/hasown set size:15429 disposed:false
+265 silly placeDep ROOT hasown@2.0.3 REPLACE for: is-core-module@2.16.2 want: ^2.0.3
+266 silly placeDep node_modules/@opentelemetry/instrumentation-redis-4 ms@2.1.3 OK for: debug@4.4.3 want: ^2.1.3
+267 silly placeDep node_modules/@sentry/node @opentelemetry/core@2.6.1 OK for: @opentelemetry/instrumentation-http@0.214.0 want: 2.6.1
+268 silly fetch manifest gcp-metadata@^5.2.0
+269 silly packumentCache full:https://registry.npmjs.org/gcp-metadata cache-miss
+270 http cache https://registry.npmjs.org/gcp-metadata 16ms (cache hit)
+271 silly packumentCache full:https://registry.npmjs.org/gcp-metadata set size:191448 disposed:false
+272 silly placeDep node_modules/mongoose gcp-metadata@5.3.0 OK for: mongodb@6.20.0 want: ^5.2.0
+273 silly fetch manifest gaxios@^5.0.0
+274 silly packumentCache full:https://registry.npmjs.org/gaxios cache-miss
+275 http cache https://registry.npmjs.org/gaxios 15ms (cache hit)
+276 silly packumentCache full:https://registry.npmjs.org/gaxios set size:345358 disposed:false
+277 silly placeDep node_modules/mongoose gaxios@5.1.3 OK for: gcp-metadata@5.3.0 want: ^5.0.0
+278 silly fetch manifest https-proxy-agent@^5.0.0
+279 silly packumentCache full:https://registry.npmjs.org/https-proxy-agent cache-miss
+280 http cache https://registry.npmjs.org/https-proxy-agent 12ms (cache hit)
+281 silly packumentCache full:https://registry.npmjs.org/https-proxy-agent set size:81258 disposed:false
+282 silly placeDep node_modules/mongoose https-proxy-agent@5.0.1 OK for: gaxios@5.1.3 want: ^5.0.0
+283 silly fetch manifest debug@4
+284 silly packumentCache full:https://registry.npmjs.org/debug cache-hit
+285 silly fetch manifest agent-base@6
+286 silly packumentCache full:https://registry.npmjs.org/agent-base cache-miss
+287 http cache https://registry.npmjs.org/agent-base 17ms (cache hit)
+288 silly packumentCache full:https://registry.npmjs.org/agent-base set size:72085 disposed:false
+289 silly placeDep node_modules/mongoose agent-base@6.0.2 OK for: https-proxy-agent@5.0.1 want: 6
+290 silly placeDep node_modules/mongoose debug@4.4.3 OK for: https-proxy-agent@5.0.1 want: 4
+291 silly reify mark retired [
+291 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\path-parse'
+291 silly reify ]
+292 silly reify mark retired [
+292 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\supports-preserve-symlinks-flag'
+292 silly reify ]
+293 silly reify mark retired [ 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\yaml' ]
+294 silly reify mark retired [
+294 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-metrics-otlp-http'
+294 silly reify ]
+295 silly reify mark retired [
+295 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-metrics-otlp-proto'
+295 silly reify ]
+296 silly reify mark retired [
+296 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-prometheus'
+296 silly reify ]
+297 silly reify mark retired [
+297 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-zipkin'
+297 silly reify ]
+298 silly reify mark retired [ 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\hasown' ]
+299 silly reify mark retired [
+299 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\is-core-module'
+299 silly reify ]
+300 silly reify mark retired [
+300 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\resolve',
+300 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.bin\\resolve',
+300 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.bin\\resolve.cmd',
+300 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.bin\\resolve.ps1'
+300 silly reify ]
+301 silly reify mark retired [
+301 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\configuration'
+301 silly reify ]
+302 silly reify mark retired [
+302 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\context-async-hooks'
+302 silly reify ]
+303 silly reify mark retired [
+303 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-logs-otlp-grpc'
+303 silly reify ]
+304 silly reify mark retired [
+304 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-logs-otlp-http'
+304 silly reify ]
+305 silly reify mark retired [
+305 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-logs-otlp-proto'
+305 silly reify ]
+306 silly reify mark retired [
+306 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-trace-otlp-http'
+306 silly reify ]
+307 silly reify mark retired [
+307 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-metrics-otlp-grpc'
+307 silly reify ]
+308 silly reify mark retired [
+308 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-trace-otlp-grpc'
+308 silly reify ]
+309 silly reify mark retired [
+309 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-trace-otlp-proto'
+309 silly reify ]
+310 silly reify mark retired [
+310 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\instrumentation-express'
+310 silly reify ]
+311 silly reify mark retired [
+311 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\instrumentation-http'
+311 silly reify ]
+312 silly reify mark retired [
+312 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\instrumentation-mongodb'
+312 silly reify ]
+313 silly reify mark retired [
+313 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\instrumentation-redis-4'
+313 silly reify ]
+314 silly reify mark retired [
+314 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\otlp-exporter-base'
+314 silly reify ]
+315 silly reify mark retired [
+315 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\otlp-grpc-exporter-base'
+315 silly reify ]
+316 silly reify mark retired [
+316 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\otlp-transformer'
+316 silly reify ]
+317 silly reify mark retired [
+317 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\propagator-b3'
+317 silly reify ]
+318 silly reify mark retired [
+318 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\propagator-jaeger'
+318 silly reify ]
+319 silly reify mark retired [
+319 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\redis-common'
+319 silly reify ]
+320 silly reify mark retired [
+320 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\sdk-logs'
+320 silly reify ]
+321 silly reify mark retired [
+321 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\sdk-trace-node'
+321 silly reify ]
+322 silly reify mark retired [
+322 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\sdk-node'
+322 silly reify ]
+323 silly reify mark retired [
+323 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@sentry\\node\\node_modules\\@opentelemetry\\core'
+323 silly reify ]
+324 silly reify mark retired [
+324 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@sentry\\node\\node_modules\\@opentelemetry\\instrumentation-http'
+324 silly reify ]
+325 silly reify mark retired [
+325 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@sentry\\node\\node_modules\\@opentelemetry\\instrumentation-mongodb'
+325 silly reify ]
+326 silly reify mark retired [
+326 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\sdk-metrics'
+326 silly reify ]
+327 silly reify moves {
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\path-parse': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.path-parse-DxnUFXQ9',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\supports-preserve-symlinks-flag': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.supports-preserve-symlinks-flag-LKjOJwFE',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\yaml': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.yaml-bUA4FwA3',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-metrics-otlp-http': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-metrics-otlp-http-6RSCdRS3',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-metrics-otlp-proto': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-metrics-otlp-proto-t4rAoIwC',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-prometheus': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-prometheus-W1eiUJwl',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-zipkin': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-zipkin-442DTFSW',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\hasown': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.hasown-on6V5I0v',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\is-core-module': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.is-core-module-UoL5W8fc',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\resolve': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.resolve-NThViy64',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.bin\\resolve': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.bin\\.resolve-qhLjCvZB',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.bin\\resolve.cmd': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.bin\\.resolve.cmd-54UATBZA',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.bin\\resolve.ps1': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\.bin\\.resolve.ps1-sK4lJWfB',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\configuration': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.configuration-rq2CHSPM',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\context-async-hooks': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.context-async-hooks-sHzszcfg',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-logs-otlp-grpc': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-logs-otlp-grpc-esQf2JT9',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-logs-otlp-http': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-logs-otlp-http-mwQ4UJ0o',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-logs-otlp-proto': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-logs-otlp-proto-wIEYp0qS',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-trace-otlp-http': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-trace-otlp-http-N4lnBnER',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-metrics-otlp-grpc': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-metrics-otlp-grpc-a8IGyqNC',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-trace-otlp-grpc': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-trace-otlp-grpc-54Cy8IPR',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\exporter-trace-otlp-proto': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.exporter-trace-otlp-proto-H23jfi84',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\instrumentation-express': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.instrumentation-express-35nBNq9K',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\instrumentation-http': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.instrumentation-http-vD4e67kn',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\instrumentation-mongodb': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.instrumentation-mongodb-3MzK2tA1',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\instrumentation-redis-4': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.instrumentation-redis-4-IAR8qQJZ',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\otlp-exporter-base': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.otlp-exporter-base-kXYlsvQ8',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\otlp-grpc-exporter-base': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.otlp-grpc-exporter-base-3xvJivVV',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\otlp-transformer': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.otlp-transformer-6dh5H4zu',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\propagator-b3': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.propagator-b3-ggfbc9SN',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\propagator-jaeger': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.propagator-jaeger-vz66gmnW',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\redis-common': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.redis-common-9mFbwtkH',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\sdk-logs': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.sdk-logs-nCEkoy3Z',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\sdk-trace-node': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.sdk-trace-node-3HnbyQGQ',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\sdk-node': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.sdk-node-0Nh6r44o',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@sentry\\node\\node_modules\\@opentelemetry\\core': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@sentry\\node\\node_modules\\@opentelemetry\\.core-tWzpIzj6',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@sentry\\node\\node_modules\\@opentelemetry\\instrumentation-http': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@sentry\\node\\node_modules\\@opentelemetry\\.instrumentation-http-zI6eYy9w',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@sentry\\node\\node_modules\\@opentelemetry\\instrumentation-mongodb': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@sentry\\node\\node_modules\\@opentelemetry\\.instrumentation-mongodb-U075InHh',
+327 silly reify   'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\sdk-metrics': 'C:\\Users\\AAA\\Documents\\abzio\\backend\\node_modules\\@opentelemetry\\.sdk-metrics-fFsi4ixl'
+327 silly reify }
+328 silly audit bulk request {
+328 silly audit   '@babel/code-frame': [ '7.29.0' ],
+328 silly audit   '@babel/helper-validator-identifier': [ '7.28.5' ],
+328 silly audit   '@fastify/busboy': [ '3.2.0' ],
+328 silly audit   '@fastify/otel': [ '0.18.0' ],
+328 silly audit   '@opentelemetry/api-logs': [ '0.212.0', '0.214.0', '0.207.0', '0.218.0', '0.202.0' ],
+328 silly audit   '@opentelemetry/instrumentation': [ '0.212.0', '0.214.0', '0.207.0', '0.218.0', '0.202.0' ],
+328 silly audit   'import-in-the-middle': [ '2.0.6', '3.0.1', '1.15.0' ],
+328 silly audit   '@firebase/app-check-interop-types': [ '0.3.3' ],
+328 silly audit   '@firebase/app-types': [ '0.9.4' ],
+328 silly audit   '@firebase/auth-interop-types': [ '0.2.4' ],
+328 silly audit   '@firebase/component': [ '0.7.2' ],
+328 silly audit   '@firebase/database': [ '1.1.2' ],
+328 silly audit   '@firebase/database-compat': [ '2.1.3' ],
+328 silly audit   '@firebase/database-types': [ '1.0.19' ],
+328 silly audit   '@firebase/logger': [ '0.5.0' ],
+328 silly audit   '@firebase/util': [ '1.15.0' ],
+328 silly audit   '@google-cloud/firestore': [ '7.11.6' ],
+328 silly audit   '@google-cloud/paginator': [ '5.0.2' ],
+328 silly audit   '@google-cloud/projectify': [ '4.0.0' ],
+328 silly audit   '@google-cloud/promisify': [ '4.0.0' ],
+328 silly audit   '@google-cloud/storage': [ '7.19.0' ],
+328 silly audit   uuid: [ '8.3.2', '9.0.1', '11.1.0' ],
+328 silly audit   '@grpc/grpc-js': [ '1.14.3' ],
+328 silly audit   '@grpc/proto-loader': [ '0.8.0', '0.7.15' ],
+328 silly audit   '@js-sdsl/ordered-map': [ '4.4.2' ],
+328 silly audit   '@mongodb-js/saslprep': [ '1.4.6' ],
+328 silly audit   '@opentelemetry/api': [ '1.9.1' ],
+328 silly audit   '@opentelemetry/core': [ '2.7.1', '2.6.1' ],
+328 silly audit   '@opentelemetry/instrumentation-amqplib': [ '0.61.0' ],
+328 silly audit   '@opentelemetry/instrumentation-connect': [ '0.57.0' ],
+328 silly audit   '@opentelemetry/instrumentation-dataloader': [ '0.31.0' ],
+328 silly audit   '@opentelemetry/instrumentation-fs': [ '0.33.0' ],
+328 silly audit   '@opentelemetry/instrumentation-generic-pool': [ '0.57.0' ],
+328 silly audit   '@opentelemetry/instrumentation-graphql': [ '0.62.0' ],
+328 silly audit   '@opentelemetry/instrumentation-hapi': [ '0.60.0' ],
+328 silly audit   '@opentelemetry/instrumentation-kafkajs': [ '0.23.0' ],
+328 silly audit   '@opentelemetry/instrumentation-knex': [ '0.58.0' ],
+328 silly audit   '@opentelemetry/instrumentation-koa': [ '0.62.0' ],
+328 silly audit   '@opentelemetry/instrumentation-lru-memoizer': [ '0.58.0' ],
+328 silly audit   '@opentelemetry/instrumentation-mongoose': [ '0.60.0' ],
+328 silly audit   '@opentelemetry/instrumentation-mysql': [ '0.60.0' ],
+328 silly audit   '@opentelemetry/instrumentation-mysql2': [ '0.60.0' ],
+328 silly audit   '@opentelemetry/instrumentation-pg': [ '0.66.0' ],
+328 silly audit   '@opentelemetry/instrumentation-tedious': [ '0.33.0' ],
+328 silly audit   '@opentelemetry/resources': [ '2.7.1' ],
+328 silly audit   '@opentelemetry/sdk-trace-base': [ '2.7.1' ],
+328 silly audit   '@opentelemetry/semantic-conventions': [ '1.41.1' ],
+328 silly audit   '@opentelemetry/sql-common': [ '0.41.2' ],
+328 silly audit   '@prisma/instrumentation': [ '7.6.0' ],
+328 silly audit   '@protobufjs/aspromise': [ '1.1.2' ],
+328 silly audit   '@protobufjs/base64': [ '1.1.2' ],
+328 silly audit   '@protobufjs/codegen': [ '2.0.4' ],
+328 silly audit   '@protobufjs/eventemitter': [ '1.1.0' ],
+328 silly audit   '@protobufjs/fetch': [ '1.1.0' ],
+328 silly audit   '@protobufjs/float': [ '1.0.2' ],
+328 silly audit   '@protobufjs/inquire': [ '1.1.0' ],
+328 silly audit   '@protobufjs/path': [ '1.1.2' ],
+328 silly audit   '@protobufjs/pool': [ '1.1.0' ],
+328 silly audit   '@protobufjs/utf8': [ '1.1.0' ],
+328 silly audit   '@puppeteer/browsers': [ '2.13.0' ],
+328 silly audit   debug: [ '4.4.3', '2.6.9' ],
+328 silly audit   ms: [ '2.1.3', '2.0.0' ],
+328 silly audit   '@redis/bloom': [ '1.2.0' ],
+328 silly audit   '@redis/client': [ '1.6.1' ],
+328 silly audit   '@redis/graph': [ '1.1.1' ],
+328 silly audit   '@redis/json': [ '1.0.7' ],
+328 silly audit   '@redis/search': [ '1.2.0' ],
+328 silly audit   '@redis/time-series': [ '1.1.0' ],
+328 silly audit   '@sentry-internal/node-cpu-profiler': [ '2.4.0' ],
+328 silly audit   '@sentry/core': [ '10.53.1' ],
+328 silly audit   '@sentry/node': [ '10.53.1' ],
+328 silly audit   '@sentry/node-core': [ '10.53.1' ],
+328 silly audit   '@sentry/opentelemetry': [ '10.53.1' ],
+328 silly audit   '@sentry/profiling-node': [ '10.53.1' ],
+328 silly audit   '@tootallnate/once': [ '2.0.0' ],
+328 silly audit   '@tootallnate/quickjs-emscripten': [ '0.23.0' ],
+328 silly audit   '@types/caseless': [ '0.12.5' ],
+328 silly audit   '@types/connect': [ '3.4.38' ],
+328 silly audit   '@types/jsonwebtoken': [ '9.0.10' ],
+328 silly audit   '@types/long': [ '4.0.2' ],
+328 silly audit   '@types/ms': [ '2.1.0' ],
+328 silly audit   '@types/mysql': [ '2.15.27' ],
+328 silly audit   '@types/node': [ '22.19.15' ],
+328 silly audit   '@types/pg': [ '8.15.6' ],
+328 silly audit   '@types/pg-pool': [ '2.0.7' ],
+328 silly audit   '@types/request': [ '2.48.13' ],
+328 silly audit   'form-data': [ '2.5.5', '4.0.5' ],
+328 silly audit   '@types/tedious': [ '4.0.14' ],
+328 silly audit   '@types/tough-cookie': [ '4.0.5' ],
+328 silly audit   '@types/webidl-conversions': [ '7.0.3' ],
+328 silly audit   '@types/whatwg-url': [ '11.0.5' ],
+328 silly audit   '@types/yauzl': [ '2.10.3' ],
+328 silly audit   'abort-controller': [ '3.0.0' ],
+328 silly audit   accepts: [ '1.3.8' ],
+328 silly audit   acorn: [ '8.16.0' ],
+328 silly audit   'acorn-import-attributes': [ '1.9.5' ],
+328 silly audit   'agent-base': [ '7.1.4', '6.0.2' ],
+328 silly audit   ajv: [ '8.20.0' ],
+328 silly audit   'ajv-formats': [ '3.0.1' ],
+328 silly audit   'ansi-regex': [ '5.0.1' ],
+328 silly audit   'ansi-styles': [ '4.3.0' ],
+328 silly audit   anymatch: [ '3.1.3' ],
+328 silly audit   'append-field': [ '1.0.0' ],
+328 silly audit   argparse: [ '2.0.1' ],
+328 silly audit   'array-flatten': [ '1.1.1' ],
+328 silly audit   arrify: [ '2.0.1' ],
+328 silly audit   'ast-types': [ '0.13.4' ],
+328 silly audit   'async-retry': [ '1.3.3' ],
+328 silly audit   asynckit: [ '0.4.0' ],
+328 silly audit   axios: [ '1.15.0' ],
+328 silly audit   b4a: [ '1.8.0' ],
+328 silly audit   'balanced-match': [ '4.0.4' ],
+328 silly audit   'bare-events': [ '2.8.2' ],
+328 silly audit   'bare-fs': [ '4.7.1' ],
+328 silly audit   'bare-os': [ '3.8.7' ],
+328 silly audit   'bare-path': [ '3.0.0' ],
+328 silly audit   'bare-stream': [ '2.13.0' ],
+328 silly audit   'bare-url': [ '2.4.0' ],
+328 silly audit   'base64-js': [ '1.5.1' ],
+328 silly audit   'basic-ftp': [ '5.3.0' ],
+328 silly audit   'bignumber.js': [ '9.3.1' ],
+328 silly audit   'binary-extensions': [ '2.3.0' ],
+328 silly audit   'body-parser': [ '1.20.4' ],
+328 silly audit   'brace-expansion': [ '5.0.5' ],
+328 silly audit   braces: [ '3.0.3' ],
+328 silly audit   bson: [ '6.10.4' ],
+328 silly audit   'buffer-crc32': [ '0.2.13' ],
+328 silly audit   'buffer-equal-constant-time': [ '1.0.1' ],
+328 silly audit   'buffer-from': [ '1.1.2' ],
+328 silly audit   busboy: [ '1.6.0' ],
+328 silly audit   bytes: [ '3.1.2' ],
+328 silly audit   'call-bind-apply-helpers': [ '1.0.2' ],
+328 silly audit   'call-bound': [ '1.0.4' ],
+328 silly audit   callsites: [ '3.1.0' ],
+328 silly audit   chokidar: [ '3.6.0' ],
+328 silly audit   'chromium-bidi': [ '14.0.0' ],
+328 silly audit   'cjs-module-lexer': [ '2.2.0', '1.4.3' ],
+328 silly audit   cliui: [ '8.0.1' ],
+328 silly audit   cloudinary: [ '2.9.0' ],
+328 silly audit   'cluster-key-slot': [ '1.1.2' ],
+328 silly audit   'color-convert': [ '2.0.1' ],
+328 silly audit   'color-name': [ '1.1.4' ],
+328 silly audit   'combined-stream': [ '1.0.8' ],
+328 silly audit   'concat-stream': [ '1.6.2' ],
+328 silly audit   'readable-stream': [ '2.3.8', '3.6.2' ],
+328 silly audit   'safe-buffer': [ '5.1.2', '5.2.1' ],
+328 silly audit   string_decoder: [ '1.1.1', '1.3.0' ],
+328 silly audit   'content-disposition': [ '0.5.4' ],
+328 silly audit   'content-type': [ '1.0.5' ],
+328 silly audit   cookie: [ '0.7.2' ],
+328 silly audit   'cookie-signature': [ '1.0.7' ],
+328 silly audit   'core-util-is': [ '1.0.3' ],
+328 silly audit   cors: [ '2.8.6' ],
+328 silly audit   cosmiconfig: [ '9.0.1' ],
+328 silly audit   'data-uri-to-buffer': [ '6.0.2', '4.0.1' ],
+328 silly audit   degenerator: [ '5.0.1' ],
+328 silly audit   'delayed-stream': [ '1.0.0' ],
+328 silly audit   depd: [ '2.0.0' ],
+328 silly audit   destroy: [ '1.2.0' ],
+328 silly audit   'detect-libc': [ '2.1.2' ],
+328 silly audit   'devtools-protocol': [ '0.0.1595872' ],
+328 silly audit   dotenv: [ '16.6.1' ],
+328 silly audit   'dunder-proto': [ '1.0.1' ],
+328 silly audit   duplexify: [ '4.1.3' ],
+328 silly audit   'ecdsa-sig-formatter': [ '1.0.11' ],
+328 silly audit   'ee-first': [ '1.1.1' ],
+328 silly audit   'emoji-regex': [ '8.0.0' ],
+328 silly audit   encodeurl: [ '2.0.0' ],
+328 silly audit   'end-of-stream': [ '1.4.5' ],
+328 silly audit   'env-paths': [ '2.2.1' ],
+328 silly audit   'error-ex': [ '1.3.4' ],
+328 silly audit   'es-define-property': [ '1.0.1' ],
+328 silly audit   'es-errors': [ '1.3.0' ],
+328 silly audit   'es-object-atoms': [ '1.1.1' ],
+328 silly audit   'es-set-tostringtag': [ '2.1.0' ],
+328 silly audit   escalade: [ '3.2.0' ],
+328 silly audit   'escape-html': [ '1.0.3' ],
+328 silly audit   escodegen: [ '2.1.0' ],
+328 silly audit   esprima: [ '4.0.1' ],
+328 silly audit   estraverse: [ '5.3.0' ],
+328 silly audit   esutils: [ '2.0.3' ],
+328 silly audit   etag: [ '1.8.1' ],
+328 silly audit   'event-target-shim': [ '5.0.1' ],
+328 silly audit   'events-universal': [ '1.0.1' ],
+328 silly audit   express: [ '4.22.1' ],
+328 silly audit   extend: [ '3.0.2' ],
+328 silly audit   'extract-zip': [ '2.0.1' ],
+328 silly audit   'farmhash-modern': [ '1.1.0' ],
+328 silly audit   'fast-deep-equal': [ '3.1.3' ],
+328 silly audit   'fast-fifo': [ '1.3.2' ],
+328 silly audit   'fast-uri': [ '3.1.2' ],
+328 silly audit   'fast-xml-builder': [ '1.1.4' ],
+328 silly audit   'fast-xml-parser': [ '5.5.9' ],
+328 silly audit   'faye-websocket': [ '0.11.4' ],
+328 silly audit   'fd-slicer': [ '1.1.0' ],
+328 silly audit   'fetch-blob': [ '3.2.0' ],
+328 silly audit   'fill-range': [ '7.1.1' ],
+328 silly audit   finalhandler: [ '1.3.2' ],
+328 silly audit   'firebase-admin': [ '13.8.0' ],
+328 silly audit   gaxios: [ '7.1.4', '6.7.1' ],
+328 silly audit   'gcp-metadata': [ '8.1.2', '6.1.1' ],
+328 silly audit   'google-auth-library': [ '10.6.2', '9.15.1' ],
+328 silly audit   'google-logging-utils': [ '1.1.3', '0.0.2' ],
+328 silly audit   'node-fetch': [ '3.3.2', '2.7.0' ],
+328 silly audit   'follow-redirects': [ '1.16.0' ],
+328 silly audit   'formdata-polyfill': [ '4.0.10' ],
+328 silly audit   forwarded: [ '0.2.0' ],
+328 silly audit   'forwarded-parse': [ '2.1.2' ],
+328 silly audit   fresh: [ '0.5.2' ],
+328 silly audit   fsevents: [ '2.3.3' ],
+328 silly audit   'function-bind': [ '1.1.2' ],
+328 silly audit   'functional-red-black-tree': [ '1.0.1' ],
+328 silly audit   'generic-pool': [ '3.9.0' ],
+328 silly audit   'get-caller-file': [ '2.0.5' ],
+328 silly audit   'get-intrinsic': [ '1.3.0' ],
+328 silly audit   'get-proto': [ '1.0.1' ],
+328 silly audit   'get-stream': [ '5.2.0' ],
+328 silly audit   'get-uri': [ '6.0.5' ],
+328 silly audit   'glob-parent': [ '5.1.2' ],
+328 silly audit   'google-gax': [ '4.6.1' ],
+328 silly audit   gopd: [ '1.2.0' ],
+328 silly audit   gtoken: [ '7.1.0' ],
+328 silly audit   'has-flag': [ '3.0.0' ],
+328 silly audit   'has-symbols': [ '1.1.0' ],
+328 silly audit   'has-tostringtag': [ '1.0.2' ],
+328 silly audit   'html-entities': [ '2.6.0' ],
+328 silly audit   'http-errors': [ '2.0.1' ],
+328 silly audit   'http-parser-js': [ '0.5.10' ],
+328 silly audit   'http-proxy-agent': [ '5.0.0', '7.0.2' ],
+328 silly audit   'https-proxy-agent': [ '7.0.6', '5.0.1' ],
+328 silly audit   'iconv-lite': [ '0.4.24' ],
+328 silly audit   'ignore-by-default': [ '1.0.1' ],
+328 silly audit   'import-fresh': [ '3.3.1' ],
+328 silly audit   inherits: [ '2.0.4' ],
+328 silly audit   'ip-address': [ '10.1.0' ],
+328 silly audit   'ipaddr.js': [ '1.9.1' ],
+328 silly audit   'is-arrayish': [ '0.2.1' ],
+328 silly audit   'is-binary-path': [ '2.1.0' ],
+328 silly audit   'is-extglob': [ '2.1.1' ],
+328 silly audit   'is-fullwidth-code-point': [ '3.0.0' ],
+328 silly audit   'is-glob': [ '4.0.3' ],
+328 silly audit   'is-number': [ '7.0.0' ],
+328 silly audit   'is-stream': [ '2.0.1' ],
+328 silly audit   isarray: [ '1.0.0' ],
+328 silly audit   jose: [ '4.15.9' ],
+328 silly audit   'js-tokens': [ '4.0.0' ],
+328 silly audit   'js-yaml': [ '4.1.1' ],
+328 silly audit   'json-bigint': [ '1.0.0' ],
+328 silly audit   'json-parse-even-better-errors': [ '2.3.1' ],
+328 silly audit   'json-schema-traverse': [ '1.0.0' ],
+328 silly audit   jsonwebtoken: [ '9.0.3' ],
+328 silly audit   jwa: [ '2.0.1' ],
+328 silly audit   'jwks-rsa': [ '3.2.2' ],
+328 silly audit   jws: [ '4.0.1' ],
+328 silly audit   kareem: [ '2.6.3' ],
+328 silly audit   limiter: [ '1.1.5' ],
+328 silly audit   'lines-and-columns': [ '1.2.4' ],
+328 silly audit   lodash: [ '4.18.1' ],
+328 silly audit   'lodash.camelcase': [ '4.3.0' ],
+328 silly audit   'lodash.clonedeep': [ '4.5.0' ],
+328 silly audit   'lodash.includes': [ '4.3.0' ],
+328 silly audit   'lodash.isboolean': [ '3.0.3' ],
+328 silly audit   'lodash.isinteger': [ '4.0.4' ],
+328 silly audit   'lodash.isnumber': [ '3.0.3' ],
+328 silly audit   'lodash.isplainobject': [ '4.0.6' ],
+328 silly audit   'lodash.isstring': [ '4.0.1' ],
+328 silly audit   'lodash.once': [ '4.1.1' ],
+328 silly audit   long: [ '5.3.2' ],
+328 silly audit   'lru-cache': [ '6.0.0', '7.18.3' ],
+328 silly audit   'lru-memoizer': [ '2.3.0' ],
+328 silly audit   'math-intrinsics': [ '1.1.0' ],
+328 silly audit   'media-typer': [ '0.3.0' ],
+328 silly audit   'memory-pager': [ '1.5.0' ],
+328 silly audit   'merge-descriptors': [ '1.0.3' ],
+328 silly audit   methods: [ '1.1.2' ],
+328 silly audit   mime: [ '3.0.0', '1.6.0' ],
+328 silly audit   'mime-db': [ '1.52.0' ],
+328 silly audit   'mime-types': [ '2.1.35' ],
+328 silly audit   minimatch: [ '10.2.4' ],
+328 silly audit   minimist: [ '1.2.8' ],
+328 silly audit   mitt: [ '3.0.1' ],
+328 silly audit   mkdirp: [ '0.5.6' ],
+328 silly audit   'module-details-from-path': [ '1.0.4' ],
+328 silly audit   'mongodb-connection-string-url': [ '3.0.2' ],
+328 silly audit   tr46: [ '5.1.1', '0.0.3' ],
+328 silly audit   'webidl-conversions': [ '7.0.0', '3.0.1' ],
+328 silly audit   'whatwg-url': [ '14.2.0', '5.0.0' ],
+328 silly audit   mongoose: [ '8.23.0' ],
+328 silly audit   mongodb: [ '6.20.0' ],
+328 silly audit   mpath: [ '0.9.0' ],
+328 silly audit   mquery: [ '5.0.0' ],
+328 silly audit   multer: [ '1.4.5-lts.2' ],
+328 silly audit   negotiator: [ '0.6.3' ],
+328 silly audit   netmask: [ '2.1.1' ],
+328 silly audit   'node-abi': [ '3.92.0' ],
+328 silly audit   'node-cron': [ '3.0.3' ],
+328 silly audit   'node-domexception': [ '1.0.0' ],
+328 silly audit   'node-forge': [ '1.4.0' ],
+328 silly audit   nodemon: [ '3.1.14' ],
+328 silly audit   'normalize-path': [ '3.0.0' ],
+328 silly audit   'object-assign': [ '4.1.1' ],
+328 silly audit   'object-hash': [ '3.0.0' ],
+328 silly audit   'object-inspect': [ '1.13.4' ],
+328 silly audit   'on-finished': [ '2.4.1' ],
+328 silly audit   once: [ '1.4.0' ],
+328 silly audit   'p-limit': [ '3.1.0' ],
+328 silly audit   'pac-proxy-agent': [ '7.2.0' ],
+328 silly audit   'pac-resolver': [ '7.0.1' ],
+328 silly audit   'parent-module': [ '1.0.1' ],
+328 silly audit   'parse-json': [ '5.2.0' ],
+328 silly audit   parseurl: [ '1.3.3' ],
+328 silly audit   'path-expression-matcher': [ '1.2.0' ],
+328 silly audit   'path-to-regexp': [ '0.1.13' ],
+328 silly audit   pend: [ '1.2.0' ],
+328 silly audit   'pg-int8': [ '1.0.1' ],
+328 silly audit   'pg-protocol': [ '1.13.0' ],
+328 silly audit   'pg-types': [ '2.2.0' ],
+328 silly audit   picocolors: [ '1.1.1' ],
+328 silly audit   picomatch: [ '2.3.2' ],
+328 silly audit   'postgres-array': [ '2.0.0' ],
+328 silly audit   'postgres-bytea': [ '1.0.1' ],
+328 silly audit   'postgres-date': [ '1.0.7' ],
+328 silly audit   'postgres-interval': [ '1.2.0' ],
+328 silly audit   'process-nextick-args': [ '2.0.1' ],
+328 silly audit   progress: [ '2.0.3' ],
+328 silly audit   'proto3-json-serializer': [ '2.0.2' ],
+328 silly audit   protobufjs: [ '7.5.4' ],
+328 silly audit   'proxy-addr': [ '2.0.7' ],
+328 silly audit   'proxy-agent': [ '6.5.0' ],
+328 silly audit   'proxy-from-env': [ '1.1.0', '2.1.0' ],
+328 silly audit   'pstree.remy': [ '1.1.8' ],
+328 silly audit   pump: [ '3.0.4' ],
+328 silly audit   punycode: [ '2.3.1' ],
+328 silly audit   puppeteer: [ '24.41.0' ],
+328 silly audit   'puppeteer-core': [ '24.41.0' ],
+328 silly audit   qs: [ '6.14.2' ],
+328 silly audit   'range-parser': [ '1.2.1' ],
+328 silly audit   'raw-body': [ '2.5.3' ],
+328 silly audit   razorpay: [ '2.9.6' ],
+328 silly audit   readdirp: [ '3.6.0' ],
+328 silly audit   redis: [ '4.7.1' ],
+328 silly audit   'require-directory': [ '2.1.1' ],
+328 silly audit   'require-from-string': [ '2.0.2' ],
+328 silly audit   'require-in-the-middle': [ '8.0.1', '7.5.2' ],
+328 silly audit   'resolve-from': [ '4.0.0' ],
+328 silly audit   retry: [ '0.13.1' ],
+328 silly audit   'retry-request': [ '7.0.2' ],
+328 silly audit   'safer-buffer': [ '2.1.2' ],
+328 silly audit   semver: [ '7.7.4' ],
+328 silly audit   send: [ '0.19.2' ],
+328 silly audit   'serve-static': [ '1.16.3' ],
+328 silly audit   setprototypeof: [ '1.2.0' ],
+328 silly audit   'side-channel': [ '1.1.0' ],
+328 silly audit   'side-channel-list': [ '1.0.0' ],
+328 silly audit   'side-channel-map': [ '1.0.1' ],
+328 silly audit   'side-channel-weakmap': [ '1.0.2' ],
+328 silly audit   sift: [ '17.1.3' ],
+328 silly audit   'simple-update-notifier': [ '2.0.0' ],
+328 silly audit   'smart-buffer': [ '4.2.0' ],
+328 silly audit   socks: [ '2.8.7' ],
+328 silly audit   'socks-proxy-agent': [ '8.0.5' ],
+328 silly audit   'source-map': [ '0.6.1' ],
+328 silly audit   'sparse-bitfield': [ '3.0.3' ],
+328 silly audit   statuses: [ '2.0.2' ],
+328 silly audit   'stream-events': [ '1.0.5' ],
+328 silly audit   'stream-shift': [ '1.0.3' ],
+328 silly audit   streamsearch: [ '1.1.0' ],
+328 silly audit   streamx: [ '2.25.0' ],
+328 silly audit   'string-width': [ '4.2.3' ],
+328 silly audit   'strip-ansi': [ '6.0.1' ],
+328 silly audit   strnum: [ '2.2.2' ],
+328 silly audit   stubs: [ '3.0.0' ],
+328 silly audit   'supports-color': [ '5.5.0' ],
+328 silly audit   'tar-fs': [ '3.1.2' ],
+328 silly audit   'tar-stream': [ '3.1.8' ],
+328 silly audit   'teeny-request': [ '9.0.0' ],
+328 silly audit   teex: [ '1.0.1' ],
+328 silly audit   'text-decoder': [ '1.2.7' ],
+328 silly audit   'to-regex-range': [ '5.0.1' ],
+328 silly audit   toidentifier: [ '1.0.1' ],
+328 silly audit   touch: [ '3.1.1' ],
+328 silly audit   tslib: [ '2.8.1' ],
+328 silly audit   'type-is': [ '1.6.18' ],
+328 silly audit   'typed-query-selector': [ '2.12.1' ],
+328 silly audit   typedarray: [ '0.0.6' ],
+328 silly audit   undefsafe: [ '2.0.5' ],
+328 silly audit   'undici-types': [ '6.21.0' ],
+328 silly audit   unpipe: [ '1.0.0' ],
+328 silly audit   'util-deprecate': [ '1.0.2' ],
+328 silly audit   'utils-merge': [ '1.0.1' ],
+328 silly audit   vary: [ '1.1.2' ],
+328 silly audit   'web-streams-polyfill': [ '3.3.3' ],
+328 silly audit   'webdriver-bidi-protocol': [ '0.4.1' ],
+328 silly audit   'websocket-driver': [ '0.7.4' ],
+328 silly audit   'websocket-extensions': [ '0.1.4' ],
+328 silly audit   'wrap-ansi': [ '7.0.0' ],
+328 silly audit   wrappy: [ '1.0.2' ],
+328 silly audit   ws: [ '8.20.0' ],
+328 silly audit   xtend: [ '4.0.2' ],
+328 silly audit   y18n: [ '5.0.8' ],
+328 silly audit   yallist: [ '4.0.0' ],
+328 silly audit   yargs: [ '17.7.2' ],
+328 silly audit   'yargs-parser': [ '21.1.1' ],
+328 silly audit   yauzl: [ '2.10.0' ],
+328 silly audit   'yocto-queue': [ '0.1.0' ],
+328 silly audit   zod: [ '3.25.76' ],
+328 silly audit   '@opentelemetry/exporter-trace-otlp-grpc': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/exporter-trace-otlp-http': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/instrumentation-express': [ '0.66.0' ],
+328 silly audit   '@opentelemetry/instrumentation-http': [ '0.218.0', '0.214.0' ],
+328 silly audit   '@opentelemetry/instrumentation-mongodb': [ '0.71.0', '0.67.0' ],
+328 silly audit   '@opentelemetry/instrumentation-redis-4': [ '0.49.0' ],
+328 silly audit   '@opentelemetry/sdk-node': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/otlp-exporter-base': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/otlp-grpc-exporter-base': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/otlp-transformer': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/redis-common': [ '0.37.0' ],
+328 silly audit   '@opentelemetry/sdk-logs': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/sdk-metrics': [ '2.7.1' ],
+328 silly audit   '@opentelemetry/configuration': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/context-async-hooks': [ '2.7.1' ],
+328 silly audit   '@opentelemetry/exporter-logs-otlp-grpc': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/exporter-logs-otlp-http': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/exporter-logs-otlp-proto': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/exporter-metrics-otlp-grpc': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/exporter-metrics-otlp-http': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/exporter-metrics-otlp-proto': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/exporter-prometheus': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/exporter-trace-otlp-proto': [ '0.218.0' ],
+328 silly audit   '@opentelemetry/exporter-zipkin': [ '2.7.1' ],
+328 silly audit   '@opentelemetry/propagator-b3': [ '2.7.1' ],
+328 silly audit   '@opentelemetry/propagator-jaeger': [ '2.7.1' ],
+328 silly audit   '@opentelemetry/sdk-trace-node': [ '2.7.1' ],
+328 silly audit   yaml: [ '2.9.0' ],
+328 silly audit   resolve: [ '1.22.12' ],
+328 silly audit   'is-core-module': [ '2.16.2' ],
+328 silly audit   'path-parse': [ '1.0.7' ],
+328 silly audit   'supports-preserve-symlinks-flag': [ '1.0.0' ],
+328 silly audit   hasown: [ '2.0.3' ]
+328 silly audit }
+329 http cache @opentelemetry/sdk-metrics@https://registry.npmjs.org/@opentelemetry/sdk-metrics/-/sdk-metrics-2.7.1.tgz 0ms (cache hit)
+330 http cache @opentelemetry/sdk-node@https://registry.npmjs.org/@opentelemetry/sdk-node/-/sdk-node-0.218.0.tgz 0ms (cache hit)
+331 http cache @opentelemetry/sdk-trace-node@https://registry.npmjs.org/@opentelemetry/sdk-trace-node/-/sdk-trace-node-2.7.1.tgz 0ms (cache hit)
+332 http cache @opentelemetry/redis-common@https://registry.npmjs.org/@opentelemetry/redis-common/-/redis-common-0.37.0.tgz 0ms (cache hit)
+333 http cache @opentelemetry/sdk-logs@https://registry.npmjs.org/@opentelemetry/sdk-logs/-/sdk-logs-0.218.0.tgz 0ms (cache hit)
+334 http cache @opentelemetry/propagator-jaeger@https://registry.npmjs.org/@opentelemetry/propagator-jaeger/-/propagator-jaeger-2.7.1.tgz 0ms (cache hit)
+335 http cache @opentelemetry/propagator-b3@https://registry.npmjs.org/@opentelemetry/propagator-b3/-/propagator-b3-2.7.1.tgz 0ms (cache hit)
+336 http cache @opentelemetry/otlp-transformer@https://registry.npmjs.org/@opentelemetry/otlp-transformer/-/otlp-transformer-0.218.0.tgz 0ms (cache hit)
+337 http cache @opentelemetry/otlp-grpc-exporter-base@https://registry.npmjs.org/@opentelemetry/otlp-grpc-exporter-base/-/otlp-grpc-exporter-base-0.218.0.tgz 0ms (cache hit)
+338 http cache @opentelemetry/otlp-exporter-base@https://registry.npmjs.org/@opentelemetry/otlp-exporter-base/-/otlp-exporter-base-0.218.0.tgz 0ms (cache hit)
+339 http cache @opentelemetry/instrumentation-redis-4@https://registry.npmjs.org/@opentelemetry/instrumentation-redis-4/-/instrumentation-redis-4-0.49.0.tgz 0ms (cache hit)
+340 http cache @opentelemetry/instrumentation-mongodb@https://registry.npmjs.org/@opentelemetry/instrumentation-mongodb/-/instrumentation-mongodb-0.71.0.tgz 0ms (cache hit)
+341 http cache @opentelemetry/instrumentation-http@https://registry.npmjs.org/@opentelemetry/instrumentation-http/-/instrumentation-http-0.218.0.tgz 0ms (cache hit)
+342 http cache @opentelemetry/instrumentation-express@https://registry.npmjs.org/@opentelemetry/instrumentation-express/-/instrumentation-express-0.66.0.tgz 0ms (cache hit)
+343 http cache @opentelemetry/exporter-trace-otlp-proto@https://registry.npmjs.org/@opentelemetry/exporter-trace-otlp-proto/-/exporter-trace-otlp-proto-0.218.0.tgz 1ms (cache hit)
+344 http cache @opentelemetry/exporter-trace-otlp-grpc@https://registry.npmjs.org/@opentelemetry/exporter-trace-otlp-grpc/-/exporter-trace-otlp-grpc-0.218.0.tgz 0ms (cache hit)
+345 http cache @opentelemetry/exporter-metrics-otlp-grpc@https://registry.npmjs.org/@opentelemetry/exporter-metrics-otlp-grpc/-/exporter-metrics-otlp-grpc-0.218.0.tgz 0ms (cache hit)
+346 http cache @opentelemetry/exporter-trace-otlp-http@https://registry.npmjs.org/@opentelemetry/exporter-trace-otlp-http/-/exporter-trace-otlp-http-0.218.0.tgz 0ms (cache hit)
+347 http cache @opentelemetry/exporter-logs-otlp-proto@https://registry.npmjs.org/@opentelemetry/exporter-logs-otlp-proto/-/exporter-logs-otlp-proto-0.218.0.tgz 0ms (cache hit)
+348 http cache @opentelemetry/exporter-logs-otlp-http@https://registry.npmjs.org/@opentelemetry/exporter-logs-otlp-http/-/exporter-logs-otlp-http-0.218.0.tgz 0ms (cache hit)
+349 http cache @opentelemetry/exporter-logs-otlp-grpc@https://registry.npmjs.org/@opentelemetry/exporter-logs-otlp-grpc/-/exporter-logs-otlp-grpc-0.218.0.tgz 0ms (cache hit)
+350 http cache @opentelemetry/context-async-hooks@https://registry.npmjs.org/@opentelemetry/context-async-hooks/-/context-async-hooks-2.7.1.tgz 1ms (cache hit)
+351 http cache @opentelemetry/configuration@https://registry.npmjs.org/@opentelemetry/configuration/-/configuration-0.218.0.tgz 0ms (cache hit)
+352 http cache resolve@https://registry.npmjs.org/resolve/-/resolve-1.22.12.tgz 0ms (cache hit)
+353 http cache is-core-module@https://registry.npmjs.org/is-core-module/-/is-core-module-2.16.2.tgz 0ms (cache hit)
+354 http cache hasown@https://registry.npmjs.org/hasown/-/hasown-2.0.3.tgz 1ms (cache hit)
+355 http cache @opentelemetry/exporter-zipkin@https://registry.npmjs.org/@opentelemetry/exporter-zipkin/-/exporter-zipkin-2.7.1.tgz 1ms (cache hit)
+356 http cache @opentelemetry/exporter-prometheus@https://registry.npmjs.org/@opentelemetry/exporter-prometheus/-/exporter-prometheus-0.218.0.tgz 0ms (cache hit)
+357 http cache @opentelemetry/exporter-metrics-otlp-proto@https://registry.npmjs.org/@opentelemetry/exporter-metrics-otlp-proto/-/exporter-metrics-otlp-proto-0.218.0.tgz 0ms (cache hit)
+358 http cache @opentelemetry/exporter-metrics-otlp-http@https://registry.npmjs.org/@opentelemetry/exporter-metrics-otlp-http/-/exporter-metrics-otlp-http-0.218.0.tgz 0ms (cache hit)
+359 http cache yaml@https://registry.npmjs.org/yaml/-/yaml-2.9.0.tgz 0ms (cache hit)
+360 http cache path-parse@https://registry.npmjs.org/path-parse/-/path-parse-1.0.7.tgz 0ms (cache hit)
+361 http cache supports-preserve-symlinks-flag@https://registry.npmjs.org/supports-preserve-symlinks-flag/-/supports-preserve-symlinks-flag-1.0.0.tgz 0ms (cache hit)
+362 http cache @opentelemetry/instrumentation-mongodb@https://registry.npmjs.org/@opentelemetry/instrumentation-mongodb/-/instrumentation-mongodb-0.67.0.tgz 0ms (cache hit)
+363 http cache @opentelemetry/instrumentation-http@https://registry.npmjs.org/@opentelemetry/instrumentation-http/-/instrumentation-http-0.214.0.tgz 0ms (cache hit)
+364 http cache @opentelemetry/core@https://registry.npmjs.org/@opentelemetry/core/-/core-2.6.1.tgz 0ms (cache hit)
+365 http cache @opentelemetry/api-logs@https://registry.npmjs.org/@opentelemetry/api-logs/-/api-logs-0.218.0.tgz 0ms (cache hit)
+366 http cache @opentelemetry/api-logs@https://registry.npmjs.org/@opentelemetry/api-logs/-/api-logs-0.218.0.tgz 0ms (cache hit)
+367 http cache @opentelemetry/instrumentation@https://registry.npmjs.org/@opentelemetry/instrumentation/-/instrumentation-0.218.0.tgz 0ms (cache hit)
+368 http cache @opentelemetry/api-logs@https://registry.npmjs.org/@opentelemetry/api-logs/-/api-logs-0.218.0.tgz 0ms (cache hit)
+369 http cache @opentelemetry/api-logs@https://registry.npmjs.org/@opentelemetry/api-logs/-/api-logs-0.202.0.tgz 0ms (cache hit)
+370 http cache require-in-the-middle@https://registry.npmjs.org/require-in-the-middle/-/require-in-the-middle-7.5.2.tgz 0ms (cache hit)
+371 http cache @opentelemetry/instrumentation@https://registry.npmjs.org/@opentelemetry/instrumentation/-/instrumentation-0.202.0.tgz 0ms (cache hit)
+372 http cache import-in-the-middle@https://registry.npmjs.org/import-in-the-middle/-/import-in-the-middle-1.15.0.tgz 0ms (cache hit)
+373 http cache debug@https://registry.npmjs.org/debug/-/debug-4.4.3.tgz 0ms (cache hit)
+374 http cache ms@https://registry.npmjs.org/ms/-/ms-2.1.3.tgz 0ms (cache hit)
+375 http cache cjs-module-lexer@https://registry.npmjs.org/cjs-module-lexer/-/cjs-module-lexer-1.4.3.tgz 0ms (cache hit)
+376 http cache @opentelemetry/api-logs@https://registry.npmjs.org/@opentelemetry/api-logs/-/api-logs-0.218.0.tgz 0ms (cache hit)
+377 http cache @opentelemetry/instrumentation@https://registry.npmjs.org/@opentelemetry/instrumentation/-/instrumentation-0.218.0.tgz 0ms (cache hit)
+378 http cache @opentelemetry/instrumentation@https://registry.npmjs.org/@opentelemetry/instrumentation/-/instrumentation-0.218.0.tgz 2ms (cache hit)
+379 http cache @opentelemetry/api-logs@https://registry.npmjs.org/@opentelemetry/api-logs/-/api-logs-0.218.0.tgz 0ms (cache hit)
+380 http cache @opentelemetry/api-logs@https://registry.npmjs.org/@opentelemetry/api-logs/-/api-logs-0.218.0.tgz 2ms (cache hit)
+381 http cache @opentelemetry/instrumentation@https://registry.npmjs.org/@opentelemetry/instrumentation/-/instrumentation-0.218.0.tgz 1ms (cache hit)
+382 http cache @opentelemetry/api-logs@https://registry.npmjs.org/@opentelemetry/api-logs/-/api-logs-0.218.0.tgz 0ms (cache hit)
+383 http cache @opentelemetry/api-logs@https://registry.npmjs.org/@opentelemetry/api-logs/-/api-logs-0.218.0.tgz 0ms (cache hit)
+384 silly tarball no local data for @opentelemetry/otlp-exporter-base@https://registry.npmjs.org/@opentelemetry/otlp-exporter-base/-/otlp-exporter-base-0.218.0.tgz. Extracting by manifest.
+385 silly tarball no local data for @opentelemetry/exporter-logs-otlp-proto@https://registry.npmjs.org/@opentelemetry/exporter-logs-otlp-proto/-/exporter-logs-otlp-proto-0.218.0.tgz. Extracting by manifest.
+386 silly tarball no local data for @opentelemetry/exporter-zipkin@https://registry.npmjs.org/@opentelemetry/exporter-zipkin/-/exporter-zipkin-2.7.1.tgz. Extracting by manifest.
+387 silly tarball no local data for @opentelemetry/exporter-prometheus@https://registry.npmjs.org/@opentelemetry/exporter-prometheus/-/exporter-prometheus-0.218.0.tgz. Extracting by manifest.
+388 silly tarball no local data for @opentelemetry/exporter-metrics-otlp-proto@https://registry.npmjs.org/@opentelemetry/exporter-metrics-otlp-proto/-/exporter-metrics-otlp-proto-0.218.0.tgz. Extracting by manifest.
+389 silly tarball no local data for @opentelemetry/exporter-metrics-otlp-http@https://registry.npmjs.org/@opentelemetry/exporter-metrics-otlp-http/-/exporter-metrics-otlp-http-0.218.0.tgz. Extracting by manifest.
+390 silly tarball no local data for yaml@https://registry.npmjs.org/yaml/-/yaml-2.9.0.tgz. Extracting by manifest.
+391 silly tarball no local data for path-parse@https://registry.npmjs.org/path-parse/-/path-parse-1.0.7.tgz. Extracting by manifest.
+392 silly tarball no local data for supports-preserve-symlinks-flag@https://registry.npmjs.org/supports-preserve-symlinks-flag/-/supports-preserve-symlinks-flag-1.0.0.tgz. Extracting by manifest.
+393 warn deprecated @opentelemetry/instrumentation-redis-4@0.49.0: Use "@opentelemetry/instrumentation-redis", which (as of v0.50.0) includes support for instrumenting redis v4.
+394 verbose audit error FetchError: request to https://registry.npmjs.org/-/npm/v1/security/advisories/bulk failed, reason: 
+394 verbose audit error     at ClientRequest.<anonymous> (C:\Program Files\nodejs\node_modules\npm\node_modules\minipass-fetch\lib\index.js:130:14)
+394 verbose audit error     at ClientRequest.emit (node:events:508:28)
+394 verbose audit error     at emitErrorEvent (node:_http_client:108:11)
+394 verbose audit error     at _destroy (node:_http_client:963:9)
+394 verbose audit error     at onSocketNT (node:_http_client:983:5)
+394 verbose audit error     at process.processTicksAndRejections (node:internal/process/task_queues:91:21) {
+394 verbose audit error   code: 'ETIMEDOUT',
+394 verbose audit error   errno: 'ETIMEDOUT',
+394 verbose audit error   type: 'system'
+394 verbose audit error }
+395 silly audit error undefined
+396 silly audit report null
+397 http fetch GET https://registry.npmjs.org/@opentelemetry/otlp-exporter-base/-/otlp-exporter-base-0.218.0.tgz attempt 1 failed with ETIMEDOUT
+398 http fetch GET https://registry.npmjs.org/@opentelemetry/exporter-logs-otlp-proto/-/exporter-logs-otlp-proto-0.218.0.tgz attempt 1 failed with ETIMEDOUT
+399 http fetch GET https://registry.npmjs.org/@opentelemetry/exporter-metrics-otlp-proto/-/exporter-metrics-otlp-proto-0.218.0.tgz attempt 1 failed with ETIMEDOUT
+400 http fetch GET https://registry.npmjs.org/yaml/-/yaml-2.9.0.tgz attempt 1 failed with ETIMEDOUT
+401 http fetch GET https://registry.npmjs.org/path-parse/-/path-parse-1.0.7.tgz attempt 1 failed with ETIMEDOUT
+402 http fetch GET https://registry.npmjs.org/@opentelemetry/exporter-prometheus/-/exporter-prometheus-0.218.0.tgz attempt 1 failed with ETIMEDOUT
+403 http fetch GET https://registry.npmjs.org/@opentelemetry/exporter-metrics-otlp-http/-/exporter-metrics-otlp-http-0.218.0.tgz attempt 1 failed with ETIMEDOUT
+404 http fetch GET https://registry.npmjs.org/@opentelemetry/exporter-zipkin/-/exporter-zipkin-2.7.1.tgz attempt 1 failed with ETIMEDOUT
+405 http fetch GET https://registry.npmjs.org/supports-preserve-symlinks-flag/-/supports-preserve-symlinks-flag-1.0.0.tgz attempt 1 failed with ETIMEDOUT
+406 http fetch GET https://registry.npmjs.org/@opentelemetry/otlp-exporter-base/-/otlp-exporter-base-0.218.0.tgz attempt 2 failed with ETIMEDOUT
+407 http fetch GET 200 https://registry.npmjs.org/path-parse/-/path-parse-1.0.7.tgz 57753ms attempt #2 (cache miss)
+408 http fetch GET 200 https://registry.npmjs.org/supports-preserve-symlinks-flag/-/supports-preserve-symlinks-flag-1.0.0.tgz 57807ms attempt #2 (cache miss)
+409 http fetch GET 200 https://registry.npmjs.org/@opentelemetry/exporter-prometheus/-/exporter-prometheus-0.218.0.tgz 58805ms attempt #2 (cache miss)
+410 http fetch GET 200 https://registry.npmjs.org/@opentelemetry/exporter-logs-otlp-proto/-/exporter-logs-otlp-proto-0.218.0.tgz 59428ms attempt #2 (cache miss)
+411 http fetch GET 200 https://registry.npmjs.org/@opentelemetry/exporter-metrics-otlp-proto/-/exporter-metrics-otlp-proto-0.218.0.tgz 61745ms attempt #2 (cache miss)
+412 http fetch GET 200 https://registry.npmjs.org/@opentelemetry/exporter-metrics-otlp-http/-/exporter-metrics-otlp-http-0.218.0.tgz 61800ms attempt #2 (cache miss)
+413 http fetch GET 200 https://registry.npmjs.org/@opentelemetry/exporter-zipkin/-/exporter-zipkin-2.7.1.tgz 64963ms attempt #2 (cache miss)
+414 http fetch GET 200 https://registry.npmjs.org/yaml/-/yaml-2.9.0.tgz 66261ms attempt #2 (cache miss)
+415 http fetch GET 200 https://registry.npmjs.org/@opentelemetry/otlp-exporter-base/-/otlp-exporter-base-0.218.0.tgz 121562ms attempt #3 (cache miss)
+416 silly CHANGE node_modules/@opentelemetry/sdk-metrics
+417 silly CHANGE node_modules/@sentry/node/node_modules/@opentelemetry/instrumentation-mongodb
+418 silly CHANGE node_modules/@sentry/node/node_modules/@opentelemetry/instrumentation-http
+419 silly CHANGE node_modules/@sentry/node/node_modules/@opentelemetry/core
+420 silly CHANGE node_modules/@opentelemetry/sdk-node
+421 silly CHANGE node_modules/@opentelemetry/sdk-node/node_modules/@opentelemetry/api-logs
+422 silly CHANGE node_modules/@opentelemetry/sdk-node/node_modules/@opentelemetry/instrumentation
+423 silly CHANGE node_modules/@opentelemetry/sdk-trace-node
+424 silly CHANGE node_modules/@opentelemetry/sdk-logs
+425 silly CHANGE node_modules/@opentelemetry/sdk-logs/node_modules/@opentelemetry/api-logs
+426 silly CHANGE node_modules/@opentelemetry/redis-common
+427 silly CHANGE node_modules/@opentelemetry/propagator-jaeger
+428 silly CHANGE node_modules/@opentelemetry/propagator-b3
+429 silly CHANGE node_modules/@opentelemetry/otlp-transformer
+430 silly CHANGE node_modules/@opentelemetry/otlp-transformer/node_modules/@opentelemetry/api-logs
+431 silly CHANGE node_modules/@opentelemetry/otlp-grpc-exporter-base
+432 silly CHANGE node_modules/@opentelemetry/otlp-exporter-base
+433 silly CHANGE node_modules/@opentelemetry/instrumentation-redis-4
+434 silly CHANGE node_modules/@opentelemetry/instrumentation-redis-4/node_modules/@opentelemetry/instrumentation
+435 silly CHANGE node_modules/@opentelemetry/instrumentation-redis-4/node_modules/@opentelemetry/api-logs
+436 silly CHANGE node_modules/@opentelemetry/instrumentation-redis-4/node_modules/require-in-the-middle
+437 silly CHANGE node_modules/@opentelemetry/instrumentation-redis-4/node_modules/import-in-the-middle
+438 silly CHANGE node_modules/@opentelemetry/instrumentation-redis-4/node_modules/ms
+439 silly CHANGE node_modules/@opentelemetry/instrumentation-redis-4/node_modules/debug
+440 silly CHANGE node_modules/@opentelemetry/instrumentation-redis-4/node_modules/cjs-module-lexer
+441 silly CHANGE node_modules/@opentelemetry/instrumentation-mongodb
+442 silly CHANGE node_modules/@opentelemetry/instrumentation-mongodb/node_modules/@opentelemetry/api-logs
+443 silly CHANGE node_modules/@opentelemetry/instrumentation-mongodb/node_modules/@opentelemetry/instrumentation
+444 silly CHANGE node_modules/@opentelemetry/instrumentation-http
+445 silly CHANGE node_modules/@opentelemetry/instrumentation-http/node_modules/@opentelemetry/instrumentation
+446 silly CHANGE node_modules/@opentelemetry/instrumentation-http/node_modules/@opentelemetry/api-logs
+447 silly CHANGE node_modules/@opentelemetry/instrumentation-express
+448 silly CHANGE node_modules/@opentelemetry/instrumentation-express/node_modules/@opentelemetry/instrumentation
+449 silly CHANGE node_modules/@opentelemetry/instrumentation-express/node_modules/@opentelemetry/api-logs
+450 silly CHANGE node_modules/@opentelemetry/exporter-trace-otlp-proto
+451 silly CHANGE node_modules/@opentelemetry/exporter-trace-otlp-grpc
+452 silly CHANGE node_modules/@opentelemetry/exporter-metrics-otlp-grpc
+453 silly CHANGE node_modules/@opentelemetry/exporter-trace-otlp-http
+454 silly CHANGE node_modules/@opentelemetry/exporter-logs-otlp-proto
+455 silly CHANGE node_modules/@opentelemetry/exporter-logs-otlp-proto/node_modules/@opentelemetry/api-logs
+456 silly CHANGE node_modules/@opentelemetry/exporter-logs-otlp-http
+457 silly CHANGE node_modules/@opentelemetry/exporter-logs-otlp-http/node_modules/@opentelemetry/api-logs
+458 silly CHANGE node_modules/@opentelemetry/exporter-logs-otlp-grpc
+459 silly CHANGE node_modules/@opentelemetry/context-async-hooks
+460 silly CHANGE node_modules/@opentelemetry/configuration
+461 silly CHANGE node_modules/resolve
+462 silly CHANGE node_modules/is-core-module
+463 silly CHANGE node_modules/hasown
+464 silly CHANGE node_modules/@opentelemetry/exporter-zipkin
+465 silly CHANGE node_modules/@opentelemetry/exporter-prometheus
+466 silly CHANGE node_modules/@opentelemetry/exporter-metrics-otlp-proto
+467 silly CHANGE node_modules/@opentelemetry/exporter-metrics-otlp-http
+468 silly CHANGE node_modules/yaml
+469 silly CHANGE node_modules/supports-preserve-symlinks-flag
+470 silly CHANGE node_modules/path-parse
+471 verbose cwd C:\Users\AAA\Documents\abzio\backend
+472 verbose os Windows_NT 10.0.19045
+473 verbose node v24.14.0
+474 verbose npm  v11.9.0
+475 verbose exit 0
+476 info ok

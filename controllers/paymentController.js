@@ -6,6 +6,7 @@ const Product = require('../models/Product');
 const RefundRequest = require('../models/RefundRequest');
 const Transaction = require('../models/Transaction');
 const PaymentOutboxEvent = require('../models/PaymentOutboxEvent');
+const { enqueueInvoiceJob } = require('../services/invoiceService');
 const PaymentWebhookIngestEvent = require('../models/PaymentWebhookIngestEvent');
 const { recordFinanceAudit, reverseOrderSettlement } = require('../services/financeService');
 const {
@@ -304,6 +305,7 @@ async function handlePaymentCaptured(paymentEntity) {
       );
     }
   }
+  await enqueueInvoiceJob(order._id.toString(), 'payment_webhook_captured');
   return order;
   } finally {
     span.setAttribute('abzora.latency_ms', Date.now() - startedAt);
@@ -665,3 +667,5 @@ module.exports = {
   verifyPaymentSignature,
   handleRazorpayWebhook,
 };
+
+
