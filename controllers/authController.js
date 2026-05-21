@@ -336,7 +336,7 @@ function normalizeCartItems(items) {
 }
 
 function buildReferralCode(user) {
-  const seed = `${(user?.phone || user?.uid || user?._id?.toString?.() || 'ABZORA')
+  const seed = `${(user?.phone || user?.uid || user?._id?.toString?.() || 'Abianzo')
     .replace(/[^a-zA-Z0-9]/g, '')
     .toUpperCase()}ABZ`;
   // Security/reliability hardening: JS has padEnd, not padRight.
@@ -630,7 +630,7 @@ async function upsertTestUser(req, res, next) {
         phone,
         role: 'customer',
         roles: { customer: true },
-        name: 'ABZORA Member',
+        name: 'Abianzo Member',
       });
     }
 
@@ -655,7 +655,7 @@ async function syncProfile(req, res, next) {
       });
     }
 
-    req.dbUser.name = toSafeTrimmedString(req.body?.name) || req.dbUser.name || 'ABZORA Member';
+    req.dbUser.name = toSafeTrimmedString(req.body?.name) || req.dbUser.name || 'Abianzo Member';
     req.dbUser.phone = toSafeTrimmedString(req.body?.phone) || req.dbUser.phone;
     req.dbUser.email = toSafeTrimmedString(req.body?.email) || req.dbUser.email;
 

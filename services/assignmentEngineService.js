@@ -54,7 +54,7 @@ async function activeWorkloadByRider(riderIds = []) {
 }
 
 function riderScore({ distanceKm, workload }) {
-  // ABZORA hyperlocal scoring: lower is better.
+  // Abianzo hyperlocal scoring: lower is better.
   return distanceKm * 0.5 + workload * 0.3;
 }
 

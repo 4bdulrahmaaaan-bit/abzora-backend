@@ -11,7 +11,7 @@ const chatThreadSchema = new mongoose.Schema(
     otherUserName: {
       type: String,
       trim: true,
-      default: 'Abzora Support',
+      default: 'Abianzo Support',
     },
     lastMessage: {
       type: String,

@@ -914,7 +914,7 @@ function buildInvoiceInput(order, customer, store) {
   return {
     orderId: order._id.toString(),
     invoiceDate: formatDateLabel(order.createdAt),
-    customerName: shippingAddress.name || customer?.name || 'ABZORA Customer',
+    customerName: shippingAddress.name || customer?.name || 'Abianzo Customer',
     customerAddressLine1: shippingAddress.addressLine1 || customer?.address || 'N/A',
     customerAddressLine2: shippingAddress.addressLine2 || customer?.area || '',
     customerCity: shippingAddress.city || customer?.city || 'N/A',
@@ -943,7 +943,7 @@ function buildInvoiceInput(order, customer, store) {
     paymentMethod: order.paymentMethod || 'N/A',
     paymentStatus: toTitleCase(order.paymentStatus || 'pending'),
     transactionId: order.razorpay?.paymentId || order.razorpay?.orderId || 'N/A',
-    vendorName: store?.name || 'ABZORA Partner Studio',
+    vendorName: store?.name || 'Abianzo Partner Studio',
     vendorAddress: [store?.address, store?.city].filter(Boolean).join(', ') || 'N/A',
     vendorTaxId: 'N/A',
     vendorContact: customer?.phone || 'N/A',
@@ -2458,7 +2458,7 @@ async function downloadOrderInvoicePdf(req, res, next) {
 
     const invoiceInput = buildInvoiceInput(order, customer, store);
     const { pdfBuffer } = await generatePremiumInvoicePdf(invoiceInput);
-    const filename = `ABZORA-Invoice-${order._id.toString()}.pdf`;
+    const filename = `Abianzo-Invoice-${order._id.toString()}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);

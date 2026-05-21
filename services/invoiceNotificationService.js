@@ -22,8 +22,8 @@ function invoiceEmailTemplate({ customerName, invoiceNumber, orderId, amount, si
     <body style="font-family:Arial,sans-serif;background:#f6f2e8;padding:24px;color:#1a1a1a;">
       <table style="max-width:640px;margin:auto;background:#fff;border:1px solid #eadfcd;border-radius:16px;padding:24px;">
         <tr><td>
-          <h2 style="margin:0 0 8px;">ABZORA Invoice Ready</h2>
-          <p style="margin:0 0 16px;color:#6f6658;">Hi ${customerName || 'ABZORA Member'}, your payment is confirmed.</p>
+          <h2 style="margin:0 0 8px;">Abianzo Invoice Ready</h2>
+          <p style="margin:0 0 16px;color:#6f6658;">Hi ${customerName || 'Abianzo Member'}, your payment is confirmed.</p>
           <p style="margin:0 0 6px;"><strong>Invoice:</strong> ${invoiceNumber}</p>
           <p style="margin:0 0 6px;"><strong>Order:</strong> ${orderId}</p>
           <p style="margin:0 0 16px;"><strong>Amount Paid:</strong> INR ${Number(amount || 0).toFixed(2)}</p>
@@ -102,7 +102,7 @@ async function sendInvoiceEmail({ invoice, customerEmail, subject, html, signedU
   });
 
   const response = await client.emails.send({
-    from: process.env.RESEND_FROM_EMAIL || 'ABZORA <invoices@abzora.in>',
+    from: process.env.RESEND_FROM_EMAIL || 'Abianzo <invoices@abianzo.in>',
     to: [to],
     subject: subject || `Invoice ${invoice?.invoiceNumber || ''}`,
     html: finalHtml,

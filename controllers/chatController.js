@@ -6,7 +6,7 @@ const ChatMessage = require('../models/ChatMessage');
 function serializeChat(thread, viewerId) {
   const source = typeof thread.toObject === 'function' ? thread.toObject() : thread;
   const participants = Array.isArray(source.participantIds) ? source.participantIds : [];
-  const fallbackName = participants.find((id) => id !== viewerId) || 'Abzora Support';
+  const fallbackName = participants.find((id) => id !== viewerId) || 'Abianzo Support';
   return {
     id: source._id?.toString() || source.id || '',
     otherUserName: source.otherUserName || fallbackName,

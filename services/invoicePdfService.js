@@ -173,7 +173,7 @@ function buildInvoiceHtml(input = {}, options = {}) {
     paymentMethod: sanitizeText(input.paymentMethod || '-'),
     paymentStatus: sanitizeText(input.paymentStatus || 'Pending'),
     transactionId: sanitizeText(input.transactionId || '-'),
-    vendorName: sanitizeText(input.vendorName || 'ABZORA Partner Studio'),
+    vendorName: sanitizeText(input.vendorName || 'Abianzo Partner Studio'),
     vendorAddress: sanitizeText(input.vendorAddress || '-'),
     vendorTaxId: sanitizeText(input.vendorTaxId || '-'),
     vendorContact: sanitizeText(input.vendorContact || '-'),

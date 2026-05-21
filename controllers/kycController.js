@@ -196,7 +196,7 @@ async function submitVendorKycRequest(req, res, next) {
     const history = Array.isArray(existing?.actionHistory) ? existing.actionHistory : [];
     history.push({
       actorId: userId,
-      actorName: payload.ownerName || req.user?.name || req.dbUser?.name || 'ABZORA Member',
+      actorName: payload.ownerName || req.user?.name || req.dbUser?.name || 'Abianzo Member',
       action: existing ? 'resubmitted' : 'submitted',
       note: existing
         ? 'Vendor KYC re-submitted with updated documents.'
@@ -266,7 +266,7 @@ async function submitRiderKycRequest(req, res, next) {
     const history = Array.isArray(existing?.actionHistory) ? existing.actionHistory : [];
     history.push({
       actorId: userId,
-      actorName: payload.name || req.user?.name || req.dbUser?.name || 'ABZORA Member',
+      actorName: payload.name || req.user?.name || req.dbUser?.name || 'Abianzo Member',
       action: existing ? 'resubmitted' : 'submitted',
       note: existing
         ? 'Rider KYC re-submitted with updated documents.'

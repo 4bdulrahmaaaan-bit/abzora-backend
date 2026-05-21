@@ -13,7 +13,7 @@ function monthFolder(date) {
   const d = new Date(date || Date.now());
   const year = d.getUTCFullYear();
   const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-  return { year, month, folder: `ABZORA/invoices/${year}/${month}` };
+  return { year, month, folder: `Abianzo/invoices/${year}/${month}` };
 }
 
 async function uploadCloudinaryRaw({ invoiceNumber, versionLabel, pdfBuffer, metadata = {}, tags = [] }) {

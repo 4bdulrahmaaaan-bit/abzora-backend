@@ -27,7 +27,7 @@ async function generateInvoicePdf({ invoice, order, customer, store }) {
   const invoiceInput = {
     orderId: String(order._id || ''),
     invoiceDate: new Date(invoice.generatedAt || Date.now()).toISOString().slice(0, 10),
-    customerName: customer?.name || invoice.shippingAddress?.name || 'ABZORA Customer',
+    customerName: customer?.name || invoice.shippingAddress?.name || 'Abianzo Customer',
     customerAddressLine1: invoice.billingAddress?.addressLine1 || invoice.shippingAddress?.addressLine1 || '-',
     customerAddressLine2: invoice.billingAddress?.addressLine2 || '-',
     customerCity: invoice.billingAddress?.city || '-',
@@ -36,7 +36,7 @@ async function generateInvoicePdf({ invoice, order, customer, store }) {
     customerCountry: 'India',
     customerPhone: invoice.billingAddress?.phone || customer?.phone || '-',
     deliveryEstimatedDate: order?.trackingTimestamps?.Delivered || '-',
-    deliveryMethod: 'ABZORA Express',
+    deliveryMethod: 'Abianzo Express',
     deliveryTrackingId: order?.trackingId || '-',
     deliveryAddress: [
       invoice.shippingAddress?.addressLine1,
@@ -60,7 +60,7 @@ async function generateInvoicePdf({ invoice, order, customer, store }) {
     paymentMethod: `${invoice.paymentMethod || 'N/A'}${invoice.walletAmount ? ` + Wallet INR ${money(invoice.walletAmount)}` : ''}`,
     paymentStatus: invoice.paymentStatus,
     transactionId: order?.razorpay?.paymentId || order?.razorpay?.orderId || invoice.upiReference || '-',
-    vendorName: store?.name || 'ABZORA Partner Store',
+    vendorName: store?.name || 'Abianzo Partner Store',
     vendorAddress: [store?.address, store?.city, store?.state].filter(Boolean).join(', '),
     vendorTaxId: store?.gstin || process.env.ABZORA_GSTIN || 'N/A',
     vendorContact: store?.phone || '-',
@@ -69,7 +69,7 @@ async function generateInvoicePdf({ invoice, order, customer, store }) {
     occasionIntent: qrDataUrl
       ? `Verify: ${(process.env.PUBLIC_BACKEND_URL || 'https://abzora.in')}/verify/invoice/${invoice._id}`
       : 'QR unavailable',
-    craftedForYouMessage: `ABZORA GST Invoice (${invoice.versionLabel || 'v1'}). Snapshot hash: ${invoice.signedHash}`,
+    craftedForYouMessage: `Abianzo GST Invoice (${invoice.versionLabel || 'v1'}). Snapshot hash: ${invoice.signedHash}`,
     personalizationDetails: `Delivery Charge INR ${money(invoice.shippingCharge)} | Discount INR ${money(invoice.discount)}`,
   };
 

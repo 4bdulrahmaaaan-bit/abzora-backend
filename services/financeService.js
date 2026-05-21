@@ -329,7 +329,7 @@ async function ensureUserPayoutRecipient({ userId, walletType, session = null })
   }
 
   const contact = await createOrUpdateContact({
-    name: profile.accountHolderName || user.name || 'ABZORA Beneficiary',
+    name: profile.accountHolderName || user.name || 'Abianzo Beneficiary',
     email: user.email || '',
     phone: user.phone || '',
     userType: walletType,
@@ -339,7 +339,7 @@ async function ensureUserPayoutRecipient({ userId, walletType, session = null })
   const fundAccount = await createOrUpdateFundAccount({
     contactId: contact.id,
     methodType: profile.methodType,
-    accountHolderName: profile.accountHolderName || user.name || 'ABZORA Beneficiary',
+    accountHolderName: profile.accountHolderName || user.name || 'Abianzo Beneficiary',
     upiId: profile.upiId,
     bankAccountNumber: profile.bankAccountNumber,
     bankIfsc: profile.bankIfsc,

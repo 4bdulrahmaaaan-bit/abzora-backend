@@ -76,7 +76,7 @@ const userSchema = new mongoose.Schema(
     name: {
       type: String,
       trim: true,
-      default: 'ABZORA Member',
+      default: 'Abianzo Member',
     },
     email: {
       type: String,

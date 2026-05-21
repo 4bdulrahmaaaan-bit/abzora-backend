@@ -545,7 +545,7 @@ function buildStylistMessage({
   })();
 
   const outro = products.length > 0
-    ? 'These are real ABZORA products you can open and shop right away.'
+    ? 'These are real Abianzo products you can open and shop right away.'
     : 'I could not find a tight product match yet, so I am giving you style guidance first.';
 
   const bodyNote = bodyType ? ` Your ${bodyType} body profile was also considered while ranking the picks.` : '';

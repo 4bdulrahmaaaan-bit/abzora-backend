@@ -521,7 +521,7 @@ async function emailInvoice(req, res, next) {
       invoice,
       customerEmail: req.body?.email || req.user?.email || '',
       signedUrl,
-      subjectPrefix: 'ABZORA Invoice',
+      subjectPrefix: 'Abianzo Invoice',
     });
 
     invoice.emailedAt = new Date();

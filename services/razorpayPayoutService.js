@@ -62,7 +62,7 @@ async function createOrUpdateContact({ name, email, phone, userType, existingCon
   return razorpayRequest('/contacts', {
     method: 'POST',
     body: {
-      name: name || 'ABZORA Beneficiary',
+      name: name || 'Abianzo Beneficiary',
       email: email || '',
       contact: phone || '',
       type: userType === 'vendor' ? 'vendor' : 'employee',
@@ -115,7 +115,7 @@ async function createOrUpdateFundAccount({
       contact_id: contactId,
       account_type: 'bank_account',
       bank_account: {
-        name: accountHolderName || 'ABZORA Beneficiary',
+        name: accountHolderName || 'Abianzo Beneficiary',
         ifsc: bankIfsc,
         account_number: bankAccountNumber,
         bank_name: bankName || '',
@@ -148,7 +148,7 @@ async function createPayout({
       purpose: 'payout',
       queue_if_low_balance: true,
       reference_id: referenceId,
-      narration: narration || 'ABZORA settlement',
+      narration: narration || 'Abianzo settlement',
       notes,
     },
   });

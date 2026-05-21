@@ -93,7 +93,7 @@ function assistantWelcomeMessage(userName, issueType) {
     case 'custom':
       return `Hi ${firstName}, I can guide you with measurements, fit questions, and custom clothing decisions based on your saved profile.`;
     default:
-      return `Hi ${firstName}, I am ABZORA Assistant. Ask me about orders, payments, delivery updates, or custom clothing and I will help instantly.`;
+      return `Hi ${firstName}, I am Abianzo Assistant. Ask me about orders, payments, delivery updates, or custom clothing and I will help instantly.`;
   }
 }
 

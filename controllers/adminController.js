@@ -129,7 +129,7 @@ function serializeUser(user) {
     uid: user.firebaseUid || user.uid || '',
     phone: user.phone || '',
     email: user.email || '',
-    name: user.name || 'ABZORA Member',
+    name: user.name || 'Abianzo Member',
     role: user.role || 'customer',
     roles: user.roles || {},
     isActive: user.isActive !== false,

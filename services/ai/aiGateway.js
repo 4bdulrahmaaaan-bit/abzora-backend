@@ -313,7 +313,7 @@ async function handleAIRequest(input, userContext = {}) {
   const aiResponse = await callOpenAi({
     model: modelChoice.model,
     systemPrompt:
-      'ABZORA assistant. Keep answers compact, helpful, and ecommerce-specific. Use short answers unless styling detail is needed.',
+      'Abianzo assistant. Keep answers compact, helpful, and ecommerce-specific. Use short answers unless styling detail is needed.',
     userPrompt: compactContext.join('\n'),
   });
 

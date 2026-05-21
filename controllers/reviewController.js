@@ -109,7 +109,7 @@ async function saveReview(req, res, next) {
     const normalizedTargetType = targetType?.toString().trim().toLowerCase();
     const normalizedComment = comment?.toString().trim() || '';
     const normalizedImagePath = imagePath?.toString().trim() || '';
-    const normalizedUserName = userName?.toString().trim() || req.user.name || 'ABZORA Member';
+    const normalizedUserName = userName?.toString().trim() || req.user.name || 'Abianzo Member';
     const numericRating = Number(rating);
 
     if (!targetId || !['product', 'store'].includes(normalizedTargetType)) {

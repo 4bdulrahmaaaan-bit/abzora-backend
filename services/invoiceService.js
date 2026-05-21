@@ -208,7 +208,7 @@ async function createInvoiceForOrder(orderId, { forceRegenerate = false } = {}) 
   });
   const signedUrl = `${process.env.PUBLIC_BACKEND_URL || ''}/api/invoices/download/${invoice._id}?token=${encodeURIComponent(emailToken)}`;
   await Promise.allSettled([
-    queueInvoiceEmailLog({ invoice, customerEmail: draft.customer?.email || '', signedUrl, subjectPrefix: 'ABZORA Invoice' }),
+    queueInvoiceEmailLog({ invoice, customerEmail: draft.customer?.email || '', signedUrl, subjectPrefix: 'Abianzo Invoice' }),
     sendInvoicePush({ invoice, userId: order.userId }),
   ]);
   return invoice;

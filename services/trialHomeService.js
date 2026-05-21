@@ -29,7 +29,7 @@ const FINAL_SESSION_STATUSES = new Set([
 function normalizeItem(item = {}, source = 'selected') {
   return {
     productId: item.productId?.toString().trim() || item.id?.toString().trim() || '',
-    name: item.name?.toString().trim() || 'ABZORA Item',
+    name: item.name?.toString().trim() || 'Abianzo Item',
     imageUrl: item.imageUrl?.toString().trim() || item.image?.toString().trim() || '',
     price: Number(item.price || 0),
     recommendedSize: item.recommendedSize?.toString().trim() || item.size?.toString().trim() || '',
@@ -518,7 +518,7 @@ async function listTrialHomeProductsForVendor(actor) {
     .sort({ updatedAt: -1 });
   return products.map((product) => ({
     id: product._id.toString(),
-    name: product.name || 'ABZORA Item',
+    name: product.name || 'Abianzo Item',
     imageUrl: Array.isArray(product.images) && product.images.length > 0
       ? product.images[0]
       : '',
