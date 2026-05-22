@@ -192,7 +192,11 @@ async function upsertFirebaseUser(decoded, options = {}) {
   }
 
   if (!user) {
-    if (!allowCreate) {
+    // Allowlisted admin emails are an explicit production bootstrap path.
+    // General user auto-provisioning remains disabled in production, but an
+    // email that passes ENABLE_ADMIN_EMAIL_PROMOTION + ALLOWED_ADMIN_EMAILS
+    // must be able to create its immutable Mongo user record on first login.
+    if (!allowCreate && !shouldPromoteAdmin) {
       return null;
     }
     user = await User.create({
