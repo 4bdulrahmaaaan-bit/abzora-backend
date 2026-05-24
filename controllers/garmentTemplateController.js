@@ -41,7 +41,7 @@ function serializeTemplate(template) {
     name: source.name || '',
     category: source.category || '',
     modelUrls: source.modelUrls || {},
-    unity: source.unity || {},
+    runtimeProfile: source.runtimeProfile || {},
     rigProfile: source.rigProfile || '',
     blendShapes: source.blendShapes ? Object.fromEntries(Object.entries(source.blendShapes)) : {},
     customizableParts: source.customizableParts
@@ -108,7 +108,7 @@ async function upsertGarmentTemplate(req, res, next) {
       name,
       category,
       modelUrls,
-      unity,
+      runtimeProfile,
       rigProfile,
       blendShapes,
       customizableParts,
@@ -140,9 +140,9 @@ async function upsertGarmentTemplate(req, res, next) {
         lod2: normalizeOptionalUrl(modelUrls?.lod2),
         preview: normalizeOptionalUrl(modelUrls?.preview),
       },
-      unity: {
-        assetBundleUrl: normalizeOptionalUrl(unity?.assetBundleUrl),
-        sceneKey: unity?.sceneKey?.toString().trim() || '',
+      runtimeProfile: {
+        assetBundleUrl: normalizeOptionalUrl(runtimeProfile?.assetBundleUrl),
+        sceneKey: runtimeProfile?.sceneKey?.toString().trim() || '',
       },
       rigProfile: rigProfile?.toString().trim() || '',
       blendShapes: normalizeMap(blendShapes),
@@ -194,4 +194,3 @@ module.exports = {
   listGarmentTemplates,
   upsertGarmentTemplate,
 };
-

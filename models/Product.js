@@ -173,7 +173,7 @@ const productSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
-    unityAssetBundleUrl: {
+    assetBundleUrl: {
       type: String,
       trim: true,
       default: '',
@@ -388,3 +388,4 @@ const productSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model('Product', productSchema);
+

@@ -26,7 +26,7 @@ const upsertGarmentTemplateSchema = {
     name: { type: 'string', minLength: 2 },
     category: { type: 'string', minLength: 2 },
     modelUrls: lodModelsSchema,
-    unity: {
+    runtimeProfile: {
       type: 'object',
       additionalProperties: true,
       properties: {
@@ -124,9 +124,33 @@ const tryOnSessionSchema = {
   },
 };
 
+const tryOnTelemetrySchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['productId', 'sessionId', 'telemetry'],
+  properties: {
+    productId: { type: 'string', minLength: 10 },
+    sessionId: { type: 'string', minLength: 6 },
+    telemetry: {
+      type: 'object',
+      additionalProperties: true,
+      properties: {
+        trackingReliability: { type: 'number', minimum: 0, maximum: 1 },
+        motionQuality: { type: 'number', minimum: 0, maximum: 1 },
+        segmentationConfidence: { type: 'number', minimum: 0, maximum: 1 },
+        thermalLoad: { type: 'number', minimum: 0, maximum: 1 },
+        sessionQuality: { type: 'number', minimum: 0, maximum: 1 },
+        fps: { type: 'number', minimum: 0, maximum: 240 },
+        renderQuality: { type: 'number', minimum: 0, maximum: 1 },
+      },
+    },
+  },
+};
+
 module.exports = {
   fitScoreSchema,
   saveLookSchema,
   tryOnSessionSchema,
+  tryOnTelemetrySchema,
   upsertGarmentTemplateSchema,
 };

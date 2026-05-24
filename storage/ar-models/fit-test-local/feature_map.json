@@ -1,0 +1,11 @@
+{
+  "modelVersion": "fit-test-local",
+  "featureKeys": [
+    "shoulderWidth",
+    "torsoRatio",
+    "hipWaistRatio",
+    "poseStability",
+    "garmentEaseAllowance",
+    "fabricStretch"
+  ]
+}

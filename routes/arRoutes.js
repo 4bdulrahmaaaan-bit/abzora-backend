@@ -8,6 +8,7 @@ const {
   fitScoreSchema,
   saveLookSchema,
   tryOnSessionSchema,
+  tryOnTelemetrySchema,
   upsertGarmentTemplateSchema,
 } = require('../validation/schemas/arSchemas');
 const {
@@ -17,11 +18,27 @@ const {
 } = require('../controllers/garmentTemplateController');
 const {
   createTryOnSession,
+  saveTryOnTelemetry,
+  getTryOnTelemetrySummary,
   getFitAssessment,
   saveTryOnLook,
   getTryOnProduct,
   getTryOnGarmentManifest,
 } = require('../controllers/tryOnController');
+const {
+  createFitRun,
+  listFitRuns,
+  evaluateFitRun,
+  rolloutFitRun,
+  createGarmentJob,
+  listGarmentJobs,
+  createDeviceLab,
+  listDeviceLabs,
+  getEnterpriseSummary,
+  listFitRegistry,
+  listFitArtifacts,
+  getArOpsWorkerHealth,
+} = require('../controllers/arEnterpriseOpsController');
 
 const router = express.Router();
 
@@ -46,7 +63,21 @@ router.post('/generate', (req, res, next) => {
   return generateProductArAsset(req, res, next);
 });
 router.post('/tryon/session', validateBody(tryOnSessionSchema), createTryOnSession);
+router.post('/tryon/telemetry', validateBody(tryOnTelemetrySchema), saveTryOnTelemetry);
+router.get('/tryon/telemetry/summary', requireRoles('admin', 'super_admin'), getTryOnTelemetrySummary);
 router.post('/templates/upsert', validateBody(upsertGarmentTemplateSchema), upsertGarmentTemplate);
 router.post('/looks', validateBody(saveLookSchema), saveTryOnLook);
+router.get('/ops/enterprise/summary', requireRoles('admin', 'super_admin'), getEnterpriseSummary);
+router.get('/ops/fit/runs', requireRoles('admin', 'super_admin'), listFitRuns);
+router.get('/ops/fit/registry', requireRoles('admin', 'super_admin'), listFitRegistry);
+router.get('/ops/fit/artifacts', requireRoles('admin', 'super_admin'), listFitArtifacts);
+router.post('/ops/fit/runs', requireRoles('admin', 'super_admin'), createFitRun);
+router.post('/ops/fit/runs/:id/evaluate', requireRoles('admin', 'super_admin'), evaluateFitRun);
+router.post('/ops/fit/runs/:id/rollout', requireRoles('admin', 'super_admin'), rolloutFitRun);
+router.get('/ops/garment/jobs', requireRoles('admin', 'super_admin'), listGarmentJobs);
+router.post('/ops/garment/jobs', requireRoles('admin', 'super_admin'), createGarmentJob);
+router.get('/ops/device-lab/runs', requireRoles('admin', 'super_admin'), listDeviceLabs);
+router.post('/ops/device-lab/runs', requireRoles('admin', 'super_admin'), createDeviceLab);
+router.get('/ops/workers/health', requireRoles('admin', 'super_admin'), getArOpsWorkerHealth);
 
 module.exports = router;

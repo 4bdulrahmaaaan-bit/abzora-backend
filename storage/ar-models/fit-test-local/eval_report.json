@@ -1,0 +1,24 @@
+{
+  "modelVersion": "fit-test-local",
+  "datasetVersion": "dataset-v2",
+  "trainSize": 1967,
+  "validationSize": 433,
+  "trainingConfig": {
+    "epochs": 40,
+    "learningRate": 0.03
+  },
+  "trainMetrics": {
+    "mae": 0.0126,
+    "weightedAccuracy": 0.9874,
+    "calibrationError": 0.0126,
+    "precisionAtTopK": 0.9985,
+    "recallAtTopK": 0.998
+  },
+  "validationMetrics": {
+    "mae": 0.0125,
+    "weightedAccuracy": 0.9875,
+    "calibrationError": 0.0125,
+    "precisionAtTopK": 1,
+    "recallAtTopK": 1
+  }
+}

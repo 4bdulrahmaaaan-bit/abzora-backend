@@ -140,6 +140,22 @@ const tryOnSessionSchema = new mongoose.Schema(
       trim: true,
       default: 'active',
     },
+    telemetry: {
+      type: {
+        trackingReliability: { type: Number, default: 0 },
+        motionQuality: { type: Number, default: 0 },
+        segmentationConfidence: { type: Number, default: 0 },
+        thermalLoad: { type: Number, default: 0 },
+        sessionQuality: { type: Number, default: 0 },
+        fps: { type: Number, default: 0 },
+        renderQuality: { type: Number, default: 0 },
+      },
+      default: {},
+    },
+    telemetryDashboard: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
   },
   {
     timestamps: true,

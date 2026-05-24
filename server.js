@@ -95,6 +95,14 @@ const {
   stopPaymentWebhookIngestWorker,
 } = require('./services/paymentWebhookIngestService');
 const {
+  startArModelTrainingWorker,
+  stopArModelTrainingWorker,
+} = require('./services/arModelTrainingWorkerService');
+const {
+  startArGarmentCertificationWorker,
+  stopArGarmentCertificationWorker,
+} = require('./services/arGarmentCertificationWorkerService');
+const {
   closeQueueClient,
   getQueueRuntimeStatus,
   initializeOpsQueueRedis,
@@ -546,6 +554,8 @@ app.use('/debug', adminLimiter, authMiddleware, requireAdmin, debugRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/admin', adminInvoiceRoutes);
 app.use('/files/invoices', express.static(require('path').join(__dirname, 'storage', 'invoices')));
+app.use('/files/ar-models', express.static(require('path').join(__dirname, 'storage', 'ar-models')));
+app.use('/files/ar-datasets', express.static(require('path').join(__dirname, 'storage', 'ar-datasets')));
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found.' });
@@ -619,6 +629,12 @@ async function startServer() {
         retentionMs: Number(process.env.PAYMENT_WEBHOOK_INGEST_RETENTION_MS || 172800000),
       });
     }
+    if (String(process.env.AR_MODEL_WORKER_ENABLED || 'true').trim().toLowerCase() === 'true') {
+      startArModelTrainingWorker();
+    }
+    if (String(process.env.AR_GARMENT_CERT_WORKER_ENABLED || 'true').trim().toLowerCase() === 'true') {
+      startArGarmentCertificationWorker();
+    }
     httpServer = http.createServer(app);
     attachTrackingGateway(httpServer);
     attachPricingGateway(httpServer);
@@ -680,6 +696,8 @@ async function gracefulShutdown(signal) {
     await Promise.all([
       stopPaymentOutboxWorker(),
       stopPaymentWebhookIngestWorker(),
+      Promise.resolve(stopArModelTrainingWorker()),
+      Promise.resolve(stopArGarmentCertificationWorker()),
       closeTrackingGateway(),
       Promise.resolve(closePricingGateway()),
     ]);

@@ -179,8 +179,11 @@ function serializeTryOnProduct(product, store) {
     subcategory: source.subcategory || '',
     images: Array.isArray(source.images) ? source.images : [],
     model3d: source.model3d || templateSource?.modelUrls?.lod0 || '',
-    unityAssetBundleUrl:
-      source.unityAssetBundleUrl || templateSource?.unity?.assetBundleUrl || '',
+    assetBundleUrl:
+      source.assetBundleUrl ||
+      templateSource?.runtimeProfile?.assetBundleUrl ||
+      templateSource?.assetBundleUrl ||
+      '',
     rigProfile: source.rigProfile || templateSource?.rigProfile || '',
     materialProfile:
       source.materialProfile || templateSource?.defaultMaterialProfile || '',
@@ -598,10 +601,254 @@ async function saveTryOnLook(req, res, next) {
   }
 }
 
+async function saveTryOnTelemetry(req, res, next) {
+  try {
+    if (!req.user?.uid) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const { productId, sessionId, telemetry } = req.body || {};
+    if (!productId || !mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ success: false, message: 'Valid productId is required.' });
+    }
+    const normalizedSessionId = sessionId?.toString().trim() || '';
+    if (!normalizedSessionId) {
+      return res.status(400).json({ success: false, message: 'sessionId is required.' });
+    }
+
+    const safeTelemetry = {
+      trackingReliability: clampNumber(telemetry?.trackingReliability, 0, 0, 1),
+      motionQuality: clampNumber(telemetry?.motionQuality, 0, 0, 1),
+      segmentationConfidence: clampNumber(telemetry?.segmentationConfidence, 0, 0, 1),
+      thermalLoad: clampNumber(telemetry?.thermalLoad, 0, 0, 1),
+      sessionQuality: clampNumber(telemetry?.sessionQuality, 0, 0, 1),
+      fps: clampNumber(telemetry?.fps, 0, 0, 240),
+      renderQuality: clampNumber(telemetry?.renderQuality, 0, 0, 1),
+    };
+    const dashboard =
+      telemetry?.dashboard && typeof telemetry.dashboard === 'object'
+        ? telemetry.dashboard
+        : {};
+
+    const updated = await TryOnSession.findOneAndUpdate(
+      {
+        userId: req.user.uid,
+        productId: new mongoose.Types.ObjectId(productId),
+        sessionId: normalizedSessionId,
+      },
+      {
+        $set: {
+          telemetry: safeTelemetry,
+          telemetryDashboard: dashboard,
+        },
+      },
+      {
+        new: true,
+      }
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: 'Try-on session not found. Save session before telemetry.',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: updated._id?.toString() || '',
+        sessionId: updated.sessionId,
+        telemetry: safeTelemetry,
+        telemetryDashboard: updated.telemetryDashboard || {},
+        updatedAt: updated.updatedAt,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getTryOnTelemetrySummary(req, res, next) {
+  try {
+    const days = clampNumber(req.query?.days, 7, 1, 30);
+    const since = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
+
+    const sessions = await TryOnSession.find({
+      updatedAt: { $gte: since },
+    }).select('telemetry telemetryDashboard updatedAt');
+
+    const total = sessions.length;
+    if (!total) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          days,
+          totalSessions: 0,
+          averages: {},
+          rates: {},
+          bands: {},
+          flags: {},
+        },
+      });
+    }
+
+    const sum = {
+      sessionQuality: 0,
+      trackingReliability: 0,
+      segmentationConfidence: 0,
+      thermalLoad: 0,
+      renderQuality: 0,
+      fps: 0,
+    };
+    const rates = {
+      thermalRiskRate: 0,
+      trackingRiskRate: 0,
+      segmentationRiskRate: 0,
+      poseLatencyRiskRate: 0,
+      poseErrorRiskRate: 0,
+      sustainedLiteModeRate: 0,
+    };
+    const bands = {
+      qualityBand: {},
+      thermalBand: {},
+      trackingBand: {},
+      segmentationBand: {},
+    };
+    const deviceTierBreakdown = {};
+    const dailyMap = new Map();
+
+    for (const session of sessions) {
+      const telemetry = session.telemetry || {};
+      sum.sessionQuality += Number(telemetry.sessionQuality || 0);
+      sum.trackingReliability += Number(telemetry.trackingReliability || 0);
+      sum.segmentationConfidence += Number(telemetry.segmentationConfidence || 0);
+      sum.thermalLoad += Number(telemetry.thermalLoad || 0);
+      sum.renderQuality += Number(telemetry.renderQuality || 0);
+      sum.fps += Number(telemetry.fps || 0);
+
+      const dash = session.telemetryDashboard || {};
+      const flags = dash.flags && typeof dash.flags === 'object' ? dash.flags : {};
+      if (flags.thermalRisk === true) rates.thermalRiskRate += 1;
+      if (flags.trackingRisk === true) rates.trackingRiskRate += 1;
+      if (flags.segmentationRisk === true) rates.segmentationRiskRate += 1;
+      if (flags.poseLatencyRisk === true) rates.poseLatencyRiskRate += 1;
+      if (flags.poseErrorRisk === true) rates.poseErrorRiskRate += 1;
+      if (flags.sustainedLiteMode === true) rates.sustainedLiteModeRate += 1;
+
+      ['qualityBand', 'thermalBand', 'trackingBand', 'segmentationBand'].forEach((key) => {
+        const value = dash[key]?.toString() || '';
+        if (!value) return;
+        bands[key][value] = Number(bands[key][value] || 0) + 1;
+      });
+
+      const tier = dash.deviceTier?.toString() || 'unknown';
+      if (!deviceTierBreakdown[tier]) {
+        deviceTierBreakdown[tier] = {
+          sessions: 0,
+          sessionQualitySum: 0,
+          thermalLoadSum: 0,
+          trackingReliabilitySum: 0,
+          thermalRiskCount: 0,
+          trackingRiskCount: 0,
+        };
+      }
+      deviceTierBreakdown[tier].sessions += 1;
+      deviceTierBreakdown[tier].sessionQualitySum += Number(telemetry.sessionQuality || 0);
+      deviceTierBreakdown[tier].thermalLoadSum += Number(telemetry.thermalLoad || 0);
+      deviceTierBreakdown[tier].trackingReliabilitySum += Number(telemetry.trackingReliability || 0);
+      const tierFlags = dash.flags && typeof dash.flags === 'object' ? dash.flags : {};
+      if (tierFlags.thermalRisk === true) {
+        deviceTierBreakdown[tier].thermalRiskCount += 1;
+      }
+      if (tierFlags.trackingRisk === true) {
+        deviceTierBreakdown[tier].trackingRiskCount += 1;
+      }
+
+      const dayKey = new Date(session.updatedAt || Date.now()).toISOString().slice(0, 10);
+      const bucket = dailyMap.get(dayKey) || {
+        day: dayKey,
+        sessions: 0,
+        sessionQualitySum: 0,
+        thermalLoadSum: 0,
+        trackingReliabilitySum: 0,
+      };
+      bucket.sessions += 1;
+      bucket.sessionQualitySum += Number(telemetry.sessionQuality || 0);
+      bucket.thermalLoadSum += Number(telemetry.thermalLoad || 0);
+      bucket.trackingReliabilitySum += Number(telemetry.trackingReliability || 0);
+      dailyMap.set(dayKey, bucket);
+    }
+
+    const safeDiv = (value) => Number((value / total).toFixed(4));
+    const average = (value) => Number((value / total).toFixed(4));
+
+    const daily = [...dailyMap.values()]
+      .sort((a, b) => a.day.localeCompare(b.day))
+      .map((bucket) => ({
+        day: bucket.day,
+        sessions: bucket.sessions,
+        avgSessionQuality: Number((bucket.sessionQualitySum / bucket.sessions).toFixed(4)),
+        avgThermalLoad: Number((bucket.thermalLoadSum / bucket.sessions).toFixed(4)),
+        avgTrackingReliability: Number(
+          (bucket.trackingReliabilitySum / bucket.sessions).toFixed(4)
+        ),
+      }));
+
+    const deviceTiers = Object.entries(deviceTierBreakdown).reduce((acc, [tier, value]) => {
+      const sessions = Number(value.sessions || 0);
+      if (!sessions) {
+        return acc;
+      }
+      acc[tier] = {
+        sessions,
+        avgSessionQuality: Number((value.sessionQualitySum / sessions).toFixed(4)),
+        avgThermalLoad: Number((value.thermalLoadSum / sessions).toFixed(4)),
+        avgTrackingReliability: Number((value.trackingReliabilitySum / sessions).toFixed(4)),
+        thermalRiskRate: Number((value.thermalRiskCount / sessions).toFixed(4)),
+        trackingRiskRate: Number((value.trackingRiskCount / sessions).toFixed(4)),
+      };
+      return acc;
+    }, {});
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        days,
+        totalSessions: total,
+        averages: {
+          sessionQuality: average(sum.sessionQuality),
+          trackingReliability: average(sum.trackingReliability),
+          segmentationConfidence: average(sum.segmentationConfidence),
+          thermalLoad: average(sum.thermalLoad),
+          renderQuality: average(sum.renderQuality),
+          fps: average(sum.fps),
+        },
+        rates: {
+          thermalRiskRate: safeDiv(rates.thermalRiskRate),
+          trackingRiskRate: safeDiv(rates.trackingRiskRate),
+          segmentationRiskRate: safeDiv(rates.segmentationRiskRate),
+          poseLatencyRiskRate: safeDiv(rates.poseLatencyRiskRate),
+          poseErrorRiskRate: safeDiv(rates.poseErrorRiskRate),
+          sustainedLiteModeRate: safeDiv(rates.sustainedLiteModeRate),
+        },
+        bands,
+        daily,
+        deviceTiers,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   createTryOnSession,
   getFitAssessment,
   saveTryOnLook,
+  saveTryOnTelemetry,
+  getTryOnTelemetrySummary,
   getTryOnProduct,
   getTryOnGarmentManifest,
 };
+

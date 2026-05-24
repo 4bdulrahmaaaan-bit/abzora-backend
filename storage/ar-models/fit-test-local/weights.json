@@ -1,0 +1,20 @@
+{
+  "modelVersion": "fit-test-local",
+  "featureKeys": [
+    "shoulderWidth",
+    "torsoRatio",
+    "hipWaistRatio",
+    "poseStability",
+    "garmentEaseAllowance",
+    "fabricStretch"
+  ],
+  "weights": {
+    "bias": 0.16280424970478177,
+    "shoulderWidth": 0.23615112325343,
+    "torsoRatio": 0.16567160936393852,
+    "hipWaistRatio": 0.18101636196977064,
+    "poseStability": 0.22432327717255868,
+    "garmentEaseAllowance": -0.0465401425886877,
+    "fabricStretch": 0.10748707460613408
+  }
+}

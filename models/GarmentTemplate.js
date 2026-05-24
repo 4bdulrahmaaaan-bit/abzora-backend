@@ -30,7 +30,7 @@ const garmentTemplateSchema = new mongoose.Schema(
       },
       default: {},
     },
-    unity: {
+    runtimeProfile: {
       type: {
         assetBundleUrl: { type: String, trim: true, default: '' },
         sceneKey: { type: String, trim: true, default: '' },
@@ -88,4 +88,3 @@ const garmentTemplateSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model('GarmentTemplate', garmentTemplateSchema);
-

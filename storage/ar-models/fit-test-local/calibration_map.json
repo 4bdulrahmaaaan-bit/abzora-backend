@@ -1,0 +1,11 @@
+{
+  "modelVersion": "fit-test-local",
+  "bins": [
+    0,
+    0.25,
+    0.5,
+    0.75,
+    1
+  ],
+  "expectedError": 0.0125
+}
