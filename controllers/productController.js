@@ -657,7 +657,6 @@ async function createProduct(req, res, next) {
       images,
       model3d,
       assetBundleUrl,
-      assetBundleUrl,
       rigProfile,
       materialProfile,
       storeId,
@@ -729,7 +728,7 @@ async function createProduct(req, res, next) {
     const normalizedBrand = brand?.toString().trim() || '';
     const normalizedModel3d = model3d?.toString().trim() || '';
     const assetValidation = validateAssetMetadata({
-      assetBundleUrl: assetBundleUrl ?? assetBundleUrl,
+      assetBundleUrl,
       rigProfile,
       materialProfile,
     });
@@ -1023,7 +1022,6 @@ async function updateProduct(req, res, next) {
       images,
       model3d,
       assetBundleUrl,
-      assetBundleUrl,
       rigProfile,
       materialProfile,
       stock,
@@ -1053,10 +1051,7 @@ async function updateProduct(req, res, next) {
         ? product.originalPrice
         : (original_price === '' ? null : Number(original_price));
     const assetValidation = validateAssetMetadata({
-      assetBundleUrl:
-        (assetBundleUrl ?? assetBundleUrl) == null
-          ? product.assetBundleUrl
-          : (assetBundleUrl ?? assetBundleUrl),
+      assetBundleUrl: assetBundleUrl == null ? product.assetBundleUrl : assetBundleUrl,
       rigProfile: rigProfile == null ? product.rigProfile : rigProfile,
       materialProfile: materialProfile == null ? product.materialProfile : materialProfile,
     });
