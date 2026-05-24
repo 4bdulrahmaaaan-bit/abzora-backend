@@ -299,13 +299,13 @@ function normalizeGarmentConfig(raw = {}, fallback = {}) {
 }
 
 function validateAssetMetadata({ assetBundleUrl, rigProfile, materialProfile }) {
-  const normalizedBundleUrl = normalizeOptionalUrl(assetBundleUrl);
+  const rawBundleUrl = assetBundleUrl == null ? '' : assetBundleUrl.toString().trim();
+  const normalizedBundleUrl = normalizeOptionalUrl(rawBundleUrl);
   const normalizedRigProfile = rigProfile?.toString().trim() || '';
   const normalizedMaterialProfile = materialProfile?.toString().trim() || '';
 
-  if (assetBundleUrl != null && !normalizedBundleUrl) {
-    return { error: 'assetBundleUrl must be a valid http/https URL.', data: null };
-  }
+  // Asset bundle URL is optional. If malformed, silently clear it instead of
+  // blocking product create/update so GLB-only try-on workflows keep working.
   if (!ALLOWED_RIG_PROFILES.has(normalizedRigProfile)) {
     return { error: 'Unsupported rigProfile value.', data: null };
   }
@@ -1104,7 +1104,7 @@ async function updateProduct(req, res, next) {
     if (model3d != null) {
       product.model3d = model3d.toString().trim();
     }
-    if (assetBundleUrl != null || assetBundleUrl != null) {
+    if (assetBundleUrl != null) {
       product.assetBundleUrl = assetValidation.data.assetBundleUrl;
     }
     if (rigProfile != null) {
