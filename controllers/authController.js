@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
-const { normalizeRole, serializeUser } = require('../middleware/authMiddleware');
+const initializeFirebase = require('../config/firebase');
+const { normalizeRole, serializeUser, upsertFirebaseUser } = require('../middleware/authMiddleware');
+const { createSession, refreshSession, revokeSessionByRefreshToken, revokeSessionBySessionId } = require('../services/authSessionService');
 const Store = require('../models/Store');
 const User = require('../models/User');
 const UserAddress = require('../models/UserAddress');
@@ -10,6 +12,7 @@ const ReferralRecord = require('../models/ReferralRecord');
 const GrowthOffer = require('../models/GrowthOffer');
 const VendorKycRequest = require('../models/VendorKycRequest');
 const { recordUserNetworkContext } = require('../services/fraudDetectionService');
+const { logSecurityEvent, logSecurityWarning } = require('../services/auditLogger');
 
 const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
 const SELF_ASSIGNABLE_ROLES = new Set(['user', 'customer', 'vendor', 'rider']);
@@ -1257,7 +1260,133 @@ async function claimGrowthOffer(req, res, next) {
   }
 }
 
+function extractBearerToken(req) {
+  const authHeader = String(req.headers.authorization || '').trim();
+  if (!authHeader.toLowerCase().startsWith('bearer ')) {
+    return '';
+  }
+  return authHeader.slice(7).trim();
+}
+
+async function createAuthSession(req, res, next) {
+  try {
+    const token = extractBearerToken(req);
+    if (!token) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    const admin = initializeFirebase();
+    if (!admin) {
+      return res.status(503).json({ success: false, message: 'Authentication service unavailable.' });
+    }
+
+    const decoded = await admin.auth().verifyIdToken(token, true);
+    const allowAutoProvision =
+      process.env.AUTH_ALLOW_AUTO_PROVISION === 'true' &&
+      String(process.env.DISABLE_AUTH_AUTO_PROVISION_IN_PRODUCTION || '').trim().toLowerCase() !== 'true' &&
+      process.env.NODE_ENV !== 'production';
+    const user = await upsertFirebaseUser(decoded, { allowCreate: allowAutoProvision });
+    if (!user) {
+      return res.status(403).json({
+        success: false,
+        message: 'Account is not provisioned for this environment.',
+      });
+    }
+    if (user?.isDeleted === true) {
+      return res.status(403).json({ success: false, message: 'This account has been deleted.' });
+    }
+    if (user?.isActive === false) {
+      return res.status(403).json({ success: false, message: 'This account has been disabled.' });
+    }
+
+    const session = await createSession({
+      user,
+      firebaseUid: decoded.uid,
+      deviceId: String(req.body?.deviceId || req.headers['x-device-id'] || '').trim(),
+      platform: String(req.body?.platform || req.headers['x-client-platform'] || '').trim(),
+      metadata: {
+        userAgent: String(req.headers['user-agent'] || ''),
+        ip: String(req.headers['x-forwarded-for'] || req.ip || ''),
+      },
+    });
+    logSecurityEvent('auth_session_issue', {
+      sessionId: session.sessionId,
+      userId: user.uid || user.firebaseUid || decoded.uid,
+      deviceId: session.deviceId,
+      source: 'createAuthSession',
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...session,
+        user: serializeUser(user),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function refreshAuthSession(req, res, next) {
+  try {
+    const refreshToken = String(req.body?.refreshToken || '').trim();
+    if (!refreshToken) {
+      return res.status(401).json({ success: false, message: 'Refresh token is required.' });
+    }
+
+    const session = await refreshSession({ refreshToken });
+    logSecurityEvent('auth_session_refresh', {
+      sessionId: session.sessionId,
+      userId: session.userId,
+      deviceId: session.deviceId,
+      source: 'refreshAuthSession',
+    });
+    return res.status(200).json({
+      success: true,
+      data: session,
+    });
+  } catch (error) {
+    if (
+      error?.code === 'auth/invalid-refresh-token' ||
+      error?.code === 'auth/refresh-token-expired' ||
+      error?.code === 'auth/account-disabled'
+    ) {
+      return res.status(401).json({
+        success: false,
+        message: 'Session expired. Please sign in again.',
+      });
+    }
+    return next(error);
+  }
+}
+
+async function logoutAuthSession(req, res, next) {
+  try {
+    const refreshToken = String(req.body?.refreshToken || '').trim();
+    const sessionId = String(req.body?.sessionId || req.query?.sessionId || '').trim();
+    if (refreshToken) {
+      await revokeSessionByRefreshToken(refreshToken);
+    } else if (sessionId) {
+      await revokeSessionBySessionId(sessionId);
+    }
+    logSecurityEvent('auth_session_logout', {
+      sessionId: sessionId || undefined,
+      source: 'logoutAuthSession',
+    });
+    return res.status(200).json({ success: true, data: true });
+  } catch (error) {
+    logSecurityWarning('auth_session_logout_failed', {
+      message: error.message,
+    });
+    return next(error);
+  }
+}
+
 module.exports = {
+  createAuthSession,
+  refreshAuthSession,
+  logoutAuthSession,
   me,
   getUserByIdentifier,
   debugAuth,

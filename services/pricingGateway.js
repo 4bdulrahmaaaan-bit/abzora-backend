@@ -1,6 +1,7 @@
 const { URL } = require('url');
 
 const initializeFirebase = require('../config/firebase');
+const { getSessionById, verifyAccessToken } = require('./authSessionService');
 const User = require('../models/User');
 const { localPricingBus, PRICING_EVENT_CHANNEL, getPricingConfig } = require('./pricingConfigService');
 
@@ -10,6 +11,30 @@ const subscribers = new Set();
 async function decodeSocketUser(token) {
   if (!token) {
     return null;
+  }
+  try {
+    const accessPayload = verifyAccessToken(token);
+    const session = await getSessionById(accessPayload.sid);
+    if (!session || session.revokedAt || (session.refreshTokenExpiresAt && session.refreshTokenExpiresAt <= new Date())) {
+      return null;
+    }
+    const user = await User.findOne({
+      $or: [
+        { firebaseUid: accessPayload.uid },
+        { uid: accessPayload.uid },
+        ...(accessPayload.email ? [{ email: accessPayload.email }] : []),
+      ],
+    }).lean();
+    if (!user) {
+      return null;
+    }
+    return {
+      uid: accessPayload.uid,
+      role: String(user.role || accessPayload.role || 'customer').trim().toLowerCase(),
+      user,
+    };
+  } catch (_) {
+    // Fall through to Firebase auth for legacy socket clients.
   }
   const admin = initializeFirebase();
   if (!admin) {

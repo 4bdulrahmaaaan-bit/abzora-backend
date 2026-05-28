@@ -1,6 +1,7 @@
 const initializeFirebase = require('../config/firebase');
 const User = require('../models/User');
-const { clientIp, logSecurityWarning } = require('../services/auditLogger');
+const { getSessionById, verifyAccessToken } = require('../services/authSessionService');
+const { clientIp, logSecurityEvent, logSecurityWarning } = require('../services/auditLogger');
 
 const VALID_ROLES = new Set([
   'user',
@@ -264,30 +265,54 @@ async function authMiddleware(req, res, next) {
       return unauthorized(res);
     }
 
-    const admin = initializeFirebase();
-    if (!admin) {
-      console.warn('Firebase Admin is unavailable. Protected routes cannot authenticate requests.');
-      return unauthorized(res);
+    let decoded = null;
+    let authSource = 'firebase';
+    let session = null;
+
+    try {
+      const accessPayload = verifyAccessToken(token);
+      session = await getSessionById(accessPayload.sid);
+      if (!session || session.revokedAt || (session.refreshTokenExpiresAt && session.refreshTokenExpiresAt <= new Date())) {
+        return unauthorizedWithMessage(res, 'Session expired. Please sign in again.');
+      }
+      decoded = {
+        uid: accessPayload.uid,
+        email: accessPayload.email || null,
+        phone_number: accessPayload.phone || null,
+        email_verified: true,
+        auth_time: Math.floor((session.lastUsedAt || session.createdAt || new Date()).getTime() / 1000),
+        firebase: { sign_in_provider: 'custom' },
+        role: accessPayload.role || 'customer',
+      };
+      authSource = 'backend-jwt';
+    } catch (_) {
+      const admin = initializeFirebase();
+      if (!admin) {
+        console.warn('Firebase Admin is unavailable. Protected routes cannot authenticate requests.');
+        return unauthorized(res);
+      }
+      decoded = await admin.auth().verifyIdToken(token, true);
     }
 
-    const decoded = await admin.auth().verifyIdToken(token, true);
-    const maxSessionAgeMinutes = Number(process.env.AUTH_MAX_SESSION_AGE_MINUTES || 480);
-    const authTimeMs = Number(decoded.auth_time || 0) * 1000;
-    if (
-      Number.isFinite(maxSessionAgeMinutes) &&
-      maxSessionAgeMinutes > 0 &&
-      authTimeMs > 0 &&
-      (Date.now() - authTimeMs) > maxSessionAgeMinutes * 60 * 1000
-    ) {
-      logSecurityWarning('stale_session_rejected', {
-        requestId: req.requestId,
-        uid: decoded.uid,
-        ip: clientIp(req),
-      });
-      return res.status(401).json({
-        success: false,
-        message: 'Session expired. Please sign in again.',
-      });
+    if (authSource === 'firebase') {
+      const maxSessionAgeMinutes = Number(process.env.AUTH_MAX_SESSION_AGE_MINUTES || 480);
+      const authTimeMs = Number(decoded.auth_time || 0) * 1000;
+      if (
+        Number.isFinite(maxSessionAgeMinutes) &&
+        maxSessionAgeMinutes > 0 &&
+        authTimeMs > 0 &&
+        (Date.now() - authTimeMs) > maxSessionAgeMinutes * 60 * 1000
+      ) {
+        logSecurityWarning('stale_session_rejected', {
+          requestId: req.requestId,
+          uid: decoded.uid,
+          ip: clientIp(req),
+        });
+        return res.status(401).json({
+          success: false,
+          message: 'Session expired. Please sign in again.',
+        });
+      }
     }
 
     const requireVerifiedEmail = process.env.REQUIRE_EMAIL_VERIFICATION !== 'false';
@@ -329,10 +354,12 @@ async function authMiddleware(req, res, next) {
     }
 
     if (process.env.NODE_ENV === 'development') {
-      console.log('Authenticated UID:', decoded.uid);
+      console.log(`Authenticated UID (${authSource}):`, decoded.uid);
     }
 
     req.auth = decoded;
+    req.authSource = authSource;
+    req.session = session;
     req.dbUser = user;
     req.user = {
       uid: decoded.uid,
@@ -343,6 +370,12 @@ async function authMiddleware(req, res, next) {
       authTime: decoded.auth_time || null,
       ...serializeUser(user),
     };
+    logSecurityEvent('auth_session_validated', {
+      requestId: req.requestId,
+      uid: decoded.uid,
+      source: authSource,
+      sessionId: session?.sessionId || null,
+    });
 
     return next();
   } catch (error) {
@@ -371,3 +404,4 @@ async function authMiddleware(req, res, next) {
 module.exports = authMiddleware;
 module.exports.serializeUser = serializeUser;
 module.exports.normalizeRole = normalizeRole;
+module.exports.upsertFirebaseUser = upsertFirebaseUser;

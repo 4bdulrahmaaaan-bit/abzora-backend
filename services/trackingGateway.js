@@ -6,6 +6,7 @@ const DeliveryTask = require('../models/DeliveryTask');
 const Order = require('../models/Order');
 const Store = require('../models/Store');
 const User = require('../models/User');
+const { getSessionById, verifyAccessToken } = require('./authSessionService');
 const { hasRole } = require('../middleware/authorizationMiddleware');
 
 const localBus = new EventEmitter();
@@ -235,6 +236,27 @@ function extractBearerToken(requestUrl, requestHeaders) {
 async function decodeSocketUser(token) {
   if (!token) {
     return null;
+  }
+  try {
+    const accessPayload = verifyAccessToken(token);
+    const session = await getSessionById(accessPayload.sid);
+    if (!session || session.revokedAt || (session.refreshTokenExpiresAt && session.refreshTokenExpiresAt <= new Date())) {
+      return null;
+    }
+    const user = await User.findOne({
+      $or: [
+        { firebaseUid: accessPayload.uid },
+        { uid: accessPayload.uid },
+        ...(accessPayload.email ? [{ email: accessPayload.email }] : []),
+      ],
+    });
+    return {
+      uid: accessPayload.uid,
+      role: String(accessPayload.role || user?.role || 'customer').trim().toLowerCase(),
+      user,
+    };
+  } catch (_) {
+    // Fall back to Firebase ID tokens for legacy sockets and transitional clients.
   }
   const admin = initializeFirebase();
   if (!admin) {

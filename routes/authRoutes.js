@@ -9,6 +9,9 @@ const {
   referralApplySchema,
 } = require('../validation/schemas/customerSchemas');
 const {
+  createAuthSession,
+  refreshAuthSession,
+  logoutAuthSession,
   me,
   getUserByIdentifier,
   debugAuth,
@@ -36,6 +39,9 @@ const {
 const router = express.Router();
 
 router.post('/test-user', upsertTestUser);
+router.post('/session', createAuthSession);
+router.post('/session/refresh', refreshAuthSession);
+router.post('/session/logout', logoutAuthSession);
 router.get('/me', authMiddleware, me);
 router.get('/profile', authMiddleware, me);
 router.get('/users/:id', authMiddleware, requireRoles('vendor', 'rider', 'admin', 'super_admin'), getUserByIdentifier);
