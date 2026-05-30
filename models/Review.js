@@ -41,6 +41,15 @@ const reviewSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    verifiedPurchase: {
+      type: Boolean,
+      default: false,
+    },
+    helpfulVotes: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     createdAt: {
       type: Date,
       default: Date.now,

@@ -65,6 +65,14 @@ const {
   saveAdminHomeVisualConfig,
 } = require('../controllers/homeVisualController');
 const {
+  getCmsEntries,
+  createCmsEntry,
+  updateCmsEntry,
+  deleteCmsEntry,
+  toggleCmsStatus,
+  reorderCmsEntries,
+} = require('../controllers/cmsController');
+const {
   getAdminPricing,
   simulateAdminPricing,
   updateAdminPricing,
@@ -125,6 +133,12 @@ router.post('/finance/withdrawals/:requestId/reject', validateBody(rejectRequest
 router.patch('/finance/fraud-alerts/:alertId', validateBody(fraudAlertUpdateSchema), updateFraudAlertStatus);
 router.get('/home-visuals', getAdminHomeVisualConfig);
 router.put('/home-visuals', saveAdminHomeVisualConfig);
+router.get('/cms', getCmsEntries);
+router.post('/cms', createCmsEntry);
+router.patch('/cms/reorder', reorderCmsEntries);
+router.put('/cms/:id', updateCmsEntry);
+router.patch('/cms/:id/status', toggleCmsStatus);
+router.delete('/cms/:id', deleteCmsEntry);
 router.get('/disputes', validateQuery(paginationQuerySchema), listDisputes);
 router.patch('/disputes/:id', validateBody(disputeUpdateSchema), updateDispute);
 router.get('/activity-logs', validateQuery(paginationQuerySchema), listActivityLogs);

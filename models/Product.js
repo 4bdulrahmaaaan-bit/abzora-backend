@@ -123,6 +123,199 @@ const garmentConfigSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const boutiqueInfoSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    logoUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    verified: {
+      type: Boolean,
+      default: false,
+    },
+    rating: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    ctaLabel: {
+      type: String,
+      trim: true,
+      default: 'View Store',
+    },
+  },
+  { _id: false },
+);
+
+const colorVariantSchema = new mongoose.Schema(
+  {
+    variantId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    productId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    colorName: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    name: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    hex: {
+      type: String,
+      trim: true,
+      default: '#C6A769',
+    },
+    imageUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    sku: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    barcode: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    price: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    discountPrice: {
+      type: Number,
+      default: null,
+      min: 0,
+    },
+    stock: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    status: {
+      type: String,
+      trim: true,
+      default: 'active',
+    },
+    thumbnail: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    images: {
+      type: [String],
+      default: [],
+    },
+    sizes: {
+      type: [String],
+      default: [],
+    },
+    sizeStocks: {
+      type: [
+        {
+          sizeName: {
+            type: String,
+            trim: true,
+            default: '',
+          },
+          stockQuantity: {
+            type: Number,
+            default: 0,
+            min: 0,
+          },
+        },
+      ],
+      default: [],
+    },
+    deliveryInfo: {
+      type: deliveryInfoSchema,
+      default: () => ({}),
+    },
+    createdAt: {
+      type: Date,
+      default: null,
+    },
+    updatedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false },
+);
+
+const deliveryInfoSchema = new mongoose.Schema(
+  {
+    sameDayEligible: {
+      type: Boolean,
+      default: true,
+    },
+    freeReturns: {
+      type: Boolean,
+      default: true,
+    },
+    cashOnDelivery: {
+      type: Boolean,
+      default: true,
+    },
+    etaLabel: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    countdownMinutes: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+  },
+  { _id: false },
+);
+
+const socialProofSchema = new mongoose.Schema(
+  {
+    viewersToday: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    ordersThisWeek: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    wishlistCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    purchasesText: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+  },
+  { _id: false },
+);
+
 const productSchema = new mongoose.Schema(
   {
     name: {
@@ -213,6 +406,35 @@ const productSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: '',
+    },
+    highlights: {
+      type: [String],
+      default: [],
+    },
+    boutiqueInfo: {
+      type: boutiqueInfoSchema,
+      default: () => ({}),
+    },
+    colorVariants: {
+      type: [colorVariantSchema],
+      default: [],
+    },
+    deliveryInfo: {
+      type: deliveryInfoSchema,
+      default: () => ({}),
+    },
+    socialProof: {
+      type: socialProofSchema,
+      default: () => ({}),
+    },
+    specifications: {
+      type: Map,
+      of: String,
+      default: {},
+    },
+    completeLookProductIds: {
+      type: [String],
+      default: [],
     },
     sizes: {
       type: [String],

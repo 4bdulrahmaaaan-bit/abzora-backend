@@ -138,6 +138,7 @@ function isDiscountWindowActive(startDate, endDate, now = new Date()) {
 function deriveColors(source = {}) {
   const candidates = [
     source.colors,
+    source.colorVariants,
     source.color,
     source.attributes?.colors,
     source.attributes?.color,
@@ -145,6 +146,9 @@ function deriveColors(source = {}) {
   ];
   const values = candidates
     .flatMap((candidate) => {
+      if (Array.isArray(candidate) && candidate.length > 0 && typeof candidate[0] === 'object') {
+        return candidate.map((item) => item?.name ?? item?.label ?? item?.color ?? '');
+      }
       if (Array.isArray(candidate)) {
         return candidate;
       }
@@ -248,6 +252,131 @@ function normalizeStringMap(input, fallback = {}) {
     .map(([key, value]) => [key.toString().trim(), value?.toString().trim() || ''])
     .filter(([key, value]) => key && value);
   return Object.fromEntries(entries);
+}
+
+function normalizeStringList(input, fallback = []) {
+  const source = Array.isArray(input) ? input : fallback;
+  return [...new Set(source.map((item) => item?.toString().trim()).filter(Boolean))].slice(0, 50);
+}
+
+function normalizeColorVariants(input, fallback = []) {
+  const source = Array.isArray(input) ? input : fallback;
+  return source
+    .map((item) => {
+      if (typeof item === 'string') {
+        return {
+          variantId: '',
+          productId: '',
+          name: item.trim(),
+          colorName: item.trim(),
+          hex: '#C6A769',
+          imageUrl: '',
+          sku: '',
+          barcode: '',
+          price: null,
+          discountPrice: null,
+          stock: 0,
+          status: 'active',
+          thumbnail: '',
+          images: [],
+          sizes: [],
+          sizeStocks: [],
+          deliveryInfo: normalizeDeliveryInfo({}, fallback[0]?.deliveryInfo ?? {}),
+          createdAt: null,
+          updatedAt: null,
+        };
+      }
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      const name =
+        item.name?.toString().trim() ||
+        item.label?.toString().trim() ||
+        item.color?.toString().trim() ||
+        item.colorName?.toString().trim() ||
+        '';
+      if (!name) {
+        return null;
+      }
+      const normalizeSizeStocks = Array.isArray(item.sizeStocks)
+        ? item.sizeStocks
+            .map((size) => ({
+              sizeName: size?.sizeName?.toString().trim() || size?.name?.toString().trim() || '',
+              stockQuantity: Math.max(0, Number(size?.stockQuantity ?? size?.stock ?? 0)),
+            }))
+            .filter((size) => size.sizeName)
+        : [];
+      return {
+        variantId: item.variantId?.toString().trim() || item.id?.toString().trim() || '',
+        productId: item.productId?.toString().trim() || '',
+        name,
+        colorName: item.colorName?.toString().trim() || name,
+        hex: normalizeColorHex(item.hex ?? item.colorHex ?? item.swatchHex),
+        imageUrl: normalizeOptionalUrl(item.imageUrl ?? item.image ?? item.image_url),
+        sku: item.sku?.toString().trim() || '',
+        barcode: item.barcode?.toString().trim() || '',
+        price: item.price == null || item.price === '' ? null : Number(item.price),
+        discountPrice:
+          item.discountPrice == null || item.discountPrice === '' ? null : Number(item.discountPrice),
+        stock: Math.max(0, Number(item.stock ?? item.stockQuantity ?? 0)),
+        status: (item.status?.toString().trim() || 'active').toLowerCase(),
+        thumbnail: normalizeOptionalUrl(item.thumbnail ?? item.thumbnailUrl ?? item.imageUrl ?? item.image),
+        images: normalizeStringList(item.images || item.gallery || []),
+        sizes: normalizeStringList(item.sizes || []),
+        sizeStocks: normalizeSizeStocks,
+        deliveryInfo: normalizeDeliveryInfo(
+          item.deliveryInfo || {},
+          fallback.find((entry) => entry?.colorName === name || entry?.name === name)?.deliveryInfo ?? {},
+        ),
+        createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : null,
+        updatedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : null,
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function normalizeDeliveryInfo(input, fallback = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const base = fallback && typeof fallback === 'object' ? fallback : {};
+  return {
+    sameDayEligible:
+      source.sameDayEligible == null ? Boolean(base.sameDayEligible !== false) : source.sameDayEligible === true,
+    freeReturns:
+      source.freeReturns == null ? Boolean(base.freeReturns !== false) : source.freeReturns === true,
+    cashOnDelivery:
+      source.cashOnDelivery == null ? Boolean(base.cashOnDelivery !== false) : source.cashOnDelivery === true,
+    etaLabel: (source.etaLabel ?? base.etaLabel ?? '').toString().trim(),
+    countdownMinutes: Math.max(
+      0,
+      Number.isFinite(Number(source.countdownMinutes ?? base.countdownMinutes))
+        ? Number(source.countdownMinutes ?? base.countdownMinutes)
+        : 0,
+    ),
+  };
+}
+
+function normalizeSocialProof(input, fallback = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const base = fallback && typeof fallback === 'object' ? fallback : {};
+  return {
+    viewersToday: Math.max(0, Number(source.viewersToday ?? base.viewersToday ?? 0)),
+    ordersThisWeek: Math.max(0, Number(source.ordersThisWeek ?? base.ordersThisWeek ?? 0)),
+    wishlistCount: Math.max(0, Number(source.wishlistCount ?? base.wishlistCount ?? 0)),
+    purchasesText: (source.purchasesText ?? base.purchasesText ?? '').toString().trim(),
+  };
+}
+
+function normalizeBoutiqueInfo(input, fallback = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const base = fallback && typeof fallback === 'object' ? fallback : {};
+  return {
+    name: (source.name ?? base.name ?? '').toString().trim(),
+    logoUrl: normalizeOptionalUrl(source.logoUrl ?? base.logoUrl),
+    verified: source.verified == null ? Boolean(base.verified) : source.verified === true,
+    rating: Math.max(0, Math.min(5, Number(source.rating ?? base.rating ?? 0))),
+    ctaLabel: (source.ctaLabel ?? base.ctaLabel ?? 'View Store').toString().trim() || 'View Store',
+  };
 }
 
 function normalizeNumberMap(input, fallback = {}) {
@@ -394,6 +523,36 @@ function serializeProduct(product, options = {}) {
     assetBundleUrl: source.assetBundleUrl || '',
     rigProfile: source.rigProfile || '',
     materialProfile: source.materialProfile || '',
+    highlights: Array.isArray(source.highlights) ? source.highlights.filter(Boolean) : [],
+    boutiqueInfo: normalizeBoutiqueInfo(source.boutiqueInfo || {}, {
+      name: populatedStore?.name || source.brand || '',
+      logoUrl: populatedStore?.logoUrl || '',
+      verified: Boolean(populatedStore?.isApproved ?? true),
+      rating: Number(populatedStore?.rating || 0),
+      ctaLabel: 'View Store',
+    }),
+    colorVariants: normalizeColorVariants(source.colorVariants || []),
+    deliveryInfo: normalizeDeliveryInfo(source.deliveryInfo || {}, {
+      sameDayEligible: source.sameDayEligible !== false,
+      freeReturns: true,
+      cashOnDelivery: true,
+      etaLabel: source.deliveryTime === 'today' ? 'Same-day delivery' : '',
+      countdownMinutes: 0,
+    }),
+    socialProof: normalizeSocialProof(source.socialProof || {}, {
+      viewersToday: Math.max(0, Math.round(Number(source.viewCount || 0) / 4)),
+      ordersThisWeek: Math.max(0, Math.round(Number(source.purchaseCount || 0) / 7)),
+      wishlistCount: Math.max(0, Math.round(Number(source.purchaseCount || 0) / 2)),
+      purchasesText: `${Number(source.purchaseCount || 0).toLocaleString('en-IN')} purchases`,
+    }),
+    specifications: source.specifications
+      ? source.specifications instanceof Map
+        ? Object.fromEntries(source.specifications.entries())
+        : Object.fromEntries(Object.entries(source.specifications))
+      : {},
+    completeLookProductIds: Array.isArray(source.completeLookProductIds)
+      ? source.completeLookProductIds.map((item) => item?.toString().trim()).filter(Boolean)
+      : [],
     sizes: Array.isArray(source.sizes) && source.sizes.length > 0 ? source.sizes : ['S', 'M', 'L'],
     demandScore: Number(source.demandScore || 0),
     viewCount: Number(source.viewCount || 0),
@@ -664,6 +823,13 @@ async function createProduct(req, res, next) {
       category,
       subcategory,
       description,
+      highlights,
+      boutiqueInfo,
+      colorVariants,
+      deliveryInfo,
+      socialProof,
+      specifications,
+      completeLookProductIds,
       original_price,
       discount_start_date,
       discount_end_date,
@@ -757,6 +923,27 @@ async function createProduct(req, res, next) {
       category: normalizedCategory,
       subcategory: subcategory?.toString().trim() || '',
       description: normalizedDescription,
+      highlights: normalizeStringList(highlights),
+      boutiqueInfo: normalizeBoutiqueInfo(boutiqueInfo, {
+        name: store.name,
+        logoUrl: store.logoUrl,
+        verified: store.approvalStatus === 'approved' || store.isApproved === true,
+        rating: Number(store.rating || 0),
+      }),
+      colorVariants: normalizeColorVariants(colorVariants),
+      deliveryInfo: normalizeDeliveryInfo(deliveryInfo, {
+        sameDayEligible: true,
+        freeReturns: true,
+        cashOnDelivery: true,
+      }),
+      socialProof: normalizeSocialProof(socialProof, {
+        viewersToday: Math.max(0, Math.round(normalizedStock * 1.2)),
+        ordersThisWeek: Math.max(0, Math.round(normalizedStock * 0.8)),
+        wishlistCount: Math.max(0, Math.round(normalizedStock * 1.5)),
+        purchasesText: '',
+      }),
+      specifications: normalizeStringMap(specifications),
+      completeLookProductIds: normalizeStringList(completeLookProductIds),
       attributes: sanitizeAttributes(subcategory?.toString().trim() || normalizedCategory, attributes),
       arAsset: arAsset && typeof arAsset === 'object' && !Array.isArray(arAsset) ? arAsset : {},
       trialHome: normalizeTrialHomeConfig(trialHome),
@@ -1028,6 +1215,13 @@ async function updateProduct(req, res, next) {
       category,
       subcategory,
       description,
+      highlights,
+      boutiqueInfo,
+      colorVariants,
+      deliveryInfo,
+      socialProof,
+      specifications,
+      completeLookProductIds,
       original_price,
       discount_start_date,
       discount_end_date,
@@ -1101,6 +1295,47 @@ async function updateProduct(req, res, next) {
     product.category = normalizedCategory;
     product.subcategory = subcategory == null ? product.subcategory : subcategory.toString().trim();
     product.description = description?.toString().trim() ?? product.description;
+    if (highlights != null) {
+      product.highlights = normalizeStringList(highlights, product.highlights || []);
+    }
+    if (boutiqueInfo && typeof boutiqueInfo === 'object' && !Array.isArray(boutiqueInfo)) {
+      product.boutiqueInfo = normalizeBoutiqueInfo(
+        boutiqueInfo,
+        product.boutiqueInfo?.toObject?.() ?? product.boutiqueInfo ?? {},
+      );
+    }
+    if (colorVariants != null) {
+      product.colorVariants = normalizeColorVariants(
+        colorVariants,
+        Array.isArray(product.colorVariants)
+          ? product.colorVariants.map((item) => item?.toObject?.() ?? item)
+          : [],
+      );
+    }
+    if (deliveryInfo && typeof deliveryInfo === 'object' && !Array.isArray(deliveryInfo)) {
+      product.deliveryInfo = normalizeDeliveryInfo(
+        deliveryInfo,
+        product.deliveryInfo?.toObject?.() ?? product.deliveryInfo ?? {},
+      );
+    }
+    if (socialProof && typeof socialProof === 'object' && !Array.isArray(socialProof)) {
+      product.socialProof = normalizeSocialProof(
+        socialProof,
+        product.socialProof?.toObject?.() ?? product.socialProof ?? {},
+      );
+    }
+    if (specifications && typeof specifications === 'object' && !Array.isArray(specifications)) {
+      product.specifications = normalizeStringMap(
+        specifications,
+        product.specifications?.toObject?.() ?? product.specifications ?? {},
+      );
+    }
+    if (completeLookProductIds != null) {
+      product.completeLookProductIds = normalizeStringList(
+        completeLookProductIds,
+        product.completeLookProductIds || [],
+      );
+    }
     if (model3d != null) {
       product.model3d = model3d.toString().trim();
     }

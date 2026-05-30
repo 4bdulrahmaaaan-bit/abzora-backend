@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const Product = require('../models/Product');
 const Review = require('../models/Review');
+const Order = require('../models/Order');
 const Store = require('../models/Store');
 
 function serializeReview(review) {
@@ -19,6 +20,8 @@ function serializeReview(review) {
     rating: Number(source.rating || 0),
     comment: source.comment || '',
     imagePath: source.imagePath || '',
+    verifiedPurchase: Boolean(source.verifiedPurchase),
+    helpfulVotes: Number(source.helpfulVotes || 0),
     createdAt: source.createdAt || null,
     updatedAt: source.updatedAt || null,
   };
@@ -153,6 +156,20 @@ async function saveReview(req, res, next) {
     review.rating = numericRating;
     review.comment = normalizedComment;
     review.imagePath = normalizedImagePath;
+    if (normalizedTargetType === 'product') {
+      const verifiedPurchase = await Order.exists({
+        userId: req.user.uid,
+        'items.productId': new mongoose.Types.ObjectId(targetId),
+        $or: [
+          { orderStatus: 'delivered' },
+          { deliveryStatus: 'Delivered' },
+          { status: 'delivered' },
+        ],
+      });
+      review.verifiedPurchase = Boolean(verifiedPurchase);
+    } else {
+      review.verifiedPurchase = false;
+    }
 
     await review.save();
     await syncTargetRating(targetId, normalizedTargetType);

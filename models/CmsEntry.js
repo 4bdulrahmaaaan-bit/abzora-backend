@@ -1,8 +1,15 @@
 const mongoose = require('mongoose');
 
-const categorySchema = new mongoose.Schema(
+const cmsEntrySchema = new mongoose.Schema(
   {
-    name: {
+    type: {
+      type: String,
+      enum: ['page', 'faq', 'announcement', 'navigation'],
+      required: true,
+      index: true,
+      trim: true,
+    },
+    title: {
       type: String,
       required: true,
       trim: true,
@@ -13,28 +20,44 @@ const categorySchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
-    description: {
+    category: {
       type: String,
-      trim: true,
       default: '',
-    },
-    icon: {
-      type: String,
       trim: true,
-      default: '',
-    },
-    bannerImage: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    parentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Category',
-      default: null,
       index: true,
     },
-    order: {
+    summary: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    content: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    image: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    linkUrl: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    linkLabel: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    section: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    sortOrder: {
       type: Number,
       default: 0,
       index: true,
@@ -49,27 +72,20 @@ const categorySchema = new mongoose.Schema(
       default: true,
       index: true,
     },
-    showOnHome: {
-      type: Boolean,
-      default: false,
-      index: true,
-    },
-    tabType: {
-      type: String,
-      enum: ['All', 'Men', 'Women', 'Kids'],
-      default: 'All',
-      trim: true,
-      index: true,
-    },
     seoTitle: {
       type: String,
-      trim: true,
       default: '',
+      trim: true,
     },
     seoDescription: {
       type: String,
-      trim: true,
       default: '',
+      trim: true,
+    },
+    publishedAt: {
+      type: Date,
+      default: null,
+      index: true,
     },
     deletedAt: {
       type: Date,
@@ -82,8 +98,8 @@ const categorySchema = new mongoose.Schema(
   }
 );
 
-categorySchema.index(
-  { slug: 1 },
+cmsEntrySchema.index(
+  { type: 1, slug: 1 },
   {
     unique: true,
     partialFilterExpression: {
@@ -92,4 +108,4 @@ categorySchema.index(
   }
 );
 
-module.exports = mongoose.model('Category', categorySchema);
+module.exports = mongoose.model('CmsEntry', cmsEntrySchema);

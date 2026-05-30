@@ -7,6 +7,10 @@ const {
   updateCategory,
   deleteCategory,
   toggleCategoryStatus,
+  toggleCategoryFeatured,
+  reorderCategories,
+  getFeaturedCategories,
+  getHomeCategories,
   addSubcategory,
   updateSubcategory,
   deleteSubcategory,
@@ -23,9 +27,13 @@ function optionalAuth(req, res, next) {
 }
 
 router.get('/', optionalAuth, getCategories);
+router.get('/featured', getFeaturedCategories);
+router.get('/home', getHomeCategories);
 router.post('/', authMiddleware, createCategory);
+router.patch('/reorder', authMiddleware, reorderCategories);
 router.put('/:id', authMiddleware, updateCategory);
 router.patch('/:id/status', authMiddleware, toggleCategoryStatus);
+router.patch('/:id/featured', authMiddleware, toggleCategoryFeatured);
 router.delete('/:id', authMiddleware, deleteCategory);
 
 router.post('/:id/subcategories', authMiddleware, addSubcategory);
