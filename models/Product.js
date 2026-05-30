@@ -154,6 +154,34 @@ const boutiqueInfoSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const deliveryInfoSchema = new mongoose.Schema(
+  {
+    sameDayEligible: {
+      type: Boolean,
+      default: true,
+    },
+    freeReturns: {
+      type: Boolean,
+      default: true,
+    },
+    cashOnDelivery: {
+      type: Boolean,
+      default: true,
+    },
+    etaLabel: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    countdownMinutes: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+  },
+  { _id: false },
+);
+
 const colorVariantSchema = new mongoose.Schema(
   {
     variantId: {
@@ -257,34 +285,6 @@ const colorVariantSchema = new mongoose.Schema(
     updatedAt: {
       type: Date,
       default: null,
-    },
-  },
-  { _id: false },
-);
-
-const deliveryInfoSchema = new mongoose.Schema(
-  {
-    sameDayEligible: {
-      type: Boolean,
-      default: true,
-    },
-    freeReturns: {
-      type: Boolean,
-      default: true,
-    },
-    cashOnDelivery: {
-      type: Boolean,
-      default: true,
-    },
-    etaLabel: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    countdownMinutes: {
-      type: Number,
-      default: 0,
-      min: 0,
     },
   },
   { _id: false },
