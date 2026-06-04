@@ -65,6 +65,12 @@ const {
   saveAdminHomeVisualConfig,
 } = require('../controllers/homeVisualController');
 const {
+  listProductAttributeTemplates,
+  getProductAttributeTemplate,
+  upsertProductAttributeTemplate,
+  deleteProductAttributeTemplate,
+} = require('../controllers/productAttributeTemplateController');
+const {
   getCmsEntries,
   createCmsEntry,
   updateCmsEntry,
@@ -139,6 +145,10 @@ router.patch('/cms/reorder', reorderCmsEntries);
 router.put('/cms/:id', updateCmsEntry);
 router.patch('/cms/:id/status', toggleCmsStatus);
 router.delete('/cms/:id', deleteCmsEntry);
+router.get('/product-attribute-templates', listProductAttributeTemplates);
+router.get('/product-attribute-templates/:templateKey', getProductAttributeTemplate);
+router.put('/product-attribute-templates/:templateKey', upsertProductAttributeTemplate);
+router.delete('/product-attribute-templates/:templateKey', deleteProductAttributeTemplate);
 router.get('/disputes', validateQuery(paginationQuerySchema), listDisputes);
 router.patch('/disputes/:id', validateBody(disputeUpdateSchema), updateDispute);
 router.get('/activity-logs', validateQuery(paginationQuerySchema), listActivityLogs);

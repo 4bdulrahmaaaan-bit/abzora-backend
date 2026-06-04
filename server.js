@@ -248,7 +248,7 @@ app.use('/webhooks/razorpay', webhookLimiter, express.raw({ type: 'application/j
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: shuttingDown ? 'draining' : 'ok',
-    service: 'abzora-backend',
+    service: 'abianzo-backend',
     timestamp: new Date().toISOString(),
   });
 });
@@ -256,7 +256,7 @@ app.get('/health', (req, res) => {
 app.get('/health/live', (req, res) => {
   res.status(200).json({
     status: 'alive',
-    service: 'abzora-backend',
+    service: 'abianzo-backend',
     shuttingDown,
     timestamp: new Date().toISOString(),
   });
@@ -296,7 +296,7 @@ app.get('/health/ready', async (req, res) => {
 
   res.status(statusCode).json({
     status: ready ? 'ready' : 'not_ready',
-    service: 'abzora-backend',
+    service: 'abianzo-backend',
     timestamp: new Date().toISOString(),
     checks: {
       mongoReady,
@@ -555,10 +555,6 @@ app.use('/webhooks', webhookRoutes);
 app.use('/debug', adminLimiter, authMiddleware, requireAdmin, debugRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/admin', adminInvoiceRoutes);
-app.use('/files/invoices', express.static(require('path').join(__dirname, 'storage', 'invoices')));
-app.use('/files/ar-models', express.static(require('path').join(__dirname, 'storage', 'ar-models')));
-app.use('/files/ar-datasets', express.static(require('path').join(__dirname, 'storage', 'ar-datasets')));
-
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found.' });
 });

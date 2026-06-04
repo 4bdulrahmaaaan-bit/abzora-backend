@@ -7,6 +7,7 @@ const {
   createProduct,
   deleteProduct,
   generateProductArAsset,
+  getFilterConfiguration,
   getProduct,
   listProducts,
   updateProduct,
@@ -15,6 +16,7 @@ const {
 const router = express.Router();
 
 router.get('/', validateQuery(productListQuerySchema), listProducts);
+router.get('/filters/config', getFilterConfiguration);
 router.post('/:id/ar-asset/generate', authMiddleware, generateProductArAsset);
 router.get('/:id', getProduct);
 router.post('/', authMiddleware, createProduct);

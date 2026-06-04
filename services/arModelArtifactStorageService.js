@@ -13,6 +13,10 @@ function checksumOfBuffer(buffer) {
   return crypto.createHash('sha256').update(buffer).digest('hex');
 }
 
+function buildInternalArtifactUri(modelVersion, filename) {
+  return `internal://ar-models/${modelVersion}/${filename}`;
+}
+
 function writeArtifact({ modelVersion, artifactType, payload }) {
   ensureDir(AR_MODEL_DIR);
   const modelDir = path.join(AR_MODEL_DIR, modelVersion);
@@ -22,7 +26,7 @@ function writeArtifact({ modelVersion, artifactType, payload }) {
   const serialized = Buffer.from(JSON.stringify(payload, null, 2), 'utf8');
   fs.writeFileSync(filePath, serialized);
   return {
-    uri: `/files/ar-models/${modelVersion}/${filename}`,
+    uri: buildInternalArtifactUri(modelVersion, filename),
     bytes: serialized.length,
     checksum: checksumOfBuffer(serialized),
     filePath,

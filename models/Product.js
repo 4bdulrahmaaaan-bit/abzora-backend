@@ -316,6 +316,65 @@ const socialProofSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const structuredAttributeSchema = new mongoose.Schema(
+  {
+    key: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    label: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    type: {
+      type: String,
+      trim: true,
+      default: 'text',
+    },
+    required: {
+      type: Boolean,
+      default: false,
+    },
+    readOnly: {
+      type: Boolean,
+      default: false,
+    },
+    filterable: {
+      type: Boolean,
+      default: true,
+    },
+    variantSupport: {
+      type: Boolean,
+      default: false,
+    },
+    unit: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    options: {
+      type: [String],
+      default: [],
+    },
+    section: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    order: {
+      type: Number,
+      default: 0,
+    },
+    value: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+  },
+  { _id: false },
+);
+
 const productSchema = new mongoose.Schema(
   {
     name: {
@@ -396,6 +455,17 @@ const productSchema = new mongoose.Schema(
       type: String,
       required: true,
       trim: true,
+    },
+    attributeTemplateKey: {
+      type: String,
+      trim: true,
+      default: 'generic',
+      index: true,
+    },
+    attributeTemplateVersion: {
+      type: Number,
+      default: 1,
+      min: 1,
     },
     subcategory: {
       type: String,
@@ -496,6 +566,10 @@ const productSchema = new mongoose.Schema(
       type: Map,
       of: String,
       default: {},
+    },
+    structuredAttributes: {
+      type: [structuredAttributeSchema],
+      default: [],
     },
     arAsset: {
       type: {

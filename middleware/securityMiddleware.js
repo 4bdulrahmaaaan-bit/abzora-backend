@@ -153,7 +153,7 @@ function requestContext(req, res, next) {
     const span = otel.startSpan('http.request', {
       'http.method': req.method,
       'http.route': req.path || req.originalUrl || '',
-      'abzora.request_id': req.requestId,
+      'abianzo.request_id': req.requestId,
     });
     return telemetry.runWithContext({
       requestId: req.requestId,

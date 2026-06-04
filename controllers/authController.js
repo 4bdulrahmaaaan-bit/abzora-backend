@@ -11,6 +11,7 @@ const MeasurementProfile = require('../models/MeasurementProfile');
 const ReferralRecord = require('../models/ReferralRecord');
 const GrowthOffer = require('../models/GrowthOffer');
 const VendorKycRequest = require('../models/VendorKycRequest');
+const Order = require('../models/Order');
 const { recordUserNetworkContext } = require('../services/fraudDetectionService');
 const { logSecurityEvent, logSecurityWarning } = require('../services/auditLogger');
 
@@ -57,39 +58,18 @@ function normalizePhoneLike(value) {
   return digitsOrPlus;
 }
 
-function phoneTail10(value) {
-  const normalized = normalizePhoneLike(value).replace(/[^0-9]/g, '');
-  if (normalized.length < 10) {
-    return '';
-  }
-  return normalized.slice(-10);
-}
-
 function buildPhoneLookupQuery(value) {
   const normalized = normalizePhoneLike(value);
   if (!normalized) {
     return null;
   }
-  const tail10 = phoneTail10(normalized);
+  const digitsOnly = normalized.replace(/[^0-9]/g, '');
   return {
     $or: [
       { phone: normalized },
-      ...(tail10 ? [{ phone: tail10 }, { phone: new RegExp(`${tail10}$`) }] : []),
+      ...(digitsOnly && digitsOnly !== normalized ? [{ phone: digitsOnly }] : []),
     ],
   };
-}
-
-async function findBestUserByPhone(phoneValue) {
-  const lookup = buildPhoneLookupQuery(phoneValue);
-  if (!lookup) {
-    return null;
-  }
-  const matches = await User.find(lookup).sort({ updatedAt: -1, createdAt: -1 });
-  if (!matches.length) {
-    return null;
-  }
-  const opsMatch = matches.find((entry) => hasOperationsCapability(entry));
-  return opsMatch || matches[0];
 }
 
 function normalizeOptionalUrl(value) {
@@ -171,6 +151,51 @@ function serializeUserResponse(user) {
     id: user?._id?.toString?.() || null,
     ...serializeUser(user),
   };
+}
+
+async function canAccessUserProfile(actor, target) {
+  if (!actor || !target) {
+    return false;
+  }
+
+  const actorUid = toSafeTrimmedString(actor.uid || actor.firebaseUid);
+  const targetUid = toSafeTrimmedString(target.uid || target.firebaseUid);
+  if (actorUid && targetUid && actorUid === targetUid) {
+    return true;
+  }
+
+  const actorRole = normalizeRole(actor.role, '');
+  if (actorRole === 'admin' || actorRole === 'super_admin') {
+    return true;
+  }
+
+  if (actorRole === 'vendor') {
+    if (normalizeRole(target.role, '') !== 'customer') {
+      return false;
+    }
+    const storeId = toSafeTrimmedString(actor.storeId || actor.dbUser?.storeId);
+    if (!storeId || !targetUid) {
+      return false;
+    }
+    return Boolean(await Order.exists({
+      userId: targetUid,
+      storeId,
+      orderStatus: { $ne: 'cancelled' },
+    }));
+  }
+
+  if (actorRole === 'rider') {
+    if (!actorUid || !targetUid) {
+      return false;
+    }
+    return Boolean(await Order.exists({
+      userId: targetUid,
+      riderId: actorUid,
+      orderStatus: { $ne: 'cancelled' },
+    }));
+  }
+
+  return false;
 }
 
 function buildUserLookupQuery(identifier) {
@@ -505,37 +530,6 @@ async function me(req, res, next) {
       };
     }
 
-    if (user && !hasOperationsCapability(user)) {
-      const phoneCandidates = [
-        toSafeTrimmedString(req.user?.phone),
-        toSafeTrimmedString(user.phone),
-      ].filter(Boolean);
-
-      for (const candidatePhone of phoneCandidates) {
-        const byPhone = await findBestUserByPhone(candidatePhone);
-        if (!byPhone) {
-          continue;
-        }
-        if (!hasOperationsCapability(byPhone)) {
-          continue;
-        }
-        const currentUid = toSafeTrimmedString(req.user?.uid);
-        if (currentUid) {
-          byPhone.firebaseUid = currentUid;
-          byPhone.uid = currentUid;
-        }
-        await byPhone.save();
-        user = byPhone;
-        req.dbUser = byPhone;
-        req.user = {
-          ...req.user,
-          ...serializeUser(byPhone),
-          _id: byPhone._id,
-        };
-        break;
-      }
-    }
-
     user = await ensureLinkedStoreId(user);
     if (user) {
       req.user = {
@@ -570,6 +564,14 @@ async function getUserByIdentifier(req, res, next) {
       return res.status(404).json({
         success: false,
         message: 'User not found.',
+      });
+    }
+
+    const canAccess = await canAccessUserProfile(req.user, user);
+    if (!canAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied.',
       });
     }
 
@@ -686,27 +688,7 @@ async function syncProfile(req, res, next) {
 
     await req.dbUser.save();
 
-    // If this session lands on a stale non-ops profile but the submitted phone
-    // maps to a vendor/rider account, switch the Firebase UID binding to that
-    // operations-capable profile.
     let effectiveUser = req.dbUser;
-    if (!hasOperationsCapability(effectiveUser)) {
-      const candidatePhone = toSafeTrimmedString(req.body?.phone) || toSafeTrimmedString(effectiveUser.phone);
-      if (candidatePhone) {
-        const byPhone = await findBestUserByPhone(candidatePhone);
-        if (byPhone && hasOperationsCapability(byPhone) && String(byPhone._id) !== String(effectiveUser._id)) {
-          const currentUid = toSafeTrimmedString(req.user?.uid);
-          if (currentUid) {
-            byPhone.firebaseUid = currentUid;
-            byPhone.uid = currentUid;
-          }
-          await byPhone.save();
-          effectiveUser = byPhone;
-          req.dbUser = byPhone;
-        }
-      }
-    }
-
     effectiveUser = await ensureLinkedStoreId(effectiveUser);
     await recordUserNetworkContext(effectiveUser, req);
 
@@ -1409,5 +1391,6 @@ module.exports = {
   saveGrowthOffer,
   validateGrowthOffer,
   claimGrowthOffer,
+  canAccessUserProfile,
   isAllowedAdminEmail,
 };

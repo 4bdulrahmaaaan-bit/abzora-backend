@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'abzora-backend-api',
+      name: 'abianzo-backend-api',
       script: 'server.js',
       instances: 'max',
       exec_mode: 'cluster',
@@ -14,7 +14,7 @@ module.exports = {
       },
     },
     {
-      name: 'abzora-backend-workers',
+      name: 'abianzo-backend-workers',
       script: 'server.js',
       instances: 1,
       exec_mode: 'fork',

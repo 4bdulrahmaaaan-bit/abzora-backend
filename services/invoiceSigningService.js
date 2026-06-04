@@ -1,10 +1,25 @@
 const crypto = require('crypto');
 
-const SECRET = () => process.env.INVOICE_SIGNING_SECRET || process.env.JWT_SECRET || 'abzora-invoice-secret';
+function getInvoiceSigningSecret() {
+  const secret = String(process.env.INVOICE_SIGNING_SECRET || '').trim();
+  if (!secret) {
+    throw new Error('INVOICE_SIGNING_SECRET is required.');
+  }
+  return secret;
+}
+
+function timingSafeHexEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''), 'hex');
+  const rightBuffer = Buffer.from(String(right || ''), 'hex');
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
 
 function buildSignedToken({ invoiceId, userId, role, expiresAt, version = 'v1' }) {
   const payload = `${invoiceId}.${userId || 'anon'}.${role || 'customer'}.${expiresAt}.${version}`;
-  const signature = crypto.createHmac('sha256', SECRET()).update(payload).digest('hex');
+  const signature = crypto.createHmac('sha256', getInvoiceSigningSecret()).update(payload).digest('hex');
   return `${payload}.${signature}`;
 }
 
@@ -15,8 +30,13 @@ function verifySignedToken(token) {
 
   const [invoiceId, userId, role, expiresAt, version, signature] = parts;
   const payload = `${invoiceId}.${userId}.${role}.${expiresAt}.${version}`;
-  const expected = crypto.createHmac('sha256', SECRET()).update(payload).digest('hex');
-  if (expected !== signature) return { valid: false, reason: 'signature' };
+  let expected;
+  try {
+    expected = crypto.createHmac('sha256', getInvoiceSigningSecret()).update(payload).digest('hex');
+  } catch (error) {
+    return { valid: false, reason: 'secret_missing' };
+  }
+  if (!timingSafeHexEqual(expected, signature)) return { valid: false, reason: 'signature' };
   if (Date.now() > Number(expiresAt)) return { valid: false, reason: 'expired' };
 
   return {

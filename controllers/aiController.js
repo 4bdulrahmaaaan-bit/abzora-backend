@@ -411,6 +411,17 @@ function serializeStylistProduct(product) {
     fabric: product.fabric || '',
     subcategory: product.subcategory || '',
     attributes: product.attributes ? Object.fromEntries(Object.entries(product.attributes)) : {},
+    attributeTemplateKey: product.attributeTemplateKey || 'generic',
+    attributeTemplateVersion: Number(product.attributeTemplateVersion || 1),
+    structuredAttributes: Array.isArray(product.structuredAttributes)
+      ? product.structuredAttributes.map((item) => ({
+          key: item?.key || '',
+          label: item?.label || '',
+          type: item?.type || 'text',
+          value: item?.value ?? '',
+          section: item?.section || '',
+        }))
+      : [],
     arAsset: product.arAsset || {},
     customizations: product.customizations || {},
     measurements: product.measurements || {},
@@ -419,6 +430,15 @@ function serializeStylistProduct(product) {
 }
 
 function productText(product) {
+  const structuredValues = Array.isArray(product.structuredAttributes)
+    ? product.structuredAttributes.flatMap((item) => {
+        const value = item?.value;
+        if (Array.isArray(value)) {
+          return value.map((entry) => entry?.toString?.() || '').filter(Boolean);
+        }
+        return value == null ? [] : [value.toString()];
+      })
+    : [];
   return [
     product.name,
     product.brand,
@@ -428,6 +448,7 @@ function productText(product) {
     product.outfitType,
     product.fabric,
     ...Object.values(product.attributes || {}),
+    ...structuredValues,
   ]
     .filter(Boolean)
     .join(' ')
@@ -1377,6 +1398,7 @@ async function generateProductSpecs(req, res, next) {
       subcategory: req.body?.subcategory || '',
       description: req.body?.description || '',
       attributes: req.body?.attributes || {},
+      structuredAttributes: req.body?.structuredAttributes || [],
     };
 
     if (productId) {
@@ -1391,6 +1413,7 @@ async function generateProductSpecs(req, res, next) {
         subcategory: product.subcategory || '',
         description: product.description || '',
         attributes: product.attributes || {},
+        structuredAttributes: product.structuredAttributes || [],
       };
     }
 

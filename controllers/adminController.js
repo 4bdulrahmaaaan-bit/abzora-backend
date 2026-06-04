@@ -181,6 +181,9 @@ function serializeProduct(item) {
     model3d: item.model3d || '',
     arAsset: item.arAsset || {},
     attributes: item.attributes ? Object.fromEntries(Object.entries(item.attributes)) : {},
+    attributeTemplateKey: item.attributeTemplateKey || 'generic',
+    attributeTemplateVersion: Number(item.attributeTemplateVersion || 1),
+    structuredAttributes: Array.isArray(item.structuredAttributes) ? item.structuredAttributes : [],
     images: item.images || [],
     storeId: item.storeId?._id?.toString?.() || item.storeId?.toString?.() || '',
     store: item.storeId && typeof item.storeId === 'object'

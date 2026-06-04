@@ -132,8 +132,8 @@ async function recordPaymentWebhookAudit({
 
 async function handlePaymentCaptured(paymentEntity) {
   const span = otel.startSpan('payment.captured.process', {
-    'abzora.flow': 'payment',
-    'abzora.event': 'payment.captured',
+    'abianzo.flow': 'payment',
+    'abianzo.event': 'payment.captured',
   });
   const startedAt = Date.now();
   try {
@@ -308,7 +308,7 @@ async function handlePaymentCaptured(paymentEntity) {
   await enqueueInvoiceJob(order._id.toString(), 'payment_webhook_captured');
   return order;
   } finally {
-    span.setAttribute('abzora.latency_ms', Date.now() - startedAt);
+    span.setAttribute('abianzo.latency_ms', Date.now() - startedAt);
     span.end();
   }
 }
@@ -521,7 +521,7 @@ async function verifyPaymentSignature(req, res, next) {
 
 async function handleRazorpayWebhook(req, res, next) {
   const span = otel.startSpan('webhook.razorpay.verify_and_enqueue', {
-    'abzora.flow': 'webhook',
+    'abianzo.flow': 'webhook',
   });
   const startedAt = Date.now();
   try {
@@ -540,7 +540,7 @@ async function handleRazorpayWebhook(req, res, next) {
     }
 
     const payload = JSON.parse(rawBody.toString('utf8'));
-    span.setAttribute('abzora.webhook_event', String(payload?.event || 'unknown'));
+    span.setAttribute('abianzo.webhook_event', String(payload?.event || 'unknown'));
     const eventId = payload?.payload?.payment?.entity?.id
       || payload?.payload?.refund?.entity?.id
       || payload?.created_at
@@ -593,7 +593,7 @@ async function handleRazorpayWebhook(req, res, next) {
     }
     return next(error);
   } finally {
-    span.setAttribute('abzora.latency_ms', Date.now() - startedAt);
+    span.setAttribute('abianzo.latency_ms', Date.now() - startedAt);
     span.end();
   }
 }
@@ -629,8 +629,8 @@ function validateWebhookSchema(event, payload) {
 
 async function processPaymentWebhookIngestEvent(eventDoc) {
   const span = otel.startSpan('webhook.ingest.process', {
-    'abzora.flow': 'webhook_ingest',
-    'abzora.event': String(eventDoc?.event || 'unknown'),
+    'abianzo.flow': 'webhook_ingest',
+    'abianzo.event': String(eventDoc?.event || 'unknown'),
   });
   const ingestId = String(eventDoc?.ingestId || '');
   const event = String(eventDoc?.event || '');

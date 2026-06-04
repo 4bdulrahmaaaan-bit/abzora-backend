@@ -1,0 +1,396 @@
+﻿diff --git a/controllers/authController.js b/controllers/authController.js
+index f901544..d565b48 100644
+--- a/controllers/authController.js
++++ b/controllers/authController.js
+@@ -1,5 +1,7 @@
+ const mongoose = require('mongoose');
+-const { normalizeRole, serializeUser } = require('../middleware/authMiddleware');
++const initializeFirebase = require('../config/firebase');
++const { normalizeRole, serializeUser, upsertFirebaseUser } = require('../middleware/authMiddleware');
++const { createSession, refreshSession, revokeSessionByRefreshToken, revokeSessionBySessionId } = require('../services/authSessionService');
+ const Store = require('../models/Store');
+ const User = require('../models/User');
+ const UserAddress = require('../models/UserAddress');
+@@ -10,6 +12,7 @@ const ReferralRecord = require('../models/ReferralRecord');
+ const GrowthOffer = require('../models/GrowthOffer');
+ const VendorKycRequest = require('../models/VendorKycRequest');
+ const { recordUserNetworkContext } = require('../services/fraudDetectionService');
++const { logSecurityEvent, logSecurityWarning } = require('../services/auditLogger');
+ 
+ const PRIVILEGED_ROLES = new Set(['admin', 'super_admin']);
+ const SELF_ASSIGNABLE_ROLES = new Set(['user', 'customer', 'vendor', 'rider']);
+@@ -1257,7 +1260,133 @@ async function claimGrowthOffer(req, res, next) {
+   }
+ }
+ 
++function extractBearerToken(req) {
++  const authHeader = String(req.headers.authorization || '').trim();
++  if (!authHeader.toLowerCase().startsWith('bearer ')) {
++    return '';
++  }
++  return authHeader.slice(7).trim();
++}
++
++async function createAuthSession(req, res, next) {
++  try {
++    const token = extractBearerToken(req);
++    if (!token) {
++      return res.status(401).json({ success: false, message: 'Unauthorized' });
++    }
++
++    const admin = initializeFirebase();
++    if (!admin) {
++      return res.status(503).json({ success: false, message: 'Authentication service unavailable.' });
++    }
++
++    const decoded = await admin.auth().verifyIdToken(token, true);
++    const allowAutoProvision =
++      process.env.AUTH_ALLOW_AUTO_PROVISION === 'true' &&
++      String(process.env.DISABLE_AUTH_AUTO_PROVISION_IN_PRODUCTION || '').trim().toLowerCase() !== 'true' &&
++      process.env.NODE_ENV !== 'production';
++    const user = await upsertFirebaseUser(decoded, { allowCreate: allowAutoProvision });
++    if (!user) {
++      return res.status(403).json({
++        success: false,
++        message: 'Account is not provisioned for this environment.',
++      });
++    }
++    if (user?.isDeleted === true) {
++      return res.status(403).json({ success: false, message: 'This account has been deleted.' });
++    }
++    if (user?.isActive === false) {
++      return res.status(403).json({ success: false, message: 'This account has been disabled.' });
++    }
++
++    const session = await createSession({
++      user,
++      firebaseUid: decoded.uid,
++      deviceId: String(req.body?.deviceId || req.headers['x-device-id'] || '').trim(),
++      platform: String(req.body?.platform || req.headers['x-client-platform'] || '').trim(),
++      metadata: {
++        userAgent: String(req.headers['user-agent'] || ''),
++        ip: String(req.headers['x-forwarded-for'] || req.ip || ''),
++      },
++    });
++    logSecurityEvent('auth_session_issue', {
++      sessionId: session.sessionId,
++      userId: user.uid || user.firebaseUid || decoded.uid,
++      deviceId: session.deviceId,
++      source: 'createAuthSession',
++    });
++
++    return res.status(200).json({
++      success: true,
++      data: {
++        ...session,
++        user: serializeUser(user),
++      },
++    });
++  } catch (error) {
++    return next(error);
++  }
++}
++
++async function refreshAuthSession(req, res, next) {
++  try {
++    const refreshToken = String(req.body?.refreshToken || '').trim();
++    if (!refreshToken) {
++      return res.status(401).json({ success: false, message: 'Refresh token is required.' });
++    }
++
++    const session = await refreshSession({ refreshToken });
++    logSecurityEvent('auth_session_refresh', {
++      sessionId: session.sessionId,
++      userId: session.userId,
++      deviceId: session.deviceId,
++      source: 'refreshAuthSession',
++    });
++    return res.status(200).json({
++      success: true,
++      data: session,
++    });
++  } catch (error) {
++    if (
++      error?.code === 'auth/invalid-refresh-token' ||
++      error?.code === 'auth/refresh-token-expired' ||
++      error?.code === 'auth/account-disabled'
++    ) {
++      return res.status(401).json({
++        success: false,
++        message: 'Session expired. Please sign in again.',
++      });
++    }
++    return next(error);
++  }
++}
++
++async function logoutAuthSession(req, res, next) {
++  try {
++    const refreshToken = String(req.body?.refreshToken || '').trim();
++    const sessionId = String(req.body?.sessionId || req.query?.sessionId || '').trim();
++    if (refreshToken) {
++      await revokeSessionByRefreshToken(refreshToken);
++    } else if (sessionId) {
++      await revokeSessionBySessionId(sessionId);
++    }
++    logSecurityEvent('auth_session_logout', {
++      sessionId: sessionId || undefined,
++      source: 'logoutAuthSession',
++    });
++    return res.status(200).json({ success: true, data: true });
++  } catch (error) {
++    logSecurityWarning('auth_session_logout_failed', {
++      message: error.message,
++    });
++    return next(error);
++  }
++}
++
+ module.exports = {
++  createAuthSession,
++  refreshAuthSession,
++  logoutAuthSession,
+   me,
+   getUserByIdentifier,
+   debugAuth,
+diff --git a/middleware/authMiddleware.js b/middleware/authMiddleware.js
+index 4a89d83..356dba5 100644
+--- a/middleware/authMiddleware.js
++++ b/middleware/authMiddleware.js
+@@ -1,6 +1,7 @@
+ const initializeFirebase = require('../config/firebase');
+ const User = require('../models/User');
+-const { clientIp, logSecurityWarning } = require('../services/auditLogger');
++const { getSessionById, verifyAccessToken } = require('../services/authSessionService');
++const { clientIp, logSecurityEvent, logSecurityWarning } = require('../services/auditLogger');
+ 
+ const VALID_ROLES = new Set([
+   'user',
+@@ -264,30 +265,54 @@ async function authMiddleware(req, res, next) {
+       return unauthorized(res);
+     }
+ 
+-    const admin = initializeFirebase();
+-    if (!admin) {
+-      console.warn('Firebase Admin is unavailable. Protected routes cannot authenticate requests.');
+-      return unauthorized(res);
++    let decoded = null;
++    let authSource = 'firebase';
++    let session = null;
++
++    try {
++      const accessPayload = verifyAccessToken(token);
++      session = await getSessionById(accessPayload.sid);
++      if (!session || session.revokedAt || (session.refreshTokenExpiresAt && session.refreshTokenExpiresAt <= new Date())) {
++        return unauthorizedWithMessage(res, 'Session expired. Please sign in again.');
++      }
++      decoded = {
++        uid: accessPayload.uid,
++        email: accessPayload.email || null,
++        phone_number: accessPayload.phone || null,
++        email_verified: true,
++        auth_time: Math.floor((session.lastUsedAt || session.createdAt || new Date()).getTime() / 1000),
++        firebase: { sign_in_provider: 'custom' },
++        role: accessPayload.role || 'customer',
++      };
++      authSource = 'backend-jwt';
++    } catch (_) {
++      const admin = initializeFirebase();
++      if (!admin) {
++        console.warn('Firebase Admin is unavailable. Protected routes cannot authenticate requests.');
++        return unauthorized(res);
++      }
++      decoded = await admin.auth().verifyIdToken(token, true);
+     }
+ 
+-    const decoded = await admin.auth().verifyIdToken(token, true);
+-    const maxSessionAgeMinutes = Number(process.env.AUTH_MAX_SESSION_AGE_MINUTES || 480);
+-    const authTimeMs = Number(decoded.auth_time || 0) * 1000;
+-    if (
+-      Number.isFinite(maxSessionAgeMinutes) &&
+-      maxSessionAgeMinutes > 0 &&
+-      authTimeMs > 0 &&
+-      (Date.now() - authTimeMs) > maxSessionAgeMinutes * 60 * 1000
+-    ) {
+-      logSecurityWarning('stale_session_rejected', {
+-        requestId: req.requestId,
+-        uid: decoded.uid,
+-        ip: clientIp(req),
+-      });
+-      return res.status(401).json({
+-        success: false,
+-        message: 'Session expired. Please sign in again.',
+-      });
++    if (authSource === 'firebase') {
++      const maxSessionAgeMinutes = Number(process.env.AUTH_MAX_SESSION_AGE_MINUTES || 480);
++      const authTimeMs = Number(decoded.auth_time || 0) * 1000;
++      if (
++        Number.isFinite(maxSessionAgeMinutes) &&
++        maxSessionAgeMinutes > 0 &&
++        authTimeMs > 0 &&
++        (Date.now() - authTimeMs) > maxSessionAgeMinutes * 60 * 1000
++      ) {
++        logSecurityWarning('stale_session_rejected', {
++          requestId: req.requestId,
++          uid: decoded.uid,
++          ip: clientIp(req),
++        });
++        return res.status(401).json({
++          success: false,
++          message: 'Session expired. Please sign in again.',
++        });
++      }
+     }
+ 
+     const requireVerifiedEmail = process.env.REQUIRE_EMAIL_VERIFICATION !== 'false';
+@@ -329,10 +354,12 @@ async function authMiddleware(req, res, next) {
+     }
+ 
+     if (process.env.NODE_ENV === 'development') {
+-      console.log('Authenticated UID:', decoded.uid);
++      console.log(`Authenticated UID (${authSource}):`, decoded.uid);
+     }
+ 
+     req.auth = decoded;
++    req.authSource = authSource;
++    req.session = session;
+     req.dbUser = user;
+     req.user = {
+       uid: decoded.uid,
+@@ -343,6 +370,12 @@ async function authMiddleware(req, res, next) {
+       authTime: decoded.auth_time || null,
+       ...serializeUser(user),
+     };
++    logSecurityEvent('auth_session_validated', {
++      requestId: req.requestId,
++      uid: decoded.uid,
++      source: authSource,
++      sessionId: session?.sessionId || null,
++    });
+ 
+     return next();
+   } catch (error) {
+@@ -371,3 +404,4 @@ async function authMiddleware(req, res, next) {
+ module.exports = authMiddleware;
+ module.exports.serializeUser = serializeUser;
+ module.exports.normalizeRole = normalizeRole;
++module.exports.upsertFirebaseUser = upsertFirebaseUser;
+diff --git a/package.json b/package.json
+index 115dcc3..2ef60ba 100644
+--- a/package.json
++++ b/package.json
+@@ -49,6 +49,7 @@
+                          "firebase-admin":  "^13.8.0",
+                          "mongoose":  "^8.12.2",
+                          "multer":  "^1.4.5-lts.1",
++                         "jsonwebtoken":  "^9.0.3",
+                          "node-cron":  "^3.0.3",
+                          "puppeteer":  "^24.41.0",
+                          "razorpay":  "^2.9.4",
+diff --git a/routes/authRoutes.js b/routes/authRoutes.js
+index 48e2d59..5bfda3c 100644
+--- a/routes/authRoutes.js
++++ b/routes/authRoutes.js
+@@ -9,6 +9,9 @@ const {
+   referralApplySchema,
+ } = require('../validation/schemas/customerSchemas');
+ const {
++  createAuthSession,
++  refreshAuthSession,
++  logoutAuthSession,
+   me,
+   getUserByIdentifier,
+   debugAuth,
+@@ -36,6 +39,9 @@ const {
+ const router = express.Router();
+ 
+ router.post('/test-user', upsertTestUser);
++router.post('/session', createAuthSession);
++router.post('/session/refresh', refreshAuthSession);
++router.post('/session/logout', logoutAuthSession);
+ router.get('/me', authMiddleware, me);
+ router.get('/profile', authMiddleware, me);
+ router.get('/users/:id', authMiddleware, requireRoles('vendor', 'rider', 'admin', 'super_admin'), getUserByIdentifier);
+diff --git a/services/pricingGateway.js b/services/pricingGateway.js
+index a0003d7..53b5f3a 100644
+--- a/services/pricingGateway.js
++++ b/services/pricingGateway.js
+@@ -1,6 +1,7 @@
+ const { URL } = require('url');
+ 
+ const initializeFirebase = require('../config/firebase');
++const { getSessionById, verifyAccessToken } = require('./authSessionService');
+ const User = require('../models/User');
+ const { localPricingBus, PRICING_EVENT_CHANNEL, getPricingConfig } = require('./pricingConfigService');
+ 
+@@ -11,6 +12,30 @@ async function decodeSocketUser(token) {
+   if (!token) {
+     return null;
+   }
++  try {
++    const accessPayload = verifyAccessToken(token);
++    const session = await getSessionById(accessPayload.sid);
++    if (!session || session.revokedAt || (session.refreshTokenExpiresAt && session.refreshTokenExpiresAt <= new Date())) {
++      return null;
++    }
++    const user = await User.findOne({
++      $or: [
++        { firebaseUid: accessPayload.uid },
++        { uid: accessPayload.uid },
++        ...(accessPayload.email ? [{ email: accessPayload.email }] : []),
++      ],
++    }).lean();
++    if (!user) {
++      return null;
++    }
++    return {
++      uid: accessPayload.uid,
++      role: String(user.role || accessPayload.role || 'customer').trim().toLowerCase(),
++      user,
++    };
++  } catch (_) {
++    // Fall through to Firebase auth for legacy socket clients.
++  }
+   const admin = initializeFirebase();
+   if (!admin) {
+     return null;
+diff --git a/services/trackingGateway.js b/services/trackingGateway.js
+index 4911e1c..6e0662e 100644
+--- a/services/trackingGateway.js
++++ b/services/trackingGateway.js
+@@ -6,6 +6,7 @@ const DeliveryTask = require('../models/DeliveryTask');
+ const Order = require('../models/Order');
+ const Store = require('../models/Store');
+ const User = require('../models/User');
++const { getSessionById, verifyAccessToken } = require('./authSessionService');
+ const { hasRole } = require('../middleware/authorizationMiddleware');
+ 
+ const localBus = new EventEmitter();
+@@ -236,6 +237,27 @@ async function decodeSocketUser(token) {
+   if (!token) {
+     return null;
+   }
++  try {
++    const accessPayload = verifyAccessToken(token);
++    const session = await getSessionById(accessPayload.sid);
++    if (!session || session.revokedAt || (session.refreshTokenExpiresAt && session.refreshTokenExpiresAt <= new Date())) {
++      return null;
++    }
++    const user = await User.findOne({
++      $or: [
++        { firebaseUid: accessPayload.uid },
++        { uid: accessPayload.uid },
++        ...(accessPayload.email ? [{ email: accessPayload.email }] : []),
++      ],
++    });
++    return {
++      uid: accessPayload.uid,
++      role: String(accessPayload.role || user?.role || 'customer').trim().toLowerCase(),
++      user,
++    };
++  } catch (_) {
++    // Fall back to Firebase ID tokens for legacy sockets and transitional clients.
++  }
+   const admin = initializeFirebase();
+   if (!admin) {
+     return null;

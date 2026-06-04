@@ -130,7 +130,7 @@ The backend supports OpenTelemetry with production-safe defaults and keeps exist
 Required environment variables:
 
 - `OTEL_ENABLED=true|false` (default `false`)
-- `OTEL_SERVICE_NAME=abzora-backend`
+- `OTEL_SERVICE_NAME=abianzo-backend`
 - `OTEL_EXPORTER_PROTOCOL=http|grpc|console` (default `http`)
 - `OTEL_EXPORTER_OTLP_ENDPOINT=https://<otel-endpoint>/v1/traces` (HTTP) or `host:4317` (gRPC)
 - `OTEL_SAMPLING_RATIO=0.0..1.0` (recommended `0.10` to `0.25` in production)
@@ -139,7 +139,7 @@ Recommended production baseline:
 
 ```bash
 OTEL_ENABLED=true
-OTEL_SERVICE_NAME=abzora-backend
+OTEL_SERVICE_NAME=abianzo-backend
 OTEL_EXPORTER_PROTOCOL=http
 OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo.monitoring.svc.cluster.local:4318/v1/traces
 OTEL_SAMPLING_RATIO=0.15

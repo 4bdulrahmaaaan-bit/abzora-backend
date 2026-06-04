@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
-const { sanitizeAttributes } = require('../config/productAttributeConfig');
+const {
+  getAttributeTemplateForCategory,
+  getFilterableAttributeSections,
+  sanitizeAttributes,
+  sanitizeStructuredAttributes,
+} = require('../config/productAttributeConfig');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
 const { generateArAsset } = require('../services/arAssetService');
@@ -82,6 +87,165 @@ function parseCsvValues(value) {
 function parseNumberOrNull(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseDynamicFilterPayload(value) {
+  if (!value) {
+    return {};
+  }
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value;
+  }
+  const text = String(value).trim();
+  if (!text) {
+    return {};
+  }
+  try {
+    const decoded = JSON.parse(text);
+    return decoded && typeof decoded === 'object' && !Array.isArray(decoded) ? decoded : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function normalizeFilterKey(key) {
+  return String(key || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+function normalizeFilterValues(value) {
+  if (value == null) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => normalizeFilterValues(item));
+  }
+  return String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((item) => item.toLowerCase());
+}
+
+function collectProductFilterTokens(item, key) {
+  const normalizedKey = normalizeFilterKey(key);
+  const tokens = new Set();
+  const add = (value) => {
+    if (value == null) {
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(add);
+      return;
+    }
+    if (typeof value === 'object') {
+      Object.values(value).forEach(add);
+      return;
+    }
+    const text = String(value).trim().toLowerCase();
+    if (text) {
+      tokens.add(text);
+    }
+  };
+
+  add(item?.[normalizedKey]);
+  add(item?.[key]);
+  add(item?.attributes?.[normalizedKey]);
+  add(item?.attributes?.[key]);
+  add(item?.specifications?.[normalizedKey]);
+  add(item?.specifications?.[key]);
+
+  if (Array.isArray(item?.structuredAttributes)) {
+    for (const entry of item.structuredAttributes) {
+      const entryKey = normalizeFilterKey(entry?.key || entry?.label);
+      if (entryKey === normalizedKey) {
+        add(entry?.value);
+      }
+    }
+  }
+
+  if (normalizedKey === 'color' || normalizedKey === 'colors') {
+    add(item?.colors);
+    add(item?.color);
+  }
+  if (normalizedKey === 'size' || normalizedKey === 'sizes') {
+    add(item?.sizes);
+  }
+
+  return [...tokens];
+}
+
+function matchDynamicFilter(item, key, rawValue) {
+  const normalizedKey = normalizeFilterKey(key);
+  if (!normalizedKey) {
+    return true;
+  }
+
+  const values = normalizeFilterValues(rawValue);
+  if (values.length === 0) {
+    if (rawValue === true) {
+      values.push('true');
+    } else if (rawValue === false) {
+      values.push('false');
+    } else {
+      return true;
+    }
+  }
+
+  const tokens = collectProductFilterTokens(item, normalizedKey);
+  const hasToken = (candidate) => {
+    const normalizedCandidate = String(candidate || '').trim().toLowerCase();
+    if (!normalizedCandidate) {
+      return false;
+    }
+    return tokens.some(
+      (token) =>
+        token === normalizedCandidate ||
+        token.includes(normalizedCandidate) ||
+        normalizedCandidate.includes(token),
+    );
+  };
+
+  switch (normalizedKey) {
+    case 'same_day_available':
+    case 'same_day_delivery':
+    case 'same_day':
+      return Boolean(item.sameDayAvailable) === true || values.includes('true');
+    case 'try_at_home_available':
+    case 'try_at_home':
+      return Boolean(item.tryAtHomeAvailable) === true || values.includes('true');
+    case 'virtual_try_on_available':
+    case 'try_on_available':
+    case 'ar_available':
+      return Boolean(item.tryOnAvailable) === true || values.includes('true');
+    case 'new_arrivals':
+      return hasToken('new') || hasToken('new arrival') || hasToken('new arrival') || values.includes('true');
+    case 'best_sellers':
+      return Number(item.purchaseCount || 0) > 0 || Number(item.demandScore || 0) > 0.5 || values.includes('true');
+    case 'trending':
+      return Number(item.popularity || 0) > 50 || Number(item.demandScore || 0) > 0.4 || values.includes('true');
+    case 'premium_brands':
+    case 'premium_collection':
+      return Boolean(item.store?.isFeatured) ||
+        /premium|luxury|elite/.test(String(item.store?.vendorVisibility || '').toLowerCase()) ||
+        values.includes('true');
+    case 'verified_stores':
+      return Boolean(item.store?.isApproved) || values.includes('true');
+    case 'country_of_origin':
+      return hasToken(values[0]) || hasToken(values.join(' '));
+    default:
+      break;
+  }
+
+  if (values.includes('true') || values.includes('false')) {
+    const boolValue = values.includes('true');
+    const current = tokens.includes('true') || tokens.includes('1') || tokens.includes('yes');
+    return boolValue === current;
+  }
+
+  return values.some((candidate) => hasToken(candidate));
 }
 
 function clampNumber(value, min, max) {
@@ -252,6 +416,68 @@ function normalizeStringMap(input, fallback = {}) {
     .map(([key, value]) => [key.toString().trim(), value?.toString().trim() || ''])
     .filter(([key, value]) => key && value);
   return Object.fromEntries(entries);
+}
+
+function normalizeStructuredAttributeInput(input) {
+  if (!input) {
+    return {};
+  }
+  if (Array.isArray(input)) {
+    return Object.fromEntries(
+      input
+        .filter((item) => item && typeof item === 'object')
+        .map((item) => [item.key?.toString().trim() || '', item.value])
+        .filter(([key]) => key),
+    );
+  }
+  if (input && typeof input === 'object') {
+    const output = {};
+    for (const [key, value] of Object.entries(input)) {
+      if (!key) continue;
+      if (value && typeof value === 'object' && 'value' in value) {
+        output[key] = value.value;
+      } else {
+        output[key] = value;
+      }
+    }
+    return output;
+  }
+  return {};
+}
+
+function structuredAttributesToSpecs(structuredAttributes = []) {
+  if (!Array.isArray(structuredAttributes)) {
+    return {};
+  }
+  const output = {};
+  for (const entry of structuredAttributes) {
+    if (!entry || typeof entry !== 'object') continue;
+    const label = entry.label?.toString().trim() || entry.key?.toString().trim() || '';
+    if (!label) continue;
+    const value = entry.value;
+    if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) continue;
+    output[label] = Array.isArray(value) ? value.join(', ') : String(value);
+  }
+  return output;
+}
+
+function resolveAttributeTemplate(category, subcategory) {
+  return getAttributeTemplateForCategory(category, subcategory);
+}
+
+function buildStructuredAttributesPayload({ category, subcategory, attributes, structuredAttributes }) {
+  const template = resolveAttributeTemplate(category, subcategory);
+  const normalizedStructured = sanitizeStructuredAttributes(
+    template.key,
+    normalizeStructuredAttributeInput(structuredAttributes),
+    sanitizeAttributes(template.key, attributes),
+  );
+  return {
+    templateKey: normalizedStructured.templateKey || template.key,
+    templateVersion: normalizedStructured.templateVersion || Number(template.version || 1),
+    structuredAttributes: normalizedStructured.structuredAttributes,
+    attributes: normalizedStructured.attributes,
+  };
 }
 
 function normalizeStringList(input, fallback = []) {
@@ -501,6 +727,12 @@ function serializeProduct(product, options = {}) {
   const populatedStore =
     options.store ||
     (source.storeId && typeof source.storeId === 'object' ? source.storeId : null);
+  const resolvedTemplate = resolveAttributeTemplate(source.category || '', source.subcategory || '');
+  const resolvedStructuredPayload = sanitizeStructuredAttributes(
+    resolvedTemplate.key,
+    Array.isArray(source.structuredAttributes) ? source.structuredAttributes : [],
+    source.attributes ? Object.fromEntries(Object.entries(source.attributes)) : {},
+  );
 
   const serialized = {
     id: source._id?.toString() || source.id || '',
@@ -517,6 +749,14 @@ function serializeProduct(product, options = {}) {
     description: source.description || '',
     stock: Number(source.stock || 0),
     category: source.category || '',
+    attributeTemplateKey:
+      source.attributeTemplateKey || resolvedStructuredPayload.templateKey || resolvedTemplate.key || 'generic',
+    attributeTemplateVersion: Number(
+      source.attributeTemplateVersion ||
+        resolvedStructuredPayload.templateVersion ||
+        resolvedTemplate.version ||
+        1,
+    ),
     subcategory: source.subcategory || '',
     images: Array.isArray(source.images) ? source.images : [],
     model3d: source.model3d || '',
@@ -545,11 +785,17 @@ function serializeProduct(product, options = {}) {
       wishlistCount: Math.max(0, Math.round(Number(source.purchaseCount || 0) / 2)),
       purchasesText: `${Number(source.purchaseCount || 0).toLocaleString('en-IN')} purchases`,
     }),
-    specifications: source.specifications
-      ? source.specifications instanceof Map
-        ? Object.fromEntries(source.specifications.entries())
-        : Object.fromEntries(Object.entries(source.specifications))
-      : {},
+    specifications: (() => {
+      const explicitSpecs = source.specifications
+        ? source.specifications instanceof Map
+          ? Object.fromEntries(source.specifications.entries())
+          : Object.fromEntries(Object.entries(source.specifications))
+        : {};
+      if (Object.keys(explicitSpecs).length > 0) {
+        return explicitSpecs;
+      }
+      return structuredAttributesToSpecs(resolvedStructuredPayload.structuredAttributes || []);
+    })(),
     completeLookProductIds: Array.isArray(source.completeLookProductIds)
       ? source.completeLookProductIds.map((item) => item?.toString().trim()).filter(Boolean)
       : [],
@@ -565,6 +811,20 @@ function serializeProduct(product, options = {}) {
     outfitType: source.outfitType || '',
     fabric: source.fabric || '',
     attributes: source.attributes ? Object.fromEntries(Object.entries(source.attributes)) : {},
+    structuredAttributes: resolvedStructuredPayload.structuredAttributes.map((item, index) => ({
+      key: item?.key || '',
+      label: item?.label || '',
+      type: item?.type || 'text',
+      required: Boolean(item?.required),
+      readOnly: Boolean(item?.readOnly),
+      filterable: item?.filterable !== false,
+      variantSupport: Boolean(item?.variantSupport),
+      unit: item?.unit || '',
+      options: Array.isArray(item?.options) ? item.options : [],
+      section: item?.section || '',
+      order: Number(item?.order ?? index),
+      value: item?.value ?? '',
+    })),
     arAsset: source.arAsset || {},
     storeId: populatedStore ? populatedStore._id?.toString() || populatedStore.id || '' : source.storeId?.toString() || '',
     store: populatedStore ? serializeStoreSummary(populatedStore) : null,
@@ -638,6 +898,7 @@ function applyProductFilters(products, filters = {}) {
   const sameDayAvailable = parseBooleanFlag(filters.sameDayAvailable ?? filters.sameDay);
   const tryAtHomeAvailable = parseBooleanFlag(filters.tryAtHomeAvailable);
   const customizable = parseBooleanFlag(filters.customizable ?? filters.atelier);
+  const dynamicFilters = parseDynamicFilterPayload(filters.filters);
 
   return products.filter((item) => {
     if (categories.length > 0 && !categories.includes(item.category)) {
@@ -695,6 +956,11 @@ function applyProductFilters(products, filters = {}) {
     if (minRating != null && Number(item.rating || 0) < minRating) {
       return false;
     }
+    for (const [key, value] of Object.entries(dynamicFilters)) {
+      if (!matchDynamicFilter(item, key, value)) {
+        return false;
+      }
+    }
     return true;
   });
 }
@@ -738,6 +1004,65 @@ function sortProducts(products, sort = 'relevance') {
     }
   });
   return sorted;
+}
+
+const GLOBAL_FILTER_DEFINITIONS = [
+  { key: 'category', label: 'Category', type: 'multi_select' },
+  { key: 'subcategory', label: 'Subcategory', type: 'multi_select' },
+  { key: 'brand', label: 'Brand', type: 'multi_select' },
+  { key: 'price', label: 'Price Range', type: 'range' },
+  { key: 'discount', label: 'Discount %', type: 'multi_select' },
+  { key: 'availability', label: 'Availability', type: 'multi_select' },
+  { key: 'rating', label: 'Rating', type: 'range' },
+  { key: 'deliveryTime', label: 'Delivery Time', type: 'multi_select' },
+  { key: 'sameDayAvailable', label: 'Same-Day Delivery', type: 'boolean' },
+  { key: 'tryAtHomeAvailable', label: 'Try At Home Eligible', type: 'boolean' },
+  { key: 'tryOnAvailable', label: 'Virtual Try-On Available', type: 'boolean' },
+  { key: 'newArrivals', label: 'New Arrivals', type: 'boolean' },
+  { key: 'bestSellers', label: 'Best Sellers', type: 'boolean' },
+  { key: 'trending', label: 'Trending', type: 'boolean' },
+  { key: 'premiumBrands', label: 'Premium Brands', type: 'boolean' },
+  { key: 'verifiedStores', label: 'Verified Stores', type: 'boolean' },
+  { key: 'countryOfOrigin', label: 'Country of Origin', type: 'multi_select' },
+];
+
+const GLOBAL_SORT_OPTIONS = [
+  { key: 'relevance', label: 'Relevance' },
+  { key: 'popularity', label: 'Popularity' },
+  { key: 'trending', label: 'Trending' },
+  { key: 'newest', label: 'New Arrivals' },
+  { key: 'best_sellers', label: 'Best Sellers' },
+  { key: 'price_low_to_high', label: 'Price Low to High' },
+  { key: 'price_high_to_low', label: 'Price High to Low' },
+  { key: 'highest_rated', label: 'Highest Rated' },
+  { key: 'biggest_discount', label: 'Biggest Discount' },
+  { key: 'fastest_delivery', label: 'Fastest Delivery' },
+  { key: 'same_day_delivery', label: 'Same-Day Delivery' },
+  { key: 'ai_recommended', label: 'AI Recommended' },
+  { key: 'stylist_picks', label: 'Stylist Picks' },
+];
+
+async function getFilterConfiguration(req, res, next) {
+  try {
+    const category = req.query?.category || '';
+    const subcategory = req.query?.subcategory || '';
+    const template = getAttributeTemplateForCategory(category, subcategory);
+    const sections = getFilterableAttributeSections(category, subcategory);
+    return res.status(200).json({
+      success: true,
+      data: {
+        category: category?.toString().trim() || '',
+        subcategory: subcategory?.toString().trim() || '',
+        templateKey: template.key,
+        templateVersion: Number(template.version || 1),
+        globalFilters: GLOBAL_FILTER_DEFINITIONS,
+        attributeSections: sections,
+        sortOptions: GLOBAL_SORT_OPTIONS,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
 }
 
 function normalizeTrialHomeConfig(raw = {}, fallback = {}) {
@@ -901,6 +1226,13 @@ async function createProduct(req, res, next) {
     if (assetValidation.error) {
       return res.status(400).json({ success: false, message: assetValidation.error });
     }
+    const template = resolveAttributeTemplate(normalizedCategory, subcategory?.toString().trim() || '');
+    const structuredPayload = buildStructuredAttributesPayload({
+      category: normalizedCategory,
+      subcategory: subcategory?.toString().trim() || '',
+      attributes,
+      structuredAttributes: req.body?.structuredAttributes,
+    });
 
     const product = await Product.create({
       name: normalizedName,
@@ -944,7 +1276,10 @@ async function createProduct(req, res, next) {
       }),
       specifications: normalizeStringMap(specifications),
       completeLookProductIds: normalizeStringList(completeLookProductIds),
-      attributes: sanitizeAttributes(subcategory?.toString().trim() || normalizedCategory, attributes),
+      attributeTemplateKey: structuredPayload.templateKey || template.key,
+      attributeTemplateVersion: structuredPayload.templateVersion || Number(template.version || 1),
+      attributes: structuredPayload.attributes,
+      structuredAttributes: structuredPayload.structuredAttributes,
       arAsset: arAsset && typeof arAsset === 'object' && !Array.isArray(arAsset) ? arAsset : {},
       trialHome: normalizeTrialHomeConfig(trialHome),
       atelier: normalizeAtelierProductConfig(atelier),
@@ -1348,12 +1683,26 @@ async function updateProduct(req, res, next) {
     if (materialProfile != null) {
       product.materialProfile = assetValidation.data.materialProfile;
     }
-    if (attributes && typeof attributes === 'object' && !Array.isArray(attributes)) {
-      product.attributes = sanitizeAttributes(
-        (subcategory == null ? product.subcategory : subcategory.toString().trim()) || normalizedCategory,
-        attributes,
-      );
+    const resolvedCategoryForUpdate = normalizedCategory || product.category;
+    const resolvedSubcategoryForUpdate =
+      subcategory == null ? product.subcategory : subcategory.toString().trim();
+    const structuredPayload = buildStructuredAttributesPayload({
+      category: resolvedCategoryForUpdate,
+      subcategory: resolvedSubcategoryForUpdate,
+      attributes,
+      structuredAttributes: req.body?.structuredAttributes,
+    });
+    if (
+      (attributes && typeof attributes === 'object' && !Array.isArray(attributes)) ||
+      req.body?.structuredAttributes != null
+    ) {
+      product.attributes = structuredPayload.attributes;
     }
+    if (structuredPayload.structuredAttributes.length > 0 || req.body?.structuredAttributes != null) {
+      product.structuredAttributes = structuredPayload.structuredAttributes;
+    }
+    product.attributeTemplateKey = structuredPayload.templateKey || product.attributeTemplateKey || 'generic';
+    product.attributeTemplateVersion = structuredPayload.templateVersion || product.attributeTemplateVersion || 1;
     if (arAsset && typeof arAsset === 'object' && !Array.isArray(arAsset)) {
       product.arAsset = arAsset;
     }
@@ -1675,5 +2024,6 @@ module.exports = {
   bulkUpdateVendorProductPrices,
   deleteProduct,
   generateProductArAsset,
+  getFilterConfiguration,
 };
 

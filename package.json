@@ -1,5 +1,5 @@
 {
-    "name":  "abzora-backend",
+    "name":  "abianzo-backend",
     "version":  "1.0.0",
     "private":  true,
     "main":  "server.js",
@@ -20,6 +20,7 @@
                     "test:k8s-safety":  "node tests/k8s-manifests-safety.test.js",
                     "test:dr-safety":  "node tests/backup-dr-runbook-safety.test.js",
                     "test:invoice-hardening": "node tests/invoice-hardening-smoke.test.js",
+                    "test:security-hardening": "node tests/security-hardening-regressions.test.js",
                     "ops:verify-backup-readiness":  "node scripts/verifyBackupReadiness.js",
                     "ops:validate-invoice-env": "node scripts/validateInvoiceEnv.js"
                 },

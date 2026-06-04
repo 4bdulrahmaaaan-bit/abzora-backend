@@ -60,7 +60,7 @@ async function uploadImage(req, res, next) {
       });
     }
 
-    const folder = process.env.CLOUDINARY_FOLDER || 'abzora';
+    const folder = process.env.CLOUDINARY_FOLDER || 'abianzo';
     const result = await uploadBuffer(req.file.buffer, folder);
 
     return res.status(200).json({

@@ -169,7 +169,7 @@ async function createSupportChat(req, res, next) {
       updatedAt: nowIso,
       lastMessage: welcome,
       lastMessageAt: nowIso,
-      lastSenderId: 'abzora-assistant',
+      lastSenderId: 'abianzo-assistant',
       lastSenderRole: 'assistant',
       userName: req.user.name || '',
       userPhone: req.user.phone || '',
@@ -183,7 +183,7 @@ async function createSupportChat(req, res, next) {
 
     await SupportMessage.create({
       chatId: chat._id,
-      senderId: 'abzora-assistant',
+      senderId: 'abianzo-assistant',
       senderRole: 'assistant',
       text: welcome,
       imageUrl: '',
@@ -238,7 +238,7 @@ async function sendSupportMessage(req, res, next) {
       const assistantTimestamp = new Date(Date.now() + 450).toISOString();
       await SupportMessage.create({
         chatId: chat._id,
-        senderId: 'abzora-assistant',
+        senderId: 'abianzo-assistant',
         senderRole: 'assistant',
         text: assistantReply,
         imageUrl: '',
@@ -247,7 +247,7 @@ async function sendSupportMessage(req, res, next) {
       });
       lastMessage = assistantReply;
       lastMessageAt = assistantTimestamp;
-      lastSenderId = 'abzora-assistant';
+      lastSenderId = 'abianzo-assistant';
       lastSenderRole = 'assistant';
       unreadCountAdmin = 0;
       unreadCountUser = 0;

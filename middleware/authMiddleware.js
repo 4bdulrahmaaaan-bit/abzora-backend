@@ -54,44 +54,16 @@ function normalizePhone(value) {
   return digitsOnly;
 }
 
-function phoneDigits(value) {
-  const normalized = normalizePhone(value);
-  return normalized.replace(/[^0-9]/g, '');
-}
-
-function phoneTail10(value) {
-  const digits = phoneDigits(value);
-  if (digits.length < 10) {
-    return '';
-  }
-  return digits.slice(-10);
-}
-
 function buildPhoneLookupCandidates(value) {
   const normalized = normalizePhone(value);
   if (!normalized) {
     return [];
   }
-  const tail10 = phoneTail10(normalized);
-  const regex = tail10 ? new RegExp(`${tail10}$`) : null;
+  const digitsOnly = normalized.replace(/[^0-9]/g, '');
   return [
     { phone: normalized },
-    ...(tail10 ? [{ phone: tail10 }] : []),
-    ...(regex ? [{ phone: regex }] : []),
+    ...(digitsOnly && digitsOnly !== normalized ? [{ phone: digitsOnly }] : []),
   ];
-}
-
-async function findBestUserByPhone(phoneValue) {
-  const candidates = buildPhoneLookupCandidates(phoneValue);
-  if (!candidates.length) {
-    return null;
-  }
-  const matches = await User.find({ $or: candidates }).sort({ updatedAt: -1, createdAt: -1 });
-  if (!matches.length) {
-    return null;
-  }
-  const opsMatch = matches.find((entry) => hasOperationsCapability(entry));
-  return opsMatch || matches[0];
 }
 
 function roleMapFromUser(user) {
@@ -163,7 +135,6 @@ async function upsertFirebaseUser(decoded, options = {}) {
   const allowCreate = options.allowCreate === true;
   const decodedEmail = decoded.email || '';
   const decodedPhone = normalizePhone(decoded.phone_number || '');
-  const decodedPhoneTail10 = phoneTail10(decodedPhone);
   // Security hardening: only promote by allowlisted email when token email is verified.
   const shouldPromoteAdmin = decoded.email_verified === true && isAllowedAdminEmail(decodedEmail);
 
@@ -175,22 +146,6 @@ async function upsertFirebaseUser(decoded, options = {}) {
       ...buildPhoneLookupCandidates(decodedPhone),
     ],
   });
-
-  if (decodedPhone || decodedPhoneTail10) {
-    const phoneMatched = await findBestUserByPhone(decodedPhone);
-    if (
-      phoneMatched &&
-      (!user || String(phoneMatched._id) !== String(user._id)) &&
-      hasOperationsCapability(phoneMatched)
-    ) {
-      if (user && String(user._id) !== String(phoneMatched._id)) {
-        user.firebaseUid = '';
-        user.uid = '';
-        await user.save();
-      }
-      user = phoneMatched;
-    }
-  }
 
   if (!user) {
     // Allowlisted admin emails are an explicit production bootstrap path.

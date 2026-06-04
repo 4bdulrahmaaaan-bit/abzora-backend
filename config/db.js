@@ -169,7 +169,7 @@ function backoffMs(attempt) {
 }
 
 function validateMongoUri(mongoUri) {
-  if (!mongoUri || mongoUri.includes('username:password') || mongoUri.includes('cluster.mongodb.net/abzora')) {
+  if (!mongoUri || mongoUri.includes('username:password') || mongoUri.includes('cluster.mongodb.net/abianzo')) {
     throw new Error('MONGO_URI is missing or still using the placeholder Atlas connection string.');
   }
 }

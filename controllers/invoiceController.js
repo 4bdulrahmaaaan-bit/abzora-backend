@@ -282,7 +282,7 @@ async function exportAdminInvoicesCsv(req, res, next) {
       ])),
     ];
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="abzora-invoices.csv"');
+    res.setHeader('Content-Disposition', 'attachment; filename="abianzo-invoices.csv"');
     return res.status(200).send(lines.join('\n'));
   } catch (error) {
     return next(error);
@@ -342,7 +342,7 @@ async function exportAdminInvoicesXlsx(req, res, next) {
     });
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename="abzora-invoices.xlsx"');
+    res.setHeader('Content-Disposition', 'attachment; filename="abianzo-invoices.xlsx"');
     await workbook.xlsx.write(res);
     return res.end();
   } catch (error) {

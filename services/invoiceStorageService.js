@@ -16,6 +16,10 @@ function monthFolder(date) {
   return { year, month, folder: `Abianzo/invoices/${year}/${month}` };
 }
 
+function buildInternalArtifactUrl(filePath) {
+  return `internal://invoices/${path.basename(filePath)}`;
+}
+
 async function uploadCloudinaryRaw({ invoiceNumber, versionLabel, pdfBuffer, metadata = {}, tags = [] }) {
   const { folder } = monthFolder();
   const checksum = sha256(pdfBuffer);
@@ -65,7 +69,7 @@ async function savePdf({ invoiceNumber, versionLabel = 'v1', pdfBuffer, metadata
     } catch (error) {
       return {
         provider: 'local_fallback',
-        url: `/files/invoices/${path.basename(filePath)}`,
+        url: buildInternalArtifactUrl(filePath),
         filePath,
         checksum: sha256(pdfBuffer),
         warning: String(error.message || error),
@@ -75,7 +79,7 @@ async function savePdf({ invoiceNumber, versionLabel = 'v1', pdfBuffer, metadata
 
   return {
     provider: 'local',
-    url: `/files/invoices/${path.basename(filePath)}`,
+    url: buildInternalArtifactUrl(filePath),
     filePath,
     checksum: sha256(pdfBuffer),
   };

@@ -5,9 +5,16 @@ const { logInvoiceAudit } = require('./invoiceAuditService');
 
 function verifyResendWebhookSignature(rawBody, signatureHeader) {
   const secret = String(process.env.RESEND_WEBHOOK_SECRET || '').trim();
-  if (!secret) return true;
+  if (!secret) return false;
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-  return expected === String(signatureHeader || '').trim();
+  const actual = String(signatureHeader || '').trim();
+  if (!actual) return false;
+  const expectedBuffer = Buffer.from(expected, 'hex');
+  const actualBuffer = Buffer.from(actual, 'hex');
+  if (expectedBuffer.length !== actualBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
 async function upsertSuppression({ email, reason, providerMessageId, notes = '' }) {
