@@ -199,20 +199,6 @@ async function handlePaymentCaptured(paymentEntity) {
     });
     return order;
   }
-    await recordPaymentWebhookAudit({
-      action: 'payment_webhook_captured_duplicate',
-      order,
-      amount: Number(isTrial ? order.finalAmount : order.totalAmount || 0),
-      message: 'Duplicate captured payment webhook ignored.',
-      metadata: {
-        razorpayOrderId,
-        razorpayPaymentId,
-        flow,
-      },
-    });
-    return order;
-  }
-
   if (isTrial) {
     order.razorpayPaymentId = razorpayPaymentId;
     order.paymentStatus = 'captured';
