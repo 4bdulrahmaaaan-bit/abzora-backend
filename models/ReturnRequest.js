@@ -8,27 +8,73 @@ const returnRequestSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    userId: {
+    vendorId: {
       type: String,
       required: true,
       index: true,
       trim: true,
     },
-    address: {
+    customerId: {
       type: String,
       required: true,
+      index: true,
       trim: true,
+    },
+    productId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
+      required: true,
+      index: true,
+    },
+    returnType: {
+      type: String,
+      enum: ['return', 'refund', 'exchange', 'trial_return'],
+      required: true,
+      index: true,
     },
     reason: {
       type: String,
       required: true,
       trim: true,
     },
+    description: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    images: {
+      type: [String],
+      default: () => [],
+    },
     status: {
       type: String,
-      enum: ['requested', 'approved', 'assigned', 'picked', 'completed', 'rejected'],
+      enum: ['requested', 'approved', 'rejected', 'picked_up', 'received', 'inspected', 'closed'],
       default: 'requested',
       index: true,
+    },
+    isTrialOrder: {
+      type: Boolean,
+      default: false,
+    },
+    trialSessionId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    trialOutcome: {
+      type: String,
+      enum: ['', 'converted', 'returned', 'partial_purchase', 'cancelled', 'damaged'],
+      default: '',
+    },
+    trialDaysUsed: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    address: {
+      type: String,
+      trim: true,
+      default: '',
     },
     riderId: {
       type: String,
@@ -40,27 +86,7 @@ const returnRequestSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
-    approvedAt: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    pickedAt: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    completedAt: {
-      type: String,
-      trim: true,
-      default: '',
-    },
     processedBy: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    imageUrl: {
       type: String,
       trim: true,
       default: '',
@@ -70,14 +96,10 @@ const returnRequestSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
-    refundRequestId: {
-      type: String,
-      trim: true,
-      default: '',
-    },
   },
   {
     timestamps: true,
+    collection: 'return_requests',
   }
 );
 

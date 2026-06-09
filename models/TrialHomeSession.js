@@ -108,18 +108,48 @@ const trialHomeSessionSchema = new mongoose.Schema(
       index: true,
       trim: true,
     },
+    orderId: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    vendorId: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    riderId: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
+    storeId: {
+      type: String,
+      default: '',
+      trim: true,
+      index: true,
+    },
     status: {
       type: String,
       enum: [
         'draft',
         'booked',
         'confirmed',
+        'assigned',
+        'en_route',
+        'arrived',
+        'trial_started',
+        'trial_active',
         'out_for_trial_delivery',
         'trial_in_progress',
         'completed',
         'converted_to_order',
         'converted_to_tailoring',
         'cancelled',
+        'no_show',
       ],
       default: 'booked',
       index: true,
@@ -170,6 +200,12 @@ const trialHomeSessionSchema = new mongoose.Schema(
       default: 'Delivered in 24 hours',
       trim: true,
     },
+    scheduledAt: { type: Date, default: null },
+    arrivedAt: { type: Date, default: null },
+    startedAt: { type: Date, default: null },
+    completedAt: { type: Date, default: null },
+    trialDurationMinutes: { type: Number, default: 15, min: 1 },
+    itemsDelivered: { type: Number, default: 0, min: 0 },
     experienceType: {
       type: String,
       enum: ['standard', 'premium'],
@@ -186,9 +222,26 @@ const trialHomeSessionSchema = new mongoose.Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ['pending', 'held', 'refunded', 'waived'],
+      enum: ['pending', 'authorized', 'captured', 'held', 'failed', 'refunded', 'waived'],
       default: 'pending',
     },
+    paymentCollected: { type: Boolean, default: false },
+    paymentMethod: { type: String, default: '' },
+    paymentAmount: { type: Number, default: 0, min: 0 },
+    paymentCollectedAt: { type: Date, default: null },
+    razorpayOrderId: { type: String, default: '', trim: true },
+    razorpayPaymentId: { type: String, default: '', trim: true },
+    transactionReference: { type: String, default: '', trim: true },
+    finalAmount: { type: Number, default: 0, min: 0 },
+    trialOutcome: {
+      type: String,
+      enum: ['converted', 'returned', 'partial_purchase', 'cancelled', 'damaged', ''],
+      default: '',
+    },
+    notes: { type: String, default: '', trim: true },
+    proofPhotos: { type: [String], default: [] },
+    customerAcknowledged: { type: Boolean, default: false },
+    customerAcknowledgedAt: { type: Date, default: null },
     subtotal: {
       type: Number,
       default: 0,
@@ -235,5 +288,12 @@ const trialHomeSessionSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+trialHomeSessionSchema.index({ riderId: 1, status: 1 });
+trialHomeSessionSchema.index({ userId: 1, status: 1 });
+trialHomeSessionSchema.index({ vendorId: 1, status: 1 });
+trialHomeSessionSchema.index({ paymentStatus: 1 });
+trialHomeSessionSchema.index({ startedAt: 1 });
+trialHomeSessionSchema.index({ completedAt: 1 });
 
 module.exports = mongoose.model('TrialHomeSession', trialHomeSessionSchema);

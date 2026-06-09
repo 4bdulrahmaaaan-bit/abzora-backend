@@ -11,6 +11,7 @@ const ReferralRecord = require('../models/ReferralRecord');
 const RefundRequest = require('../models/RefundRequest');
 const ReturnRequest = require('../models/ReturnRequest');
 const Transaction = require('../models/Transaction');
+const TrialHomeSession = require('../models/TrialHomeSession');
 const PaymentOutboxEvent = require('../models/PaymentOutboxEvent');
 const telemetry = require('../services/telemetryContext');
 const { trackOutfitInteraction } = require('../services/outfitEngine');
@@ -35,6 +36,7 @@ const {
   settleRiderWallet,
   settleVendorWallet,
 } = require('../services/financeService');
+const couponRedemptionService = require('../services/couponRedemptionService');
 const { hasRole } = require('../middleware/authorizationMiddleware');
 
 function isRiderUser(user) {
@@ -973,6 +975,7 @@ async function createOrder(req, res, next) {
       taxAmount,
       deliveryDistanceKm,
       tryAtHomeRequested,
+      couponCode,
     } = req.body || {};
     if (!req.user?.uid) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
@@ -1033,6 +1036,21 @@ async function createOrder(req, res, next) {
       tryAtHomeRequested: Boolean(tryAtHomeRequested),
       fulfillmentType: store.vendorType === 'custom_vendor' ? 'custom_tailoring' : 'marketplace',
     });
+
+    let validCoupon = null;
+    let couponDiscount = 0;
+    if (couponCode) {
+      try {
+        const validation = await couponRedemptionService.validateCoupon(couponCode, store.ownerId, subtotalAmount);
+        validCoupon = validation.coupon;
+        couponDiscount = validation.discountAmount;
+
+        financials.discountAmount = (financials.discountAmount || 0) + couponDiscount;
+        financials.totalAmount = Math.max(0, financials.totalAmount - couponDiscount);
+      } catch (couponError) {
+        return res.status(400).json({ success: false, message: couponError.message });
+      }
+    }
 
     const risk = await evaluateOrderRisk({
       user,
@@ -1144,6 +1162,21 @@ async function createOrder(req, res, next) {
     }
     if (normalizedPaymentMethod === 'COD') {
       await processReferralRewardIfEligible(req.user.uid, order);
+    }
+
+    if (validCoupon) {
+      try {
+        await couponRedemptionService.redeemCoupon(
+          couponCode,
+          store.ownerId,
+          req.user.uid,
+          order._id,
+          subtotalAmount,
+          { isTrialOrder: Boolean(tryAtHomeRequested) }
+        );
+      } catch (redemptionError) {
+        console.warn('Coupon redemption tracking failed:', redemptionError.message);
+      }
     }
 
     try {
@@ -2391,41 +2424,55 @@ async function createRazorpayOrder(req, res, next) {
       return res.status(400).json({ success: false, message: 'Valid orderId is required.' });
     }
 
-    const order = await Order.findOne({ _id: orderId, userId: req.user.uid });
+    let order = await Order.findOne({ _id: orderId, userId: req.user.uid });
+    let isTrial = false;
+    
     if (!order) {
-      return res.status(404).json({ success: false, message: 'Order not found.' });
+      order = await TrialHomeSession.findOne({ _id: orderId, riderId: req.user._id.toString() });
+      if (order) {
+        isTrial = true;
+      }
     }
-    if (order.paymentStatus === 'paid') {
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order or Trial Session not found.' });
+    }
+    if (order.paymentStatus === 'paid' || order.paymentStatus === 'captured') {
       return res.status(200).json({
         success: true,
         data: {
-          orderId: order.razorpay?.orderId || '',
-          amount: Math.round(Number(order.totalAmount) * 100),
+          orderId: isTrial ? (order.razorpayOrderId || '') : (order.razorpay?.orderId || ''),
+          amount: Math.round(Number(isTrial ? order.finalAmount : order.totalAmount) * 100),
           currency: 'INR',
-          receipt: order.razorpay?.receipt || '',
+          receipt: isTrial ? `tbyb_${order._id}` : (order.razorpay?.receipt || ''),
           status: 'paid',
         },
       });
     }
 
     const razorpay = getRazorpayClient();
-    const receipt = buildRazorpayReceipt(order._id);
-    const amountInPaise = Math.round(Number(order.totalAmount) * 100);
+    const receipt = isTrial ? `tbyb_${order._id}` : buildRazorpayReceipt(order._id);
+    const amountInPaise = Math.round(Number(isTrial ? order.finalAmount : order.totalAmount) * 100);
     const razorpayOrder = await razorpay.orders.create({
       amount: amountInPaise,
       currency: 'INR',
       receipt,
       notes: {
         appOrderId: order._id.toString(),
-        userId: req.user.uid,
+        userId: isTrial ? order.userId : req.user.uid,
+        flow: isTrial ? 'tbyb_checkout' : 'checkout',
       },
     });
 
-    order.razorpay = {
-      ...order.razorpay,
-      orderId: razorpayOrder.id,
-      receipt,
-    };
+    if (isTrial) {
+      order.razorpayOrderId = razorpayOrder.id;
+    } else {
+      order.razorpay = {
+        ...order.razorpay,
+        orderId: razorpayOrder.id,
+        receipt,
+      };
+    }
     await order.save();
 
     return res.status(200).json({

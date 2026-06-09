@@ -686,6 +686,11 @@ async function syncProfile(req, res, next) {
     req.dbUser.locationUpdatedAt = new Date().toISOString();
     req.dbUser.lastLoginAt = new Date();
 
+    const fcmToken = toSafeTrimmedString(req.body?.fcmToken);
+    if (fcmToken && !req.dbUser.fcmTokens.includes(fcmToken)) {
+      req.dbUser.fcmTokens.push(fcmToken);
+    }
+
     await req.dbUser.save();
 
     let effectiveUser = req.dbUser;

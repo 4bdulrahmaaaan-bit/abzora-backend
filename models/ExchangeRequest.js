@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const refundRequestSchema = new mongoose.Schema(
+const exchangeRequestSchema = new mongoose.Schema(
   {
     orderId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -20,10 +20,17 @@ const refundRequestSchema = new mongoose.Schema(
       index: true,
       trim: true,
     },
-    amount: {
-      type: Number,
+    originalProductId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
       required: true,
-      min: 0,
+      index: true,
+    },
+    replacementProductId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
+      required: true,
+      index: true,
     },
     reason: {
       type: String,
@@ -32,16 +39,11 @@ const refundRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['requested', 'approved', 'processing', 'refunded', 'closed', 'rejected', 'pending'], // Keeping 'pending' to not break existing instances unexpectedly
+      enum: ['requested', 'approved', 'rejected', 'replacement_shipped', 'delivered', 'closed'],
       default: 'requested',
       index: true,
     },
     processedBy: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    processedAt: {
       type: String,
       trim: true,
       default: '',
@@ -51,29 +53,11 @@ const refundRequestSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
-    gatewayRefundId: {
-      type: String,
-      trim: true,
-      default: '',
-    },
-    fraudScore: {
-      type: Number,
-      default: 0,
-    },
-    fraudDecision: {
-      type: String,
-      trim: true,
-      default: 'approve',
-    },
-    fraudReasons: {
-      type: [String],
-      default: () => [],
-    },
   },
   {
     timestamps: true,
-    collection: 'refund_requests',
+    collection: 'exchange_requests',
   }
 );
 
-module.exports = mongoose.model('RefundRequest', refundRequestSchema);
+module.exports = mongoose.model('ExchangeRequest', exchangeRequestSchema);

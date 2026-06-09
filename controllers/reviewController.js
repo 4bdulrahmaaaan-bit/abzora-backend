@@ -1,223 +1,60 @@
-const mongoose = require('mongoose');
+const reviewService = require('../services/reviewService');
+const reviewAnalyticsService = require('../services/reviewAnalyticsService');
 
-const Product = require('../models/Product');
-const Review = require('../models/Review');
-const Order = require('../models/Order');
-const Store = require('../models/Store');
-
-function serializeReview(review) {
-  if (!review) {
-    return null;
-  }
-
-  const source = typeof review.toObject === 'function' ? review.toObject() : review;
-  return {
-    id: source._id?.toString() || source.id || '',
-    userId: source.userId || '',
-    userName: source.userName || '',
-    targetId: source.targetId?.toString() || '',
-    targetType: source.targetType || 'product',
-    rating: Number(source.rating || 0),
-    comment: source.comment || '',
-    imagePath: source.imagePath || '',
-    verifiedPurchase: Boolean(source.verifiedPurchase),
-    helpfulVotes: Number(source.helpfulVotes || 0),
-    createdAt: source.createdAt || null,
-    updatedAt: source.updatedAt || null,
-  };
-}
-
-async function ensureReviewTarget(targetId, targetType) {
-  if (!mongoose.Types.ObjectId.isValid(targetId)) {
-    return null;
-  }
-
-  if (targetType === 'product') {
-    return Product.findById(targetId);
-  }
-  if (targetType === 'store') {
-    return Store.findById(targetId);
-  }
-  return null;
-}
-
-async function syncTargetRating(targetId, targetType) {
-  const targetObjectId = new mongoose.Types.ObjectId(targetId);
-  const [summary] = await Review.aggregate([
-    {
-      $match: {
-        targetId: targetObjectId,
-        targetType,
-      },
-    },
-    {
-      $group: {
-        _id: null,
-        averageRating: { $avg: '$rating' },
-        reviewCount: { $sum: 1 },
-      },
-    },
-  ]);
-
-  const nextValues = {
-    rating: Number(summary?.averageRating || 0),
-    reviewCount: Number(summary?.reviewCount || 0),
-  };
-
-  if (targetType === 'product') {
-    await Product.findByIdAndUpdate(targetId, nextValues);
-    return;
-  }
-
-  if (targetType === 'store') {
-    await Store.findByIdAndUpdate(targetId, nextValues);
-  }
-}
-
-async function listProductReviews(req, res, next) {
+exports.getReviews = async (req, res) => {
   try {
-    const { productId } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(productId)) {
-      return res.status(400).json({ success: false, message: 'Invalid product id.' });
-    }
-
-    const reviews = await Review.find({ targetId: productId, targetType: 'product' }).sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, data: reviews.map(serializeReview) });
+    const { page, limit, ...filters } = req.query;
+    const vendorId = req.user.vendorId || req.user.uid;
+    const result = await reviewService.getReviews(vendorId, {
+      page: parseInt(page) || 1,
+      limit: parseInt(limit) || 20,
+      ...filters,
+    });
+    res.json({ success: true, data: result });
   } catch (error) {
-    return next(error);
+    res.status(500).json({ success: false, message: error.message });
   }
-}
+};
 
-async function listStoreReviews(req, res, next) {
+exports.getAnalytics = async (req, res) => {
   try {
-    const { storeId } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(storeId)) {
-      return res.status(400).json({ success: false, message: 'Invalid store id.' });
-    }
-
-    const reviews = await Review.find({ targetId: storeId, targetType: 'store' }).sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, data: reviews.map(serializeReview) });
+    const { startDate, endDate } = req.query;
+    const vendorId = req.user.vendorId || req.user.uid;
+    const data = await reviewAnalyticsService.getAnalytics(vendorId, startDate, endDate);
+    res.json({ success: true, data });
   } catch (error) {
-    return next(error);
+    res.status(500).json({ success: false, message: error.message });
   }
-}
+};
 
-async function saveReview(req, res, next) {
+exports.addReply = async (req, res) => {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
-    }
-
-    const { id, targetId, targetType, rating, comment, imagePath, createdAt, userName } = req.body || {};
-    const normalizedTargetType = targetType?.toString().trim().toLowerCase();
-    const normalizedComment = comment?.toString().trim() || '';
-    const normalizedImagePath = imagePath?.toString().trim() || '';
-    const normalizedUserName = userName?.toString().trim() || req.user.name || 'Abianzo Member';
-    const numericRating = Number(rating);
-
-    if (!targetId || !['product', 'store'].includes(normalizedTargetType)) {
-      return res.status(400).json({ success: false, message: 'targetId and a valid targetType are required.' });
-    }
-    if (Number.isNaN(numericRating) || numericRating < 1 || numericRating > 5) {
-      return res.status(400).json({ success: false, message: 'Rating must be between 1 and 5.' });
-    }
-
-    const target = await ensureReviewTarget(targetId, normalizedTargetType);
-    if (!target) {
-      return res.status(404).json({ success: false, message: 'Review target not found.' });
-    }
-
-    let review = null;
-    if (id && mongoose.Types.ObjectId.isValid(id)) {
-      review = await Review.findById(id);
-      if (review && review.userId !== req.user.uid) {
-        return res.status(403).json({ success: false, message: 'You can only update your own review.' });
-      }
-    }
-
-    if (!review) {
-      review = await Review.findOne({
-        userId: req.user.uid,
-        targetId,
-        targetType: normalizedTargetType,
-      });
-    }
-
-    if (!review) {
-      review = new Review({
-        userId: req.user.uid,
-        targetId,
-        targetType: normalizedTargetType,
-        createdAt: createdAt ? new Date(createdAt) : new Date(),
-      });
-    }
-
-    review.userName = normalizedUserName;
-    review.rating = numericRating;
-    review.comment = normalizedComment;
-    review.imagePath = normalizedImagePath;
-    if (normalizedTargetType === 'product') {
-      const verifiedPurchase = await Order.exists({
-        userId: req.user.uid,
-        'items.productId': new mongoose.Types.ObjectId(targetId),
-        $or: [
-          { orderStatus: 'delivered' },
-          { deliveryStatus: 'Delivered' },
-          { status: 'delivered' },
-        ],
-      });
-      review.verifiedPurchase = Boolean(verifiedPurchase);
-    } else {
-      review.verifiedPurchase = false;
-    }
-
-    await review.save();
-    await syncTargetRating(targetId, normalizedTargetType);
-
-    return res.status(200).json({ success: true, data: serializeReview(review) });
+    const vendorId = req.user.vendorId || req.user.uid;
+    const reply = await reviewService.addReply(req.params.reviewId, vendorId, req.body.message);
+    res.json({ success: true, data: reply });
   } catch (error) {
-    if (error.name === 'ValidationError') {
-      return res.status(400).json({ success: false, message: error.message });
-    }
-    return next(error);
+    res.status(400).json({ success: false, message: error.message });
   }
-}
+};
 
-async function deleteReview(req, res, next) {
+exports.editReply = async (req, res) => {
   try {
-    if (!req.user?.uid) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
-    }
-
-    const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: 'Invalid review id.' });
-    }
-
-    const review = await Review.findById(id);
-    if (!review) {
-      return res.status(404).json({ success: false, message: 'Review not found.' });
-    }
-    if (review.userId !== req.user.uid) {
-      return res.status(403).json({ success: false, message: 'You can only delete your own review.' });
-    }
-
-    const targetId = review.targetId?.toString() || '';
-    const targetType = review.targetType;
-    await review.deleteOne();
-    if (targetId && targetType) {
-      await syncTargetRating(targetId, targetType);
-    }
-
-    return res.status(200).json({ success: true, data: { id } });
+    const vendorId = req.user.vendorId || req.user.uid;
+    // Assuming edit is via PATCH on the reply directly, but requirements said /vendor/reviews/:reviewId/reply
+    // We'll update the single reply for the review
+    const reply = await reviewService.editReply(req.params.reviewId, vendorId, req.body.message);
+    res.json({ success: true, data: reply });
   } catch (error) {
-    return next(error);
+    res.status(400).json({ success: false, message: error.message });
   }
-}
+};
 
-module.exports = {
-  listProductReviews,
-  listStoreReviews,
-  saveReview,
-  deleteReview,
+exports.deleteReply = async (req, res) => {
+  try {
+    const vendorId = req.user.vendorId || req.user.uid;
+    await reviewService.deleteReply(req.params.reviewId, vendorId);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
 };

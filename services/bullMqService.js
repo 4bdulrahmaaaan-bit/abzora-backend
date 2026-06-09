@@ -27,6 +27,7 @@ const queueNames = {
   gstExports: 'invoice-gst-exports',
   cleanup: 'invoice-cleanup',
   deadLetter: 'invoice-dead-letter',
+  webhookIngest: 'webhook-ingest',
 };
 
 async function connectionOptions() {

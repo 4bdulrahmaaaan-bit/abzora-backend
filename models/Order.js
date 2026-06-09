@@ -542,10 +542,35 @@ const orderSchema = new mongoose.Schema(
       type: razorpaySchema,
       default: () => ({}),
     },
+    isTrialOrder: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    trialSessionId: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true,
+    },
+    trialOutcome: {
+      type: String,
+      enum: ['', 'converted', 'returned', 'partial_purchase', 'cancelled', 'damaged'],
+      default: '',
+    },
+    trialCompletedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
   },
   {
     timestamps: true,
   }
 );
+
+orderSchema.index({ vendorId: 1, status: 1, createdAt: -1 });
+orderSchema.index({ riderId: 1, status: 1 });
+orderSchema.index({ customerId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Order', orderSchema);

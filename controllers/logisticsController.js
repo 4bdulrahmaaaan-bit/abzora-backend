@@ -826,6 +826,76 @@ async function trackOrder(req, res, next) {
   }
 }
 
+function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+  if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return 0;
+  const toRad = (x) => (x * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+async function getOptimizedRiderRoute(req, res, next) {
+  try {
+    if (!ensureRole(req, res, ['rider', 'admin', 'super_admin'])) {
+      return;
+    }
+    const riderId = isRiderUser(req.user) ? req.user.uid : req.query.riderId;
+    if (!riderId) {
+      return res.status(400).json({ success: false, message: 'Rider ID required.' });
+    }
+    
+    const tasks = await DeliveryTask.find({ 
+      riderId, 
+      status: { $in: ['assigned', 'accepted', 'picked_up', 'out_for_delivery'] } 
+    }).lean();
+
+    const riderLat = Number(req.query.lat);
+    const riderLng = Number(req.query.lng);
+
+    let stops = [];
+    for (const task of tasks) {
+      const isReturn = task.taskType === 'TRIAL_PICKUP';
+      let targetLat = isReturn ? task.pickupLat : task.dropLat;
+      let targetLng = isReturn ? task.pickupLng : task.dropLng;
+      
+      if (task.status === 'assigned' || task.status === 'accepted') {
+         targetLat = task.pickupLat;
+         targetLng = task.pickupLng;
+      }
+
+      const distanceKm = (Number.isFinite(riderLat) && Number.isFinite(riderLng) && targetLat && targetLng) 
+        ? haversineDistanceKm(riderLat, riderLng, targetLat, targetLng) 
+        : null;
+
+      stops.push({
+        task: serializeTask(task),
+        distanceKm,
+        etaMins: distanceKm !== null ? Math.round(distanceKm * 3) + 5 : null,
+        isReturn
+      });
+    }
+
+    stops.sort((a, b) => {
+      if (a.isReturn !== b.isReturn) {
+        return a.isReturn ? 1 : -1;
+      }
+      if (a.distanceKm !== null && b.distanceKm !== null) {
+        return a.distanceKm - b.distanceKm;
+      }
+      return 0;
+    });
+
+    return res.status(200).json({ success: true, data: stops });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   assignRider,
   listRiderTasks,
@@ -841,4 +911,5 @@ module.exports = {
   checkDeliveryAvailability,
   assignRiderForOrder,
   trackOrder,
+  getOptimizedRiderRoute,
 };

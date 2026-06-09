@@ -2,28 +2,29 @@ const mongoose = require('mongoose');
 
 const reviewSchema = new mongoose.Schema(
   {
-    userId: {
-      type: String,
-      required: true,
-      index: true,
-      trim: true,
-    },
-    userName: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    targetId: {
+    productId: {
       type: mongoose.Schema.Types.ObjectId,
+      ref: 'Product',
       required: true,
       index: true,
     },
-    targetType: {
+    vendorId: {
       type: String,
-      enum: ['product', 'store'],
       required: true,
       index: true,
       trim: true,
+    },
+    customerId: {
+      type: String,
+      required: true,
+      index: true,
+      trim: true,
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Order',
+      required: true,
+      index: true,
     },
     rating: {
       type: Number,
@@ -31,35 +32,50 @@ const reviewSchema = new mongoose.Schema(
       min: 1,
       max: 5,
     },
-    comment: {
+    review: {
       type: String,
       trim: true,
       default: '',
     },
-    imagePath: {
-      type: String,
-      trim: true,
-      default: '',
+    images: {
+      type: [String],
+      default: () => [],
     },
     verifiedPurchase: {
       type: Boolean,
       default: false,
     },
-    helpfulVotes: {
+    helpfulCount: {
       type: Number,
       default: 0,
       min: 0,
     },
-    createdAt: {
-      type: Date,
-      default: Date.now,
+    reportedCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    isTrialOrder: {
+      type: Boolean,
+      default: false,
+    },
+    trialSessionId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    trialOutcome: {
+      type: String,
+      enum: ['', 'converted', 'returned', 'partial_purchase', 'cancelled', 'damaged'],
+      default: '',
     },
   },
   {
     timestamps: true,
+    collection: 'product_reviews',
   }
 );
 
-reviewSchema.index({ userId: 1, targetId: 1, targetType: 1 }, { unique: true });
+reviewSchema.index({ customerId: 1, productId: 1, orderId: 1 }, { unique: true });
 
 module.exports = mongoose.model('Review', reviewSchema);

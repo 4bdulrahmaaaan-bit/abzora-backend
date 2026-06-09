@@ -95,6 +95,7 @@ const {
   startPaymentWebhookIngestWorker,
   stopPaymentWebhookIngestWorker,
 } = require('./services/paymentWebhookIngestService');
+const { startWebhookWorker } = require('./services/webhookQueueService');
 const {
   startArModelTrainingWorker,
   stopArModelTrainingWorker,
@@ -147,6 +148,7 @@ app.set('trust proxy', 1);
 let httpServer = null;
 let shuttingDown = false;
 
+app.options('*', cors(createCorsOptions()));
 app.use(cors(createCorsOptions()));
 app.use(requestContext);
 app.use(requestAuditLogger);
@@ -598,10 +600,12 @@ async function startServer() {
       await startInvoiceBullMqWorkers();
       startInvoiceQueueSelfHealing();
     } catch (error) {
-      logger.error('invoice_bullmq_start_failed', {
-        module: 'server',
-        message: error?.message || String(error),
-      });
+      logSecurityError('invoice_bullmq_startup_failed', { error: error.message });
+    }
+    try {
+      startWebhookWorker();
+    } catch (error) {
+      logSecurityError('webhook_bullmq_startup_failed', { error: error.message });
     }
     // Security hardening: durable outbox replay worker recovers missed side effects
     // after crashes/restarts and supports horizontal multi-worker processing.

@@ -1,6 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { authLimiter, otpLimiter } = require('../middleware/rateLimiter');
 const { requireRoles } = require('../middleware/authorizationMiddleware');
 const { validateBody } = require('../validation/schemaValidator');
 const {
@@ -38,10 +39,10 @@ const {
 
 const router = express.Router();
 
-router.post('/test-user', upsertTestUser);
-router.post('/session', createAuthSession);
-router.post('/session/refresh', refreshAuthSession);
-router.post('/session/logout', logoutAuthSession);
+router.post('/test-user', authLimiter, upsertTestUser);
+router.post('/session', authLimiter, createAuthSession);
+router.post('/session/refresh', authLimiter, refreshAuthSession);
+router.post('/session/logout', authLimiter, logoutAuthSession);
 router.get('/me', authMiddleware, me);
 router.get('/profile', authMiddleware, me);
 router.get('/users/:id', authMiddleware, requireRoles('vendor', 'rider', 'admin', 'super_admin'), getUserByIdentifier);

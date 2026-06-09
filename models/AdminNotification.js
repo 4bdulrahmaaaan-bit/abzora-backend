@@ -11,6 +11,9 @@ const adminNotificationSchema = new mongoose.Schema(
     audienceRole: { type: String, default: 'user', trim: true },
     userId: { type: String, default: '', trim: true },
     storeId: { type: String, default: '', trim: true },
+    entityId: { type: String, default: '', trim: true },
+    entityType: { type: String, default: '', trim: true },
+    targetRoute: { type: String, default: '', trim: true },
   },
   { timestamps: true }
 );

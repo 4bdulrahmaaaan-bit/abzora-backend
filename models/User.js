@@ -250,6 +250,10 @@ const userSchema = new mongoose.Schema(
       trialUsage: { type: Number, default: 0, min: 0, max: 1 },
       updatedAt: { type: Date, default: Date.now },
     },
+    fcmTokens: {
+      type: [String],
+      default: [],
+    },
   },
   {
     timestamps: true,

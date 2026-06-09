@@ -118,6 +118,29 @@ async function sendInvoicePush({ invoice, userId }) {
     invoiceId: String(invoice?._id || ''),
     title: 'Your invoice is ready',
   });
+
+  try {
+    const User = require('../models/User');
+    const { sendMulticastNotification } = require('./notificationService');
+    const user = await User.findOne({ 
+      $or: [{ uid: userId }, { firebaseUid: userId }, { _id: userId }] 
+    });
+
+    if (user && user.fcmTokens && user.fcmTokens.length > 0) {
+      await sendMulticastNotification(
+        user.fcmTokens,
+        'Your invoice is ready',
+        `Invoice ${invoice?.invoiceNumber || ''} has been generated.`,
+        { invoiceId: String(invoice?._id || '') }
+      );
+    }
+  } catch (error) {
+    logger.error('invoice_push_failed', {
+      module: 'invoiceNotificationService',
+      userId,
+      error: error.message,
+    });
+  }
   return true;
 }
 

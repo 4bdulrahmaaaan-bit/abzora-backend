@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const mongoose = require('mongoose');
 
 const Order = require('../models/Order');
+const TrialHomeSession = require('../models/TrialHomeSession');
 const Product = require('../models/Product');
 const RefundRequest = require('../models/RefundRequest');
 const Transaction = require('../models/Transaction');
@@ -142,37 +143,104 @@ async function handlePaymentCaptured(paymentEntity) {
   const appOrderId = paymentEntity?.notes?.appOrderId?.toString() || '';
 
   let order = null;
-  if (mongoose.Types.ObjectId.isValid(appOrderId)) {
-    order = await Order.findById(appOrderId);
+  let isTrial = false;
+  const flow = paymentEntity?.notes?.flow || '';
+  if (flow === 'tbyb_checkout') {
+    isTrial = true;
+    if (mongoose.Types.ObjectId.isValid(appOrderId)) {
+      order = await TrialHomeSession.findById(appOrderId);
+    }
+    if (!order && razorpayOrderId) {
+      order = await TrialHomeSession.findOne({ razorpayOrderId });
+    }
+  } else {
+    if (mongoose.Types.ObjectId.isValid(appOrderId)) {
+      order = await Order.findById(appOrderId);
+    }
+    if (!order && razorpayOrderId) {
+      order = await Order.findOne({ 'razorpay.orderId': razorpayOrderId });
+    }
   }
-  if (!order && razorpayOrderId) {
-    order = await Order.findOne({ 'razorpay.orderId': razorpayOrderId });
-  }
+
   if (!order) {
     await recordPaymentWebhookAudit({
       action: 'payment_webhook_captured_unmatched',
       status: 'failed',
-      message: 'Captured payment webhook could not be matched to an order.',
+      message: 'Captured payment webhook could not be matched to an order or trial session.',
       metadata: {
         razorpayOrderId,
         razorpayPaymentId,
         appOrderId,
+        flow,
       },
     });
     return null;
   }
-  if (
-    (order.paymentStatus || '').toLowerCase() === 'paid' &&
-    String(order.razorpay?.paymentId || '') === razorpayPaymentId
-  ) {
+
+  // Critical Fix 3: Strict Idempotency Check
+  if (isTrial && order.paymentStatus === 'captured') {
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_captured_duplicate',
+      order,
+      amount: Number(order.finalAmount || 0),
+      message: 'Duplicate captured payment webhook ignored for TBYB.',
+      metadata: { razorpayOrderId, razorpayPaymentId, flow },
+    });
+    return order;
+  }
+
+  if (!isTrial && (order.paymentStatus || '').toLowerCase() === 'paid') {
     await recordPaymentWebhookAudit({
       action: 'payment_webhook_captured_duplicate',
       order,
       amount: Number(order.totalAmount || 0),
+      message: 'Duplicate captured payment webhook ignored for Order.',
+      metadata: { razorpayOrderId, razorpayPaymentId, flow },
+    });
+    return order;
+  }
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_captured_duplicate',
+      order,
+      amount: Number(isTrial ? order.finalAmount : order.totalAmount || 0),
       message: 'Duplicate captured payment webhook ignored.',
       metadata: {
         razorpayOrderId,
         razorpayPaymentId,
+        flow,
+      },
+    });
+    return order;
+  }
+
+  if (isTrial) {
+    order.razorpayPaymentId = razorpayPaymentId;
+    order.paymentStatus = 'captured';
+    order.paymentCollected = true;
+    order.paymentMethod = 'Online';
+    order.paymentCollectedAt = new Date();
+    
+    // Auto-complete the trial if rider had submitted checkout and outcome already
+    if (order.status === 'trial_active' || order.status === 'trial_in_progress' || order.status === 'trial_started') {
+      // In this setup, since we blocked Rider from completing the trial if online payment isn't captured,
+      // the webhook is responsible for completing it if the rider already submitted data.
+      // Wait, the rider calls /complete, it gets blocked. The webhook marks it captured. 
+      // Then the rider polls or just lets the UI fetch again, and then they can call /complete, 
+      // OR the webhook can transition status. 
+      // Safest approach: just update paymentStatus to 'captured', and let the rider call /complete again, which will now pass the check!
+    }
+
+    await order.save();
+    
+    await recordPaymentWebhookAudit({
+      action: 'payment_webhook_captured_trial',
+      order,
+      amount: Number(order.finalAmount || 0),
+      message: 'Payment captured for TBYB Trial.',
+      metadata: {
+        razorpayOrderId,
+        razorpayPaymentId,
+        flow,
       },
     });
     return order;
