@@ -158,15 +158,22 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(sentry.requestHandler());
 
-const authLimiter = createRateLimiter({
+const authLoginLimiter = createRateLimiter({
   windowMs: 15 * 60 * 1000,
-  max: 25,
+  max: 10,
   message: 'Too many authentication requests. Please wait and try again.',
   keyGenerator: (req) => {
     const email = String(req.body?.email || '').trim().toLowerCase();
     const phone = String(req.body?.phone || '').trim();
-    return `auth:${clientIp(req)}:${email || phone || 'anon'}`;
+    return `auth:login:${clientIp(req)}:${email || phone || 'anon'}`;
   },
+});
+
+const authOperationalLimiter = createRateLimiter({
+  windowMs: 1 * 60 * 1000,
+  max: 120,
+  message: 'Too many operational auth requests. Please wait and try again.',
+  keyGenerator: (req) => `auth:ops:${clientIp(req)}`,
 });
 
 const orderLimiter = createRateLimiter({
@@ -505,11 +512,11 @@ app.get('/', (req, res) => {
 app.get('/verify/invoice/:invoiceId', verifyInvoicePublic);
 
 app.use('/auth/test-user', accountCreationLimiter);
-app.use('/auth', authLimiter, authRoutes);
+app.use('/auth', authRoutes(authLoginLimiter, authOperationalLimiter));
 app.use('/legal', legalRoutes);
-app.get('/profile', authLimiter, authMiddleware, me);
+app.get('/profile', authOperationalLimiter, authMiddleware, me);
 app.get('/eta/:orderId', authMiddleware, getOrderEta);
-app.use('/user', authLimiter, userRoutes);
+app.use('/user', authOperationalLimiter, userRoutes);
 app.use('/products', productRoutes);
 app.use('/stores', storeRoutes);
 app.use('/orders/create-razorpay-order', paymentLimiter);

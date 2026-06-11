@@ -1,7 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
-const { authLimiter, otpLimiter } = require('../middleware/rateLimiter');
+const { otpLimiter } = require('../middleware/rateLimiter');
 const { requireRoles } = require('../middleware/authorizationMiddleware');
 const { validateBody } = require('../validation/schemaValidator');
 const {
@@ -37,14 +37,15 @@ const {
   claimGrowthOffer,
 } = require('../controllers/authController');
 
-const router = express.Router();
+module.exports = (authLoginLimiter, authOperationalLimiter) => {
+  const router = express.Router();
 
-router.post('/test-user', authLimiter, upsertTestUser);
-router.post('/session', authLimiter, createAuthSession);
-router.post('/session/refresh', authLimiter, refreshAuthSession);
-router.post('/session/logout', authLimiter, logoutAuthSession);
-router.get('/me', authMiddleware, me);
-router.get('/profile', authMiddleware, me);
+  router.post('/test-user', authLoginLimiter, upsertTestUser);
+  router.post('/session', authLoginLimiter, createAuthSession);
+  router.post('/session/refresh', authOperationalLimiter, refreshAuthSession);
+  router.post('/session/logout', authOperationalLimiter, logoutAuthSession);
+  router.get('/me', authOperationalLimiter, authMiddleware, me);
+  router.get('/profile', authOperationalLimiter, authMiddleware, me);
 router.get('/users/:id', authMiddleware, requireRoles('vendor', 'rider', 'admin', 'super_admin'), getUserByIdentifier);
 router.get('/debug', authMiddleware, debugAuth);
 router.post('/sync-profile', authMiddleware, syncProfile);
@@ -65,5 +66,5 @@ router.get('/growth-offers', authMiddleware, listGrowthOffers);
 router.post('/growth-offers', authMiddleware, saveGrowthOffer);
 router.post('/growth-offers/validate', authMiddleware, validateBody(growthOfferValidateSchema), validateGrowthOffer);
 router.post('/growth-offers/claim', authMiddleware, validateBody(growthOfferClaimSchema), claimGrowthOffer);
-
-module.exports = router;
+  return router;
+};
