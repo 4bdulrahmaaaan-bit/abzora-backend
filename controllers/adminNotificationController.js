@@ -1,6 +1,6 @@
 const AdminNotification = require('../models/AdminNotification');
 const AdminActivityLog = require('../models/AdminActivityLog');
-const NotificationService = require('../services/NotificationService');
+const NotificationService = require('../services/notificationService');
 const { isAllowedAdminEmail } = require('./authController');
 
 function ensureAdmin(req, res) {
