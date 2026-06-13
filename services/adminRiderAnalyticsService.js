@@ -1,10 +1,11 @@
-const Rider = require('../models/Rider');
+const User = require('../models/User');
 
 class AdminRiderAnalyticsService {
   async getDashboardKPIs() {
     // Aggregating rider data. In a real app we'd aggregate their assigned orders & trials.
     // For now we'll do a basic count and mock complex KPIs based on requirements.
-    const [stats] = await Rider.aggregate([
+    const [stats] = await User.aggregate([
+      { $match: { role: 'rider' } },
       {
         $group: {
           _id: null,
@@ -43,7 +44,7 @@ class AdminRiderAnalyticsService {
     // In reality this would be a complex scoring pipeline.
     // We'll return a filtered list based on simple mock logic.
     const limit = 50;
-    const riders = await Rider.find().limit(limit).select('name phone status vehicleInfo kycStatus').lean();
+    const riders = await User.find({ role: 'rider' }).limit(limit).select('name phone status vehicleInfo kycStatus').lean();
 
     // Map a mock risk score to each rider to satisfy the UI
     return riders.map(r => {
