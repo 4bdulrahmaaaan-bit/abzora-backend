@@ -1,8 +1,7 @@
 const Order = require('../models/Order');
 const TrialHomeSession = require('../models/TrialHomeSession');
 const CouponRedemption = require('../models/CouponRedemption');
-const VendorStore = require('../models/VendorStore');
-const RiderProfile = require('../models/RiderProfile');
+const Store = require('../models/Store');
 const User = require('../models/User');
 const AdminActivityLog = require('../models/AdminActivityLog');
 
@@ -24,8 +23,8 @@ class AdminBusinessAnalyticsService {
       Order.countDocuments({ createdAt: { $gte: today } }),
       Order.aggregate([{ $group: { _id: null, total: { $sum: '$finalAmount' } } }]),
       TrialHomeSession.countDocuments(),
-      VendorStore.countDocuments(),
-      RiderProfile.countDocuments(),
+      Store.countDocuments(),
+      User.countDocuments({ role: 'rider' }),
       User.countDocuments({ role: 'user' }),
     ]);
 
@@ -78,7 +77,7 @@ class AdminBusinessAnalyticsService {
 
     const topVendors = [];
     for (const v of topVendorsData) {
-      const store = await VendorStore.findOne({ storeId: v._id }).select('storeName').lean();
+      const store = await Store.findOne({ storeId: v._id }).select('storeName').lean();
       if (store) {
         topVendors.push({
           storeId: v._id,
