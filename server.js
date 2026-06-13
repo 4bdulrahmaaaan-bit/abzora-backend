@@ -603,6 +603,8 @@ async function startServer() {
     startDispatchScheduler();
     startOpsRuntime();
     startInvoiceQueueWorker();
+    const { initAutomations } = require('./services/adminAutomationService');
+    await initAutomations();
     try {
       await startInvoiceBullMqWorkers();
       startInvoiceQueueSelfHealing();

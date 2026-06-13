@@ -295,5 +295,9 @@ trialHomeSessionSchema.index({ vendorId: 1, status: 1 });
 trialHomeSessionSchema.index({ paymentStatus: 1 });
 trialHomeSessionSchema.index({ startedAt: 1 });
 trialHomeSessionSchema.index({ completedAt: 1 });
+trialHomeSessionSchema.index({ createdAt: -1 });
+trialHomeSessionSchema.index({ updatedAt: -1 });
+trialHomeSessionSchema.index({ status: 1, createdAt: -1 });
+trialHomeSessionSchema.index({ trialOutcome: 1 });
 
 module.exports = mongoose.model('TrialHomeSession', trialHomeSessionSchema);

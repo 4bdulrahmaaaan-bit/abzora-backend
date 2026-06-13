@@ -9,6 +9,8 @@ const adminActivityLogSchema = new mongoose.Schema(
     targetType: { type: String, required: true, trim: true },
     targetId: { type: String, required: true, trim: true },
     message: { type: String, required: true, trim: true },
+    previousState: { type: mongoose.Schema.Types.Mixed, default: null },
+    newState: { type: mongoose.Schema.Types.Mixed, default: null },
     timestampIso: { type: String, required: true, trim: true },
   },
   { timestamps: true }

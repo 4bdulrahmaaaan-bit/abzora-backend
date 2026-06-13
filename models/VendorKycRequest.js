@@ -70,9 +70,15 @@ const vendorKycRequestSchema = new mongoose.Schema(
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected', 'review', 'fraud_flagged'],
-      default: 'pending',
+      enum: ['applied', 'ocr_review', 'business_review', 'finance_review', 'approved', 'active', 'rejected', 'suspended'],
+      default: 'applied',
       index: true,
+    },
+    monthlyCapacity: { type: Number, default: 0 },
+    payoutDetails: {
+      bankAccount: { type: String, trim: true, default: '' },
+      ifsc: { type: String, trim: true, default: '' },
+      upiId: { type: String, trim: true, default: '' },
     },
     rejectionReason: { type: String, trim: true, default: '' },
     reviewedBy: { type: String, trim: true, default: '' },

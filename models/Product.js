@@ -686,6 +686,7 @@ const productSchema = new mongoose.Schema(
 productSchema.index({ category: 1, subcategory: 1, isActive: 1 });
 productSchema.index({ brand: 1, category: 1 });
 productSchema.index({ name: 'text', brand: 'text', description: 'text' });
+productSchema.index({ stock: 1, isActive: 1 });
 
 
 module.exports = mongoose.model('Product', productSchema);

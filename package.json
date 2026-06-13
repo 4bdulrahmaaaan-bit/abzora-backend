@@ -22,7 +22,11 @@
         "test:invoice-hardening": "node tests/invoice-hardening-smoke.test.js",
         "test:security-hardening": "node tests/security-hardening-regressions.test.js",
         "ops:verify-backup-readiness": "node scripts/verifyBackupReadiness.js",
-        "ops:validate-invoice-env": "node scripts/validateInvoiceEnv.js"
+        "ops:validate-invoice-env": "node scripts/validateInvoiceEnv.js",
+        "pilot:seed": "node scripts/seedPilotData.js",
+        "pilot:seed:clean": "node scripts/seedPilotData.js --clean",
+        "pilot:benchmark": "node scripts/benchmarkApis.js",
+        "pilot:audit": "node scripts/readinessAudit.js"
     },
     "engines": {
         "node": ">=20"
@@ -54,6 +58,7 @@
         "jsonwebtoken": "^9.0.3",
         "mongoose": "^8.12.2",
         "multer": "^1.4.5-lts.1",
+        "node-cache": "^5.1.2",
         "node-cron": "^3.0.3",
         "puppeteer": "^24.41.0",
         "qrcode": "^1.5.4",

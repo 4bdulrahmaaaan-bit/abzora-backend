@@ -13,8 +13,14 @@ const AdminNotification = require('../models/AdminNotification');
 const AdminPayout = require('../models/AdminPayout');
 const AdminDispute = require('../models/AdminDispute');
 const AdminActivityLog = require('../models/AdminActivityLog');
+const Settlement = require('../models/Settlement');
+const cache = require('../utils/cache');
 const { isAllowedAdminEmail } = require('./authController');
 const { settleVendorWallet } = require('../services/financeService');
+
+const adminOrderAnalyticsService = require('../services/adminOrderAnalyticsService');
+const adminVendorAnalyticsService = require('../services/adminVendorAnalyticsService');
+const adminFraudAnalyticsService = require('../services/adminFraudAnalyticsService');
 
 function ensureAdmin(req, res) {
   const hasPrivilegedRole = req.user?.role === 'admin' || req.user?.role === 'super_admin';
@@ -315,6 +321,8 @@ function serializeActivityLog(item) {
     targetType: item.targetType || '',
     targetId: item.targetId || '',
     message: item.message || '',
+    previousState: item.previousState,
+    newState: item.newState,
     timestamp: item.timestampIso || item.createdAt?.toISOString?.() || '',
   };
 }
@@ -432,6 +440,12 @@ async function getDashboardSummary(req, res, next) {
       return;
     }
 
+    const cacheKey = 'dashboard_summary';
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      return res.status(200).json({ success: true, data: cachedData, cached: true });
+    }
+
     const [
       usersCount,
       storesCount,
@@ -440,6 +454,8 @@ async function getDashboardSummary(req, res, next) {
       openSupportChats,
       pendingVendorKyc,
       pendingRiderKyc,
+      activeTrialsCount,
+      activeVendorsCount,
     ] = await Promise.all([
       User.countDocuments({}),
       Store.countDocuments({}),
@@ -448,6 +464,8 @@ async function getDashboardSummary(req, res, next) {
       SupportChat.countDocuments({ status: { $ne: 'closed' } }),
       VendorKycRequest.countDocuments({ status: 'pending' }),
       RiderKycRequest.countDocuments({ status: 'pending' }),
+      TrialHomeSession.countDocuments({ status: { $in: ['booked', 'out_for_delivery', 'active'] } }),
+      Store.countDocuments({ isActive: true }),
     ]);
 
     const totalRevenue = orders
@@ -531,25 +549,101 @@ async function getDashboardSummary(req, res, next) {
       return { label: `W${index + 1}`, value };
     });
 
+    // --- Executive Operations Metrics ---
+    const orderMetrics = await adminOrderAnalyticsService.getDashboardMetrics();
+    const ordersRequiringAttention = (orderMetrics.criticalSlaCount || 0) + (orderMetrics.escalatedOrders || 0) + (orderMetrics.refundRequests || 0);
+
+    const vendorMetrics = await adminVendorAnalyticsService.getDashboardMetrics();
+    const vendorsRequiringAttention = (vendorMetrics.criticalVendors || 0) + pendingVendorKyc;
+
+    const fraudMetrics = await adminFraudAnalyticsService.getFraudDashboard();
+    const fraudAlerts = (fraudMetrics.flaggedCustomers || 0) + (fraudMetrics.flaggedVendors || 0) + (fraudMetrics.flaggedRiders || 0) + (fraudMetrics.flaggedOrders || 0);
+
+    const trialsRequiringAttention = await TrialHomeSession.countDocuments({
+      $or: [
+        { status: 'booked', riderId: { $exists: false } },
+        { status: 'disputed' },
+        { trialOutcome: 'disputed' }
+      ]
+    });
+
+    const pendingRefunds = await Order.countDocuments({ refundStatus: { $in: ['requested', 'pending', 'processing'] } });
+    const pendingKyc = pendingVendorKyc + pendingRiderKyc;
+    
+    // Phase 4 additions
+    const pendingVendorSettlements = await Settlement.countDocuments({ settlementType: 'Vendor', status: 'Pending' });
+    const pendingRiderSettlements = await Settlement.countDocuments({ settlementType: 'Rider', status: 'Pending' });
+    const lowStockAlertsCount = await Product.countDocuments({
+      stock: { $gt: 0, $lte: 5 },
+      isActive: true,
+    });
+    // ------------------------------------
+
+    // System Readiness Score (Phase 5G)
+    // Starts at 100, drops based on pending issues
+    let readinessScore = 100;
+    readinessScore -= (fraudAlerts * 2);
+    readinessScore -= (pendingVendorSettlements * 1);
+    readinessScore -= (pendingRiderSettlements * 1);
+    readinessScore -= (pendingKyc * 0.5);
+    readinessScore -= (lowStockAlertsCount * 0.2);
+    readinessScore -= (trialsRequiringAttention * 1);
+    readinessScore = Math.max(0, Math.min(100, Math.round(readinessScore)));
+
+    let systemReadinessClassification = 'Excellent';
+    if (readinessScore < 60) systemReadinessClassification = 'Critical';
+    else if (readinessScore < 75) systemReadinessClassification = 'Warning';
+    else if (readinessScore < 90) systemReadinessClassification = 'Good';
+
+    const responseData = {
+      usersCount,
+      storesCount,
+      productsCount,
+      totalOrders,
+      ordersToday,
+      totalRevenue,
+      platformCommissionRevenue: commissionRevenue,
+      vendorPayouts: vendorPayoutTotal,
+      riderPayouts: riderPayoutTotal,
+      openSupportChats,
+      pendingVendorKyc,
+      pendingRiderKyc,
+      activeTrialsCount,
+      activeVendorsCount,
+      liveOrdersCount: orders.filter(o => o.orderStatus !== 'delivered' && o.orderStatus !== 'cancelled').length,
+      gmvToday: orders.filter((order) => {
+        const date = order.createdAt || null;
+        const today = new Date();
+        return (
+          date &&
+          date.getFullYear() === today.getFullYear() &&
+          date.getMonth() === today.getMonth() &&
+          date.getDate() === today.getDate()
+        );
+      }).reduce((sum, order) => sum + Number(order.totalAmount || 0), 0),
+      pendingRefundsCount: pendingRefunds,
+      fraudAlertsCount: fraudAlerts,
+      topStores,
+      dailySales,
+      weeklySales,
+      ordersRequiringAttention,
+      trialsRequiringAttention,
+      vendorsRequiringAttention,
+      fraudAlerts,
+      pendingRefunds,
+      pendingKyc,
+      pendingVendorSettlements,
+      pendingRiderSettlements,
+      lowStockAlertsCount,
+      systemReadinessScore: readinessScore,
+      systemReadinessClassification,
+    };
+
+    cache.set(cacheKey, responseData);
+
     return res.status(200).json({
       success: true,
-      data: {
-        usersCount,
-        storesCount,
-        productsCount,
-        totalOrders,
-        ordersToday,
-        totalRevenue,
-        platformCommissionRevenue: commissionRevenue,
-        vendorPayouts: vendorPayoutTotal,
-        riderPayouts: riderPayoutTotal,
-        openSupportChats,
-        pendingVendorKyc,
-        pendingRiderKyc,
-        topStores,
-        dailySales,
-        weeklySales,
-      },
+      data: responseData,
     });
   } catch (error) {
     return next(error);
@@ -892,8 +986,43 @@ async function listActivityLogs(req, res, next) {
     if (!ensureAdmin(req, res)) {
       return;
     }
-    const items = await AdminActivityLog.find({}).sort({ createdAt: -1, _id: -1 }).limit(300);
-    return res.status(200).json({ success: true, data: items.map(serializeActivityLog) });
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 50;
+    const skip = (page - 1) * limit;
+
+    const filter = {};
+    if (req.query.actorId) {
+      filter.actorId = { $regex: new RegExp(req.query.actorId, 'i') };
+    }
+    if (req.query.targetType) {
+      filter.targetType = req.query.targetType;
+    }
+    if (req.query.action) {
+      filter.action = req.query.action;
+    }
+    if (req.query.startDate || req.query.endDate) {
+      filter.createdAt = {};
+      if (req.query.startDate) filter.createdAt.$gte = new Date(req.query.startDate);
+      if (req.query.endDate) filter.createdAt.$lte = new Date(req.query.endDate);
+    }
+
+    const items = await AdminActivityLog.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const totalCount = await AdminActivityLog.countDocuments(filter);
+
+    return res.status(200).json({
+      success: true,
+      data: items.map(serializeActivityLog),
+      meta: {
+        page,
+        limit,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+      },
+    });
   } catch (error) {
     return next(error);
   }
@@ -915,6 +1044,8 @@ async function createActivityLog(req, res, next) {
         targetType: String(req.body?.targetType || '').trim(),
         targetId: String(req.body?.targetId || '').trim(),
         message: String(req.body?.message || '').trim(),
+        previousState: req.body?.previousState || null,
+        newState: req.body?.newState || null,
         timestampIso: String(req.body?.timestamp || toIsoNow()).trim(),
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
@@ -981,6 +1112,17 @@ async function reviewVendorKycRequest(req, res, next) {
         storeName: item.storeName || item.ownerName || user.name,
       });
     }
+
+    await User.findOneAndUpdate(
+      { uid: item.userId },
+      {
+        $set: {
+          'vendorOnboarding.status': status,
+          'vendorOnboarding.isCompleted': status === 'approved' || status === 'active',
+          'vendorOnboarding.resubmissionRequired': status === 'rejected' || status === 'resubmission',
+        }
+      }
+    );
 
     return res.status(200).json({
       success: true,
@@ -1223,6 +1365,17 @@ async function reviewRiderKycRequest(req, res, next) {
         }
       );
     }
+
+    await User.findOneAndUpdate(
+      { uid: item.userId },
+      {
+        $set: {
+          'riderOnboarding.status': status,
+          'riderOnboarding.isCompleted': status === 'approved' || status === 'active',
+          'riderOnboarding.resubmissionRequired': status === 'rejected' || status === 'resubmission',
+        }
+      }
+    );
 
     return res.status(200).json({ success: true, data: serializeRiderKyc(item) });
   } catch (error) {

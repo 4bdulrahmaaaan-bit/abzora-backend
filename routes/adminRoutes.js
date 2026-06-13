@@ -1,6 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const adminOnboardingAnalyticsController = require('../controllers/adminOnboardingAnalyticsController');
 const { validateBody, validateQuery } = require('../validation/schemaValidator');
 const {
   activityLogCreateSchema,
@@ -30,12 +31,8 @@ const {
   listOrders,
   getPlatformSettings,
   savePlatformSettings,
-  listNotifications,
-  createNotification,
   listPayouts,
   processPayout,
-  listDisputes,
-  updateDispute,
   listActivityLogs,
   createActivityLog,
   listVendorKycRequests,
@@ -51,6 +48,71 @@ const {
   updateUserRole,
   applyProductAction,
 } = require('../controllers/adminController');
+const {
+  getDisputesDashboard,
+  listDisputes,
+  getDispute,
+  updateDispute,
+  escalateDispute,
+  resolveDispute,
+} = require('../controllers/adminDisputeController');
+const {
+  sendNotification,
+  scheduleNotification,
+  getNotificationHistory,
+  getNotificationTemplates,
+} = require('../controllers/adminNotificationController');
+const {
+  getSystemHealth,
+} = require('../controllers/adminSystemHealthController');
+const {
+  listAutomations,
+  toggleAutomation,
+  updateAutomationSchedule,
+} = require('../controllers/adminAutomationController');
+const {
+  listBackups,
+  triggerManualBackup,
+  restoreBackup,
+} = require('../controllers/adminBackupController');
+const {
+  getSecurityDashboard,
+  revokeAccess,
+} = require('../controllers/adminSecurityController');
+const {
+  getCouponsDashboard,
+  listCoupons,
+  createCoupon,
+  updateCoupon,
+} = require('../controllers/adminCouponController');
+const {
+  getBusinessAnalyticsV2,
+} = require('../controllers/adminBusinessAnalyticsController');
+const {
+  getConfig,
+  updateConfig,
+  getConfigHistory,
+} = require('../controllers/adminConfigurationController');
+const {
+  getDashboard: getFinanceDashboard,
+  getSettlements,
+  getRefunds,
+  getReports,
+} = require('../controllers/adminFinanceController');
+const {
+  getDashboard: getInventoryDashboard,
+  getProducts: getInventoryProducts,
+  adjustInventory,
+} = require('../controllers/adminInventoryController');
+const {
+  getDashboard: getKycDashboard,
+  getKycApplications,
+  reviewKycApplication,
+} = require('../controllers/adminKycController');
+const {
+  getDashboard: getRiderDashboard,
+  getRidersList: getRiderIntelligenceList,
+} = require('../controllers/adminRiderController');
 const {
   approvePendingWithdrawal,
   getAdminFinance,
@@ -97,6 +159,35 @@ const {
   listZones,
 } = require('../controllers/opsController');
 const { replayDeadLetterEvent } = require('../controllers/outboxReplayAdminController');
+const {
+  getTrialDashboardMetrics,
+  getTrialQueueHandler,
+  getTrialDetailsHandler,
+  getTrialAnalyticsHandler,
+  assignRider,
+  reschedule,
+  cancelTrial,
+  markPurchased,
+  markReturned,
+} = require('../controllers/adminTrialController');
+const {
+  getDashboard: getOrderDashboard,
+  getQueue: getOrderQueue,
+  getOrderDetails,
+  getOrderTimeline,
+  getOrderHistory,
+} = require('../controllers/adminOrderController');
+const {
+  getDashboard: getVendorDashboard,
+  getVendorDetails,
+  getVendorAnalytics,
+  getVendorPayouts,
+  getVendorComplaints,
+} = require('../controllers/adminVendorController');
+const {
+  getDashboard: getFraudDashboard,
+  actionEntity: actionFraudEntity,
+} = require('../controllers/adminFraudController');
 
 const router = express.Router();
 const outboxReplayLimiter = createRateLimiter({
@@ -108,6 +199,29 @@ const outboxReplayLimiter = createRateLimiter({
 router.use(authMiddleware);
 
 router.get('/dashboard', getDashboardSummary);
+router.get('/system-health', getSystemHealth);
+
+router.get('/automations', listAutomations);
+router.patch('/automations/:id/toggle', toggleAutomation);
+router.patch('/automations/:id/schedule', updateAutomationSchedule);
+
+router.get('/backups', listBackups);
+router.post('/backups/trigger', triggerManualBackup);
+router.post('/backups/restore', restoreBackup);
+
+router.get('/security/dashboard', getSecurityDashboard);
+router.post('/security/revoke-access', revokeAccess);
+
+// ─── Trial Command Center ───────────────────────────────────────
+router.get('/trials/dashboard', getTrialDashboardMetrics);
+router.get('/trials/queue', getTrialQueueHandler);
+router.get('/trials/analytics', getTrialAnalyticsHandler);
+router.get('/trials/:id', getTrialDetailsHandler);
+router.patch('/trials/:id/assign-rider', assignRider);
+router.patch('/trials/:id/reschedule', reschedule);
+router.patch('/trials/:id/cancel', cancelTrial);
+router.patch('/trials/:id/mark-purchased', markPurchased);
+router.patch('/trials/:id/mark-returned', markReturned);
 router.get('/users', validateQuery(paginationQuerySchema), listUsers);
 router.post('/users/:id/action', validateBody(userActionSchema), applyUserAction);
 router.post('/users/:id/role', validateBody(userRoleSchema), updateUserRole);
@@ -115,10 +229,65 @@ router.get('/stores', validateQuery(paginationQuerySchema), listStores);
 router.get('/products', validateQuery(paginationQuerySchema), listProducts);
 router.post('/products/:id/action', validateBody(productActionSchema), applyProductAction);
 router.get('/orders', validateQuery(paginationQuerySchema), listOrders);
+
+// ─── Order Management V2 ───────────────────────────────────────
+router.get('/orders/dashboard', getOrderDashboard);
+router.get('/orders/queue', getOrderQueue);
+router.get('/orders/:id', getOrderDetails);
+router.get('/orders/:id/timeline', getOrderTimeline);
+router.get('/orders/:id/history', getOrderHistory);
+
+// ─── Vendor Intelligence V2 ────────────────────────────────────
+router.get('/vendors/dashboard', getVendorDashboard);
+router.get('/vendors/:id', getVendorDetails);
+router.get('/vendors/:id/analytics', getVendorAnalytics);
+router.get('/vendors/:id/payouts', getVendorPayouts);
+router.get('/vendors/:id/complaints', getVendorComplaints);
+
+// ─── Fraud & Risk Engine ───────────────────────────────────────
+router.get('/fraud/dashboard', getFraudDashboard);
+router.post('/fraud/:type/:id/action', actionFraudEntity);
+
 router.get('/settings', getPlatformSettings);
 router.put('/settings', savePlatformSettings);
-router.get('/notifications', validateQuery(paginationQuerySchema), listNotifications);
-router.post('/notifications', validateBody(adminNotificationSchema), createNotification);
+router.post('/notifications/send', validateBody(adminNotificationSchema), sendNotification);
+router.post('/notifications/schedule', validateBody(adminNotificationSchema), scheduleNotification);
+router.get('/notifications/history', validateQuery(paginationQuerySchema), getNotificationHistory);
+router.get('/notifications/templates', getNotificationTemplates);
+router.get('/coupons/dashboard', getCouponsDashboard);
+router.get('/coupons', validateQuery(paginationQuerySchema), listCoupons);
+router.post('/coupons', createCoupon);
+router.patch('/coupons/:id', updateCoupon);
+router.get('/business-analytics/v2', getBusinessAnalyticsV2);
+
+router.get('/config', getConfig);
+router.patch('/config', updateConfig);
+router.get('/config/history', validateQuery(paginationQuerySchema), getConfigHistory);
+
+router.get('/finance/dashboard', getFinanceDashboard);
+router.get('/finance/settlements', validateQuery(paginationQuerySchema), getSettlements);
+router.get('/finance/refunds', validateQuery(paginationQuerySchema), getRefunds);
+router.get('/finance/reports', getReports);
+
+router.get('/inventory/dashboard', getInventoryDashboard);
+router.get('/inventory/products', validateQuery(paginationQuerySchema), getInventoryProducts);
+router.patch('/inventory/:id/adjust', adjustInventory);
+
+router.get('/kyc/dashboard', getKycDashboard);
+router.get('/kyc/applications', validateQuery(paginationQuerySchema), getKycApplications);
+router.patch('/kyc/:id/review', reviewKycApplication);
+
+// ─── Onboarding Analytics ──────────────────────────────────────────────────
+router.get('/onboarding-analytics/dashboard', adminOnboardingAnalyticsController.getDashboard.bind(adminOnboardingAnalyticsController));
+router.get('/onboarding-analytics/vendor-funnel', adminOnboardingAnalyticsController.getVendorFunnel.bind(adminOnboardingAnalyticsController));
+router.get('/onboarding-analytics/rider-funnel', adminOnboardingAnalyticsController.getRiderFunnel.bind(adminOnboardingAnalyticsController));
+router.get('/onboarding-analytics/dropoffs', adminOnboardingAnalyticsController.getDropoffs.bind(adminOnboardingAnalyticsController));
+router.get('/onboarding-analytics/approval-times', adminOnboardingAnalyticsController.getApprovalTimes.bind(adminOnboardingAnalyticsController));
+router.post('/onboarding-analytics/alert-config', adminOnboardingAnalyticsController.updateAlertConfig.bind(adminOnboardingAnalyticsController));
+
+router.get('/rider-intelligence/dashboard', getRiderDashboard);
+router.get('/rider-intelligence/list', validateQuery(paginationQuerySchema), getRiderIntelligenceList);
+
 router.get('/payouts', validateQuery(paginationQuerySchema), listPayouts);
 router.post('/payouts/process', validateBody(processPayoutSchema), processPayout);
 router.get('/finance', getAdminFinance);
@@ -149,8 +318,12 @@ router.get('/product-attribute-templates', listProductAttributeTemplates);
 router.get('/product-attribute-templates/:templateKey', getProductAttributeTemplate);
 router.put('/product-attribute-templates/:templateKey', upsertProductAttributeTemplate);
 router.delete('/product-attribute-templates/:templateKey', deleteProductAttributeTemplate);
+router.get('/disputes/dashboard', getDisputesDashboard);
 router.get('/disputes', validateQuery(paginationQuerySchema), listDisputes);
+router.get('/disputes/:id', getDispute);
 router.patch('/disputes/:id', validateBody(disputeUpdateSchema), updateDispute);
+router.post('/disputes/:id/escalate', escalateDispute);
+router.post('/disputes/:id/resolve', resolveDispute);
 router.get('/activity-logs', validateQuery(paginationQuerySchema), listActivityLogs);
 router.post('/activity-logs', validateBody(activityLogCreateSchema), createActivityLog);
 router.get('/kyc/vendors', validateQuery(statusQuerySchema), listVendorKycRequests);

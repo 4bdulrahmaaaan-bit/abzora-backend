@@ -10,6 +10,7 @@ const {
   extractKycFields,
   verifyVendorKyc,
   verifyRiderKyc,
+  updateOnboardingStep,
 } = require('../controllers/kycController');
 
 const router = express.Router();
@@ -23,5 +24,6 @@ router.get('/ifsc/:code', lookupIfsc);
 router.post('/ocr/extract', extractKycFields);
 router.post('/vendor/verify', verifyVendorKyc);
 router.post('/rider/verify', verifyRiderKyc);
+router.post('/step', updateOnboardingStep);
 
 module.exports = router;

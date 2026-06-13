@@ -40,6 +40,34 @@ const adminPlatformSettingsSchema = new mongoose.Schema(
       vendor: { type: String, default: 'v1.0.0', trim: true },
       rider: { type: String, default: 'v1.0.0', trim: true },
     },
+    
+    // Marketplace Group
+    commissionPercent: { type: Number, default: 15.0 },
+    deliveryFee: { type: Number, default: 40.0 },
+    returnFee: { type: Number, default: 20.0 },
+    serviceFee: { type: Number, default: 10.0 },
+
+    // TBYB Group
+    trialFee: { type: Number, default: 50.0 },
+    trialDurationHours: { type: Number, default: 24 },
+    returnWindowHours: { type: Number, default: 48 },
+    purchaseWindowHours: { type: Number, default: 72 },
+    maxActiveTrials: { type: Number, default: 3 },
+
+    // Fraud Engine Group
+    fraudWarningThreshold: { type: Number, default: 60 },
+    fraudCriticalThreshold: { type: Number, default: 85 },
+    fraudAlertThreshold: { type: Number, default: 75 },
+
+    // Coupons Group
+    couponReferralLimit: { type: Number, default: 5 },
+    couponCampaignLimit: { type: Number, default: 1000 },
+    couponGlobalLimit: { type: Number, default: 5000 },
+
+    // Notifications Group
+    notificationTemplates: { type: Map, of: String, default: {} },
+    notificationReminderRules: { type: Map, of: Number, default: { 'abandonedCart': 24, 'trialExpiry': 2 } },
+    notificationRetryRules: { type: Number, default: 3 },
   },
   { timestamps: true }
 );

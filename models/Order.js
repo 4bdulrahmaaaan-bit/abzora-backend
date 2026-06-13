@@ -569,8 +569,11 @@ const orderSchema = new mongoose.Schema(
   }
 );
 
-orderSchema.index({ vendorId: 1, status: 1, createdAt: -1 });
-orderSchema.index({ riderId: 1, status: 1 });
-orderSchema.index({ customerId: 1, createdAt: -1 });
+orderSchema.index({ storeId: 1, orderStatus: 1, createdAt: -1 });
+orderSchema.index({ riderId: 1, deliveryStatus: 1 });
+orderSchema.index({ userId: 1, createdAt: -1 });
+orderSchema.index({ paymentStatus: 1 });
+orderSchema.index({ refundStatus: 1 });
+orderSchema.index({ fraudStatus: 1 });
 
 module.exports = mongoose.model('Order', orderSchema);

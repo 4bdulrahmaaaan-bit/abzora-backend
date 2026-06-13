@@ -1,5 +1,6 @@
 const VendorKycRequest = require('../models/VendorKycRequest');
 const RiderKycRequest = require('../models/RiderKycRequest');
+const User = require('../models/User');
 
 function toIsoNow() {
   return new Date().toISOString();
@@ -218,7 +219,7 @@ async function submitVendorKycRequest(req, res, next) {
         longitude: normalizeCoordinate(payload.longitude, -180, 180),
         kyc: normalizeKycDocuments(payload.kyc),
         metadata: normalizeMetadata(payload.metadata),
-        status: 'pending',
+        status: 'applied',
         rejectionReason: '',
         reviewedBy: '',
         reviewedByName: '',
@@ -227,6 +228,18 @@ async function submitVendorKycRequest(req, res, next) {
         verification: payload.verification || existing?.verification || {},
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    await User.findOneAndUpdate(
+      { uid: userId },
+      {
+        $set: {
+          'vendorOnboarding.status': 'applied',
+          'vendorOnboarding.isCompleted': false,
+          'vendorOnboarding.resubmissionRequired': false,
+          'vendorOnboarding.requestId': requestId,
+        }
+      }
     );
 
     return res.status(200).json({ success: true, data: serializeVendorKyc(item) });
@@ -285,7 +298,7 @@ async function submitRiderKycRequest(req, res, next) {
         city: normalizeText(payload.city, 80),
         kyc: normalizeKycDocuments(payload.kyc),
         metadata: normalizeMetadata(payload.metadata),
-        status: 'pending',
+        status: 'applied',
         rejectionReason: '',
         reviewedBy: '',
         reviewedByName: '',
@@ -293,6 +306,18 @@ async function submitRiderKycRequest(req, res, next) {
         actionHistory: history,
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    await User.findOneAndUpdate(
+      { uid: userId },
+      {
+        $set: {
+          'riderOnboarding.status': 'applied',
+          'riderOnboarding.isCompleted': false,
+          'riderOnboarding.resubmissionRequired': false,
+          'riderOnboarding.requestId': requestId,
+        }
+      }
     );
 
     return res.status(200).json({ success: true, data: serializeRiderKyc(item) });
@@ -424,6 +449,36 @@ async function verifyVendorKyc(req, res, next) {
   }
 }
 
+async function updateOnboardingStep(req, res, next) {
+  try {
+    const userId = req.user?.uid || req.user?.firebaseUid;
+    const { type, step } = req.body;
+    
+    if (!['vendor', 'rider'].includes(type)) {
+      return res.status(400).json({ success: false, message: 'Invalid onboarding type.' });
+    }
+    if (typeof step !== 'number') {
+      return res.status(400).json({ success: false, message: 'Step must be a number.' });
+    }
+    
+    const field = type === 'vendor' ? 'vendorOnboarding.lastCompletedStep' : 'riderOnboarding.lastCompletedStep';
+    
+    const updatedUser = await User.findOneAndUpdate(
+      { uid: userId },
+      { $set: { [field]: step } },
+      { new: true }
+    );
+    
+    if (!updatedUser) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+    
+    return res.status(200).json({ success: true, data: { step } });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   getMyVendorKycRequest,
   submitVendorKycRequest,
@@ -433,4 +488,5 @@ module.exports = {
   extractKycFields,
   verifyVendorKyc,
   verifyRiderKyc,
+  updateOnboardingStep,
 };

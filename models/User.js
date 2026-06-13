@@ -53,6 +53,18 @@ const payoutProfileSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const onboardingStateSchema = new mongoose.Schema(
+  {
+    isCompleted: { type: Boolean, default: false },
+    status: { type: String, default: 'pending' },
+    lastCompletedStep: { type: Number, default: 0 },
+    resubmissionRequired: { type: Boolean, default: false },
+    resubmissionTarget: { type: String, default: '' },
+    requestId: { type: String, default: '' },
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema(
   {
     firebaseUid: {
@@ -253,6 +265,14 @@ const userSchema = new mongoose.Schema(
     fcmTokens: {
       type: [String],
       default: [],
+    },
+    vendorOnboarding: {
+      type: onboardingStateSchema,
+      default: () => ({}),
+    },
+    riderOnboarding: {
+      type: onboardingStateSchema,
+      default: () => ({}),
     },
   },
   {

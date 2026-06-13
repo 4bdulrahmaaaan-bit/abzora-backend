@@ -1,0 +1,260 @@
+{
+  "timestamp": "2026-06-12T07:26:32.219Z",
+  "passed": 42,
+  "warned": 0,
+  "failed": 0,
+  "results": [
+    {
+      "name": "MongoDB Connection",
+      "status": "PASS",
+      "detail": "Connected to: ac-rules6b-shard-00-00.nyks2wb.mongodb.net",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: users",
+      "status": "PASS",
+      "detail": "13 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: stores",
+      "status": "PASS",
+      "detail": "3 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: products",
+      "status": "PASS",
+      "detail": "3 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: orders",
+      "status": "PASS",
+      "detail": "18 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: trialhomesessions",
+      "status": "PASS",
+      "detail": "1 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: vendorkycrequests",
+      "status": "PASS",
+      "detail": "1 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: riderkycrequests",
+      "status": "PASS",
+      "detail": "1 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: settlements",
+      "status": "PASS",
+      "detail": "0 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: refundrequests",
+      "status": "PASS",
+      "detail": "0 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: admindisputes",
+      "status": "PASS",
+      "detail": "0 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: adminactivitylogs",
+      "status": "PASS",
+      "detail": "5 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: adminnotifications",
+      "status": "PASS",
+      "detail": "1 documents",
+      "critical": true
+    },
+    {
+      "name": "Collection exists: adminautomations",
+      "status": "PASS",
+      "detail": "0 documents",
+      "critical": true
+    },
+    {
+      "name": "Orders – status index",
+      "status": "PASS",
+      "detail": "Index declared in schema (will sync on next connect)",
+      "critical": false
+    },
+    {
+      "name": "Products – stock index",
+      "status": "PASS",
+      "detail": "Index declared in schema (will sync on next connect)",
+      "critical": false
+    },
+    {
+      "name": "Order Lifecycle: pending orders exist",
+      "status": "PASS",
+      "detail": "12 pending orders",
+      "critical": false
+    },
+    {
+      "name": "Trial Lifecycle: active trials exist",
+      "status": "PASS",
+      "detail": "0 active trials",
+      "critical": false
+    },
+    {
+      "name": "KYC Workflow: pending vendor KYC",
+      "status": "PASS",
+      "detail": "0 pending vendor KYC requests",
+      "critical": false
+    },
+    {
+      "name": "KYC Workflow: pending rider KYC",
+      "status": "PASS",
+      "detail": "0 pending rider KYC requests",
+      "critical": false
+    },
+    {
+      "name": "Settlement Workflow: pending settlements",
+      "status": "PASS",
+      "detail": "0 pending settlements",
+      "critical": false
+    },
+    {
+      "name": "Refund Workflow: pending refunds",
+      "status": "PASS",
+      "detail": "0 pending refund requests",
+      "critical": false
+    },
+    {
+      "name": "Dispute Workflow: open disputes",
+      "status": "PASS",
+      "detail": "0 open disputes",
+      "critical": false
+    },
+    {
+      "name": "AuditLog coverage: adminKycController.js (KYC approval/rejection)",
+      "status": "PASS",
+      "detail": "1 log entries found",
+      "critical": true
+    },
+    {
+      "name": "AuditLog coverage: adminDisputeController.js (Dispute resolution)",
+      "status": "PASS",
+      "detail": "1 log entries found",
+      "critical": true
+    },
+    {
+      "name": "AuditLog coverage: adminFraudController.js (Fraud flag action)",
+      "status": "PASS",
+      "detail": "1 log entries found",
+      "critical": true
+    },
+    {
+      "name": "AuditLog coverage: adminNotificationController.js (Broadcast notification)",
+      "status": "PASS",
+      "detail": "1 log entries found",
+      "critical": true
+    },
+    {
+      "name": "AuditLog coverage: adminInventoryController.js (Inventory update)",
+      "status": "PASS",
+      "detail": "1 log entries found",
+      "critical": true
+    },
+    {
+      "name": "AuditLog coverage: adminCouponController.js (Coupon create/update)",
+      "status": "PASS",
+      "detail": "1 log entries found",
+      "critical": true
+    },
+    {
+      "name": "AuditLog coverage: adminAutomationController.js (Automation toggle)",
+      "status": "PASS",
+      "detail": "2 log entries found",
+      "critical": true
+    },
+    {
+      "name": "AuditLog coverage: adminBackupController.js (Backup trigger)",
+      "status": "PASS",
+      "detail": "1 log entries found",
+      "critical": true
+    },
+    {
+      "name": "AuditLog coverage: adminSecurityController.js (Session revocation)",
+      "status": "PASS",
+      "detail": "1 log entries found",
+      "critical": true
+    },
+    {
+      "name": "AuditLog gap: adminOrderController.js (Order status override)",
+      "status": "PASS",
+      "detail": "Audit logging present",
+      "critical": false
+    },
+    {
+      "name": "AuditLog gap: adminVendorController.js (Vendor action)",
+      "status": "PASS",
+      "detail": "Audit logging present",
+      "critical": false
+    },
+    {
+      "name": "AuditLog gap: adminFinanceController.js (Settlement process)",
+      "status": "PASS",
+      "detail": "Audit logging present",
+      "critical": false
+    },
+    {
+      "name": "AuditLog gap: adminRiderController.js (Rider action)",
+      "status": "PASS",
+      "detail": "Audit logging present",
+      "critical": false
+    },
+    {
+      "name": "node-cache: module available",
+      "status": "PASS",
+      "detail": "node-cache functional",
+      "critical": true
+    },
+    {
+      "name": "cache utility: loadable",
+      "status": "PASS",
+      "detail": "Cache utility OK",
+      "critical": true
+    },
+    {
+      "name": "node-cron: module available",
+      "status": "PASS",
+      "detail": "node-cron module functional",
+      "critical": true
+    },
+    {
+      "name": "adminBackupService: loadable",
+      "status": "PASS",
+      "detail": "Backup service loadable",
+      "critical": false
+    },
+    {
+      "name": "Error middleware: present in server.js",
+      "status": "PASS",
+      "detail": "Error middleware present",
+      "critical": true
+    },
+    {
+      "name": "Rate limiting: present in server.js or middleware",
+      "status": "PASS",
+      "detail": "Rate limiting configured",
+      "critical": false
+    }
+  ]
+}

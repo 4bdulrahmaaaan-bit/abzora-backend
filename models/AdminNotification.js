@@ -14,6 +14,12 @@ const adminNotificationSchema = new mongoose.Schema(
     entityId: { type: String, default: '', trim: true },
     entityType: { type: String, default: '', trim: true },
     targetRoute: { type: String, default: '', trim: true },
+    campaignType: { type: String, enum: ['Instant', 'Scheduled', 'Segmented'], default: 'Instant' },
+    channels: { type: [String], default: ['Push'] },
+    analytics: {
+      type: mongoose.Schema.Types.Mixed,
+      default: { sent: 0, delivered: 0, failed: 0, openRate: 0 },
+    },
   },
   { timestamps: true }
 );
