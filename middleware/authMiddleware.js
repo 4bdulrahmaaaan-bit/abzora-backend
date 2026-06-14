@@ -128,6 +128,9 @@ function serializeUser(user) {
     riderLicenseNumber: user?.riderLicenseNumber || '',
     riderCity: user?.riderCity || '',
     createdAt: user?.createdAt || null,
+    activeRole: user?.activeRole || 'customer',
+    lastLoginApp: user?.lastLoginApp || 'customer',
+    lastRoleUpdatedAt: user?.lastRoleUpdatedAt || null,
   };
 }
 

@@ -148,6 +148,19 @@ const userSchema = new mongoose.Schema(
       enum: ['user', 'customer', 'vendor', 'rider', 'admin', 'super_admin'],
       default: 'customer',
     },
+    activeRole: {
+      type: String,
+      enum: ['customer', 'vendor', 'rider'],
+      default: 'customer'
+    },
+    lastLoginApp: {
+      type: String,
+      enum: ['customer', 'vendor', 'rider'],
+      default: 'customer'
+    },
+    lastRoleUpdatedAt: {
+      type: Date
+    },
     isActive: {
       type: Boolean,
       default: true,

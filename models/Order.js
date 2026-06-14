@@ -574,6 +574,5 @@ orderSchema.index({ riderId: 1, deliveryStatus: 1 });
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ refundStatus: 1 });
-orderSchema.index({ fraudStatus: 1 });
 
 module.exports = mongoose.model('Order', orderSchema);

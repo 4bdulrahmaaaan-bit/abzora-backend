@@ -685,6 +685,30 @@ async function syncProfile(req, res, next) {
       : clampNumber(req.body.deliveryRadiusKm, req.dbUser.deliveryRadiusKm || 10, 1, 100);
     req.dbUser.locationUpdatedAt = new Date().toISOString();
     req.dbUser.lastLoginAt = new Date();
+    
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'activeRole')) {
+      const newRole = toSafeTrimmedString(req.body.activeRole);
+      if (['customer', 'vendor', 'rider'].includes(newRole)) {
+        if (req.dbUser.activeRole !== newRole) {
+          const AdminActivityLog = require('../models/AdminActivityLog');
+          await AdminActivityLog.create({
+            logId: `role-switch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            actorId: req.dbUser.uid,
+            actorRole: req.dbUser.role || 'user',
+            action: 'roleSwitched',
+            targetType: 'User',
+            targetId: req.dbUser.uid,
+            message: `User switched active role from ${req.dbUser.activeRole || 'customer'} to ${newRole}`,
+            previousState: { activeRole: req.dbUser.activeRole },
+            newState: { activeRole: newRole },
+            timestampIso: new Date().toISOString(),
+          });
+        }
+        req.dbUser.activeRole = newRole;
+        req.dbUser.lastLoginApp = newRole;
+        req.dbUser.lastRoleUpdatedAt = new Date();
+      }
+    }
 
     const fcmToken = toSafeTrimmedString(req.body?.fcmToken);
     if (fcmToken && !req.dbUser.fcmTokens.includes(fcmToken)) {
