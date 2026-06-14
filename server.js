@@ -77,6 +77,9 @@ const legalRoutes = require('./routes/legalRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes');
 const adminInvoiceRoutes = require('./routes/adminInvoiceRoutes');
 const { verifyInvoicePublic } = require('./controllers/invoiceController');
+const { initializeCronJobs } = require('./services/cronService');
+const vendorOnboardingDraftRoutes = require('./routes/vendorOnboardingDraftRoutes');
+const riderOnboardingDraftRoutes = require('./routes/riderOnboardingDraftRoutes');
 const {
   attachTrackingGateway,
   closeTrackingGateway,
@@ -564,6 +567,8 @@ app.use('/webhooks', webhookRoutes);
 app.use('/debug', adminLimiter, authMiddleware, requireAdmin, debugRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/admin', adminInvoiceRoutes);
+app.use('/api/vendor/onboarding/draft', vendorOnboardingDraftRoutes);
+app.use('/api/rider/onboarding/draft', riderOnboardingDraftRoutes);
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found.' });
 });
@@ -600,6 +605,7 @@ async function startServer() {
     await connectDB();
     initializeFirebase();
     scheduleFinanceCrons();
+    initializeCronJobs();
     startDispatchScheduler();
     startOpsRuntime();
     startInvoiceQueueWorker();

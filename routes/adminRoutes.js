@@ -2,6 +2,7 @@ const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
 const adminOnboardingAnalyticsController = require('../controllers/adminOnboardingAnalyticsController');
+const { adminGetDrafts } = require('../controllers/vendorOnboardingDraftController');
 const { validateBody, validateQuery } = require('../validation/schemaValidator');
 const {
   activityLogCreateSchema,
@@ -346,5 +347,7 @@ router.post(
   validateBody(outboxDeadLetterReplaySchema),
   replayDeadLetterEvent,
 );
+
+router.get('/vendor-drafts', adminGetDrafts);
 
 module.exports = router;
