@@ -291,7 +291,10 @@ async function authMiddleware(req, res, next) {
       process.env.AUTH_ALLOW_AUTO_PROVISION === 'true' &&
       String(process.env.DISABLE_AUTH_AUTO_PROVISION_IN_PRODUCTION || '').trim().toLowerCase() !== 'true' &&
       process.env.NODE_ENV !== 'production';
-    const allowUploadProvision = req.originalUrl === '/upload' || String(req.path || '').startsWith('/upload');
+    const uploadRequestPath = `${String(req.baseUrl || '')}${String(req.path || '')}`;
+    const allowUploadProvision =
+      uploadRequestPath === '/upload' ||
+      uploadRequestPath.startsWith('/upload/');
     const user = await upsertFirebaseUser(decoded, {
       allowCreate: allowAutoProvision || allowUploadProvision,
     });
