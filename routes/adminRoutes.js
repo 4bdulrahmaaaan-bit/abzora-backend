@@ -1,6 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { requireAdmin } = require('../middleware/authorizationMiddleware');
 const adminOnboardingAnalyticsController = require('../controllers/adminOnboardingAnalyticsController');
 const { adminGetDrafts } = require('../controllers/vendorOnboardingDraftController');
 const { validateBody, validateQuery } = require('../validation/schemaValidator');
@@ -197,7 +198,7 @@ const outboxReplayLimiter = createRateLimiter({
   message: 'Too many dead-letter replay attempts. Please try again later.',
 });
 
-router.use(authMiddleware);
+router.use(authMiddleware, requireAdmin);
 
 router.get('/dashboard', getDashboardSummary);
 router.get('/system-health', getSystemHealth);

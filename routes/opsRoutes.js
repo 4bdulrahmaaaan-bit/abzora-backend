@@ -1,6 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { requireAdmin } = require('../middleware/authorizationMiddleware');
 const { validateBody, validateQuery } = require('../validation/schemaValidator');
 const {
   cityQuerySchema,
@@ -41,7 +42,7 @@ const opsCriticalLimiter = createRateLimiter({
   message: 'Too many ops control requests. Please retry in a few minutes.',
 });
 
-router.use(authMiddleware);
+router.use(authMiddleware, requireAdmin);
 
 router.get('/alerts', validateQuery(opsAlertsQuerySchema), listPriorityAlerts);
 router.get('/zones', validateQuery(cityQuerySchema), listZones);

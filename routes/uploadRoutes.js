@@ -9,7 +9,7 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 8 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     const mime = String(file.mimetype || '').toLowerCase();
@@ -32,7 +32,7 @@ router.post('/', authMiddleware, (req, res, next) => {
     }
     if (error instanceof multer.MulterError) {
       if (error.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ success: false, message: 'Image exceeds 5MB size limit.' });
+        return res.status(400).json({ success: false, message: 'Image exceeds 8MB size limit.' });
       }
       return res.status(400).json({ success: false, message: error.message || 'Invalid upload payload.' });
     }

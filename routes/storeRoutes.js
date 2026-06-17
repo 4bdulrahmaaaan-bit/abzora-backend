@@ -21,7 +21,7 @@ router.get('/custom/ranked', listRankedCustomStores);
 router.get('/owner/me', authMiddleware, getOwnStore);
 router.get('/owner/:ownerId', authMiddleware, requireRoles('vendor', 'rider', 'admin', 'super_admin'), getStoreByOwner);
 router.get('/:id', getStore);
-router.post('/', authMiddleware, createStore);
-router.put('/:id', authMiddleware, updateStore);
+router.post('/', authMiddleware, requireRoles('vendor', 'admin', 'super_admin'), createStore);
+router.put('/:id', authMiddleware, requireRoles('vendor', 'admin', 'super_admin'), updateStore);
 
 module.exports = router;

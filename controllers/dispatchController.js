@@ -5,6 +5,7 @@ const DispatchBatch = require('../models/DispatchBatch');
 const { assignSingleOrder, assignBatches } = require('../services/dispatchEngineService');
 const { getEtaForOrder } = require('../services/etaService');
 const { riderSlaScore, vendorSlaScore } = require('../services/slaScoringService');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 const { isAllowedAdminEmail } = require('./authController');
 
 function ensureDispatchAdmin(req, res) {
@@ -12,7 +13,7 @@ function ensureDispatchAdmin(req, res) {
     res.status(401).json({ success: false, message: 'Unauthorized' });
     return false;
   }
-  const privileged = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  const privileged = hasRole(req.user, ['admin', 'super_admin']);
   const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
   if (!privileged || !emailAllowed) {
     res.status(403).json({ success: false, message: 'Dispatch access denied.' });

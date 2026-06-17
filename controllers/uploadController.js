@@ -1,6 +1,29 @@
 const cloudinary = require('../config/cloudinary');
 
-const ALLOWED_IMAGE_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/heic',
+  'image/heif',
+]);
+const ALLOWED_UPLOAD_ROOTS = new Set([
+  'product_images',
+  'user_profiles',
+  'store_logos',
+  'store_banners',
+  'homepage_banners',
+  'category_icons',
+  'vendor_kyc_owner',
+  'vendor_kyc_store',
+  'vendor_kyc_docs',
+  'vendor_kyc_selfie',
+  'rider_kyc_profile',
+  'rider_kyc_docs',
+  'onboarding-drafts/portfolio',
+  'onboarding-drafts/kyc',
+]);
 
 function matchesMagicBytes(buffer, signatures) {
   return signatures.some((signature) => buffer.subarray(0, signature.length).equals(signature));
@@ -44,6 +67,32 @@ function uploadBuffer(buffer, folder) {
   });
 }
 
+function isSafePathSegment(value) {
+  return /^[A-Za-z0-9_-]+$/.test(value);
+}
+
+function resolveUploadFolder(rawFolder) {
+  const folder = String(rawFolder || '').trim();
+  if (!folder) {
+    throw new Error('Upload folder is required.');
+  }
+
+  const segments = folder.split('/').map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length < 2 || segments.length > 3) {
+    throw new Error('Invalid upload folder.');
+  }
+
+  const root = segments.length === 3
+    ? `${segments[0]}/${segments[1]}`
+    : segments[0];
+  const ownerId = segments[segments.length - 1];
+  if (!ALLOWED_UPLOAD_ROOTS.has(root) || !isSafePathSegment(ownerId)) {
+    throw new Error('Invalid upload folder.');
+  }
+
+  return `${root}/${ownerId}`;
+}
+
 async function uploadImage(req, res, next) {
   try {
     if (!req.file) {
@@ -52,15 +101,20 @@ async function uploadImage(req, res, next) {
     if (!ALLOWED_IMAGE_MIME_TYPES.has(req.file.mimetype || '')) {
       return res.status(400).json({ success: false, message: 'Only image files can be uploaded.' });
     }
+    const mimeType = String(req.file.mimetype || '').toLowerCase();
     const detectedMimeType = detectImageType(req.file.buffer);
-    if (!detectedMimeType || detectedMimeType !== req.file.mimetype) {
+    const skipMagicByteCheck = mimeType === 'image/heic' || mimeType === 'image/heif';
+    if (!skipMagicByteCheck && (!detectedMimeType || detectedMimeType !== mimeType)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid or unsafe image upload rejected.',
       });
     }
 
-    const folder = process.env.CLOUDINARY_FOLDER || 'abianzo';
+    const baseFolder = process.env.CLOUDINARY_FOLDER || 'abianzo';
+    const normalizedFolder = resolveUploadFolder(req.body.folder);
+    const subFolder = `/${normalizedFolder}`;
+    const folder = `${baseFolder}${subFolder}`;
     const result = await uploadBuffer(req.file.buffer, folder);
 
     return res.status(200).json({

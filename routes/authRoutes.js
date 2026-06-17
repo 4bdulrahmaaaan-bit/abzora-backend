@@ -18,6 +18,7 @@ const {
   debugAuth,
   upsertTestUser,
   syncProfile,
+  switchActiveRole,
   listAddresses,
   saveAddress,
   deleteAddress,
@@ -49,6 +50,7 @@ module.exports = (authLoginLimiter, authOperationalLimiter) => {
 router.get('/users/:id', authMiddleware, requireRoles('vendor', 'rider', 'admin', 'super_admin'), getUserByIdentifier);
 router.get('/debug', authMiddleware, debugAuth);
 router.post('/sync-profile', authMiddleware, syncProfile);
+router.patch('/me/role', authOperationalLimiter, authMiddleware, switchActiveRole);
 router.get('/addresses', authMiddleware, listAddresses);
 router.post('/addresses', authMiddleware, saveAddress);
 router.delete('/addresses/:id', authMiddleware, deleteAddress);

@@ -19,9 +19,10 @@ const {
   buildDynamicSpecs,
   normalizeCategory,
 } = require('../services/productSpecsService');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 
 function isAdmin(req) {
-  return req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  return hasRole(req.user, ['admin', 'super_admin']);
 }
 
 function ensureAdmin(req, res) {

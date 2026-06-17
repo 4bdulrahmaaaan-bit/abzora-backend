@@ -1,10 +1,10 @@
 const PaymentWebhookIngestEvent = require('../models/PaymentWebhookIngestEvent');
 const { getPaymentWebhookIngestWorkerStatus } = require('../services/paymentWebhookIngestService');
 const { logSecurityEvent, logSecurityWarning } = require('../services/auditLogger');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 
 function isAdmin(user) {
-  const role = String(user?.role || '').trim().toLowerCase();
-  return role === 'admin' || role === 'super_admin';
+  return hasRole(user, ['admin', 'super_admin']);
 }
 
 function auditAccess(req, allowed) {

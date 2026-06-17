@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const Store = require('../models/Store');
 const { rankCustomVendors } = require('../services/customVendorRankingService');
+const { isAllowedAdminEmail } = require('./authController');
 
 function sanitizeVendorEditableCustomProfile(profile = {}) {
   return {
@@ -346,6 +347,13 @@ async function getStoreByOwner(req, res, next) {
     const ownerId = req.params.ownerId?.toString().trim();
     if (!ownerId) {
       return res.status(400).json({ success: false, message: 'ownerId is required.' });
+    }
+
+    const isAdmin =
+      ['admin', 'super_admin'].includes((req.user?.role || '').toLowerCase()) &&
+      isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
+    if (!isAdmin && ownerId !== req.user.uid) {
+      return res.status(403).json({ success: false, message: 'You can only access your own store.' });
     }
 
     const store = await Store.findOne({

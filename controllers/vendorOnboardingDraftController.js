@@ -1,17 +1,32 @@
 const VendorOnboardingDraft = require('../models/VendorOnboardingDraft');
 
+function authenticatedDraftUserId(req) {
+  return (
+    req.dbUser?._id?.toString?.() ||
+    req.dbUser?.id?.toString?.() ||
+    req.user?._id?.toString?.() ||
+    req.user?.id?.toString?.() ||
+    req.user?.uid?.toString?.() ||
+    ''
+  ).trim();
+}
+
 /**
  * Upsert draft by userId
  */
 exports.saveDraft = async (req, res) => {
   try {
-    const { userId } = req.user; // Assuming req.user is set by authMiddleware
-    const draftData = req.body;
+    const userId = authenticatedDraftUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const draftData = req.body && typeof req.body === 'object' ? req.body : {};
     
     // Ensure we don't accidentally override the draftStatus if it's not provided,
     // but if the draft is currently submitted/abandoned, we might want to reset it to draft
     const updatePayload = {
       ...draftData,
+      userId,
       lastSavedAt: new Date(),
     };
 
@@ -33,7 +48,10 @@ exports.saveDraft = async (req, res) => {
  */
 exports.getDraft = async (req, res) => {
   try {
-    const { userId } = req.user;
+    const userId = authenticatedDraftUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
     
     const draft = await VendorOnboardingDraft.findOne({ userId });
     
@@ -57,7 +75,10 @@ exports.getDraft = async (req, res) => {
  */
 exports.deleteDraft = async (req, res) => {
   try {
-    const { userId } = req.user;
+    const userId = authenticatedDraftUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
     await VendorOnboardingDraft.findOneAndDelete({ userId });
     
     res.status(200).json({ success: true, message: 'Draft deleted successfully' });
@@ -72,7 +93,10 @@ exports.deleteDraft = async (req, res) => {
  */
 exports.updateStep = async (req, res) => {
   try {
-    const { userId } = req.user;
+    const userId = authenticatedDraftUserId(req);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
     const { currentStep } = req.body;
     
     if (currentStep === undefined) {

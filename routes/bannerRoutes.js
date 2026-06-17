@@ -1,6 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { requireAdmin } = require('../middleware/authorizationMiddleware');
 const {
   listBanners,
   createBanner,
@@ -19,8 +20,8 @@ function optionalAuth(req, res, next) {
 }
 
 router.get('/', optionalAuth, listBanners);
-router.post('/', authMiddleware, createBanner);
-router.put('/:id', authMiddleware, updateBanner);
-router.delete('/:id', authMiddleware, deleteBanner);
+router.post('/', authMiddleware, requireAdmin, createBanner);
+router.put('/:id', authMiddleware, requireAdmin, updateBanner);
+router.delete('/:id', authMiddleware, requireAdmin, deleteBanner);
 
 module.exports = router;

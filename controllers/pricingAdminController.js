@@ -1,4 +1,5 @@
 const Store = require('../models/Store');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 const { isAllowedAdminEmail } = require('./authController');
 const {
   getPricingConfig,
@@ -9,7 +10,7 @@ const {
 const { calculateOrderPricing, toPricingEngineConfig } = require('../services/pricingService');
 
 function ensurePricingAdmin(req, res) {
-  const hasPrivilegedRole = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  const hasPrivilegedRole = hasRole(req.user, ['admin', 'super_admin']);
   const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
   if (!hasPrivilegedRole || !emailAllowed) {
     res.status(403).json({ success: false, message: 'Admin access required.' });

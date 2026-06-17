@@ -1,6 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { requireAdmin } = require('../middleware/authorizationMiddleware');
 const {
   createCategory,
   getCategories,
@@ -29,15 +30,15 @@ function optionalAuth(req, res, next) {
 router.get('/', optionalAuth, getCategories);
 router.get('/featured', getFeaturedCategories);
 router.get('/home', getHomeCategories);
-router.post('/', authMiddleware, createCategory);
-router.patch('/reorder', authMiddleware, reorderCategories);
-router.put('/:id', authMiddleware, updateCategory);
-router.patch('/:id/status', authMiddleware, toggleCategoryStatus);
-router.patch('/:id/featured', authMiddleware, toggleCategoryFeatured);
-router.delete('/:id', authMiddleware, deleteCategory);
+router.post('/', authMiddleware, requireAdmin, createCategory);
+router.patch('/reorder', authMiddleware, requireAdmin, reorderCategories);
+router.put('/:id', authMiddleware, requireAdmin, updateCategory);
+router.patch('/:id/status', authMiddleware, requireAdmin, toggleCategoryStatus);
+router.patch('/:id/featured', authMiddleware, requireAdmin, toggleCategoryFeatured);
+router.delete('/:id', authMiddleware, requireAdmin, deleteCategory);
 
-router.post('/:id/subcategories', authMiddleware, addSubcategory);
-router.put('/:id/subcategories/:subId', authMiddleware, updateSubcategory);
-router.delete('/:id/subcategories/:subId', authMiddleware, deleteSubcategory);
+router.post('/:id/subcategories', authMiddleware, requireAdmin, addSubcategory);
+router.put('/:id/subcategories/:subId', authMiddleware, requireAdmin, updateSubcategory);
+router.delete('/:id/subcategories/:subId', authMiddleware, requireAdmin, deleteSubcategory);
 
 module.exports = router;

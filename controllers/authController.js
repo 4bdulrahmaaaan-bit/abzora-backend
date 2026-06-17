@@ -739,6 +739,78 @@ async function syncProfile(req, res, next) {
   }
 }
 
+async function switchActiveRole(req, res, next) {
+  try {
+    if (!req.dbUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'Role switching is unavailable in test mode.',
+      });
+    }
+
+    const requestedRole = normalizeRole(
+      req.body?.activeRole ?? req.body?.role ?? req.body?.accountType,
+      '',
+    );
+    if (!['customer', 'vendor', 'rider'].includes(requestedRole)) {
+      return res.status(400).json({
+        success: false,
+        message: 'activeRole must be customer, vendor, or rider.',
+      });
+    }
+
+    const previousRole = toSafeTrimmedString(req.dbUser.activeRole) || 'customer';
+    if (previousRole !== requestedRole) {
+      const AdminActivityLog = require('../models/AdminActivityLog');
+      await AdminActivityLog.create({
+        logId: `role-switch-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        actorId: req.dbUser.uid,
+        actorRole: req.dbUser.role || 'user',
+        action: 'roleSwitched',
+        targetType: 'User',
+        targetId: req.dbUser.uid,
+        message: `User switched active role from ${previousRole} to ${requestedRole}`,
+        previousState: { activeRole: previousRole },
+        newState: { activeRole: requestedRole },
+        timestampIso: new Date().toISOString(),
+      });
+    }
+
+    req.dbUser.activeRole = requestedRole;
+    req.dbUser.accountType = requestedRole;
+    req.dbUser.lastLoginApp = requestedRole;
+    req.dbUser.lastRoleUpdatedAt = new Date();
+
+    if (req.dbUser.roles instanceof Map) {
+      req.dbUser.roles.set(requestedRole, true);
+    } else if (req.dbUser.roles && typeof req.dbUser.roles === 'object') {
+      req.dbUser.roles[requestedRole] = true;
+    }
+
+    await req.dbUser.save();
+
+    let effectiveUser = req.dbUser;
+    effectiveUser = await ensureLinkedStoreId(effectiveUser);
+    await recordUserNetworkContext(effectiveUser, req);
+
+    req.user = {
+      ...req.user,
+      ...serializeUser(effectiveUser),
+      _id: effectiveUser._id,
+    };
+
+    return res.status(200).json({
+      success: true,
+      data: serializeUserResponse(effectiveUser),
+    });
+  } catch (error) {
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    return next(error);
+  }
+}
+
 async function listAddresses(req, res, next) {
   try {
     const addresses = await UserAddress.find({ userId: req.user.uid }).sort({ createdAt: -1, _id: -1 });
@@ -1292,21 +1364,32 @@ async function createAuthSession(req, res, next) {
     }
 
     const decoded = await admin.auth().verifyIdToken(token, true);
-    const allowAutoProvision =
-      process.env.AUTH_ALLOW_AUTO_PROVISION === 'true' &&
-      String(process.env.DISABLE_AUTH_AUTO_PROVISION_IN_PRODUCTION || '').trim().toLowerCase() !== 'true' &&
-      process.env.NODE_ENV !== 'production';
-    const user = await upsertFirebaseUser(decoded, { allowCreate: allowAutoProvision });
-    if (!user) {
+    
+    console.log(`[AUTH_SESSION_START] firebaseUid=${decoded.uid} phoneNumber=${decoded.phone_number || ''}`);
+    
+    // Phase 2: Explicitly allow user provisioning strictly on the POST /auth/session endpoint.
+    const user = await upsertFirebaseUser(decoded, { allowCreate: true });
+    
+    if (user) {
+      console.log(`[AUTH_SESSION_LOOKUP] mongoUserFound=true`);
+      if (user.createdAt && user.updatedAt && user.createdAt.getTime() === user.updatedAt.getTime()) {
+        console.log(`[AUTH_SESSION_CREATE] userCreated=true`);
+      }
+    } else {
+      console.log(`[AUTH_SESSION_LOOKUP] mongoUserFound=false`);
+      console.log(`[AUTH_SESSION_FAILURE] reason=Provisioning failed (upsertFirebaseUser returned null)`);
       return res.status(403).json({
         success: false,
         message: 'Account is not provisioned for this environment.',
       });
     }
+
     if (user?.isDeleted === true) {
+      console.log(`[AUTH_SESSION_FAILURE] reason=User is deleted`);
       return res.status(403).json({ success: false, message: 'This account has been deleted.' });
     }
     if (user?.isActive === false) {
+      console.log(`[AUTH_SESSION_FAILURE] reason=User is disabled`);
       return res.status(403).json({ success: false, message: 'This account has been disabled.' });
     }
 
@@ -1320,12 +1403,15 @@ async function createAuthSession(req, res, next) {
         ip: String(req.headers['x-forwarded-for'] || req.ip || ''),
       },
     });
+    
     logSecurityEvent('auth_session_issue', {
       sessionId: session.sessionId,
       userId: user.uid || user.firebaseUid || decoded.uid,
       deviceId: session.deviceId,
       source: 'createAuthSession',
     });
+
+    console.log(`[AUTH_SESSION_SUCCESS] userId=${user.uid || user.firebaseUid || decoded.uid} role=${user.role}`);
 
     return res.status(200).json({
       success: true,
@@ -1335,6 +1421,7 @@ async function createAuthSession(req, res, next) {
       },
     });
   } catch (error) {
+    console.log(`[AUTH_SESSION_FAILURE] reason=${error.message}`);
     return next(error);
   }
 }
@@ -1403,6 +1490,7 @@ module.exports = {
   debugAuth,
   upsertTestUser,
   syncProfile,
+  switchActiveRole,
   listAddresses,
   saveAddress,
   deleteAddress,

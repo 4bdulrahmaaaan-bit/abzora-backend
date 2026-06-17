@@ -2,11 +2,12 @@ const mongoose = require('mongoose');
 
 const SupportChat = require('../models/SupportChat');
 const SupportMessage = require('../models/SupportMessage');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 const { isAllowedAdminEmail } = require('./authController');
 
 function isAdmin(req) {
   return (
-    (req.user?.role === 'admin' || req.user?.role === 'super_admin') &&
+    hasRole(req.user, ['admin', 'super_admin']) &&
     isAllowedAdminEmail(req.user?.email || req.dbUser?.email)
   );
 }

@@ -1,6 +1,7 @@
 const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
+const { requireAdmin } = require('../middleware/authorizationMiddleware');
 const {
   dispatchAssign,
   dispatchBatchAssign,
@@ -12,7 +13,7 @@ const {
 
 const router = express.Router();
 
-router.use(authMiddleware);
+router.use(authMiddleware, requireAdmin);
 
 router.post('/assign', dispatchAssign);
 router.post('/batch-assign', dispatchBatchAssign);

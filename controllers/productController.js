@@ -2002,7 +2002,10 @@ async function deleteProduct(req, res, next) {
     if (!store) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
-    if (store.ownerId !== req.user.uid) {
+    const isAdmin =
+      ['admin', 'super_admin'].includes((req.user?.role || '').toLowerCase()) &&
+      isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
+    if (store.ownerId !== req.user.uid && !isAdmin) {
       return res.status(403).json({ success: false, message: 'You can only delete products from your own store.' });
     }
 

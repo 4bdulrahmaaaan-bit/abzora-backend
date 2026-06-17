@@ -18,9 +18,10 @@ const { reverseOrderSettlement } = require('../services/financeService');
 const { processRazorpayRefund } = require('./orderController');
 const { rebuildZones, getZones, setZoneFrozen, zoneIdFromLocation } = require('../services/zoneService');
 const { setJson } = require('../services/redisCacheService');
+const { hasRole } = require('../middleware/authorizationMiddleware');
 
 function ensureOpsAdmin(req, res) {
-  const privileged = req.user?.role === 'admin' || req.user?.role === 'super_admin';
+  const privileged = hasRole(req.user, ['admin', 'super_admin']);
   const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
   if (!privileged || !emailAllowed) {
     res.status(403).json({ success: false, message: 'Ops admin access required.' });
