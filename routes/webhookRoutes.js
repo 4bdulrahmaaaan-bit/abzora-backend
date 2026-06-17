@@ -11,7 +11,12 @@ function verifyRazorpayWebhookSignature(rawBody, signature) {
     return false;
   }
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+  const providedBuffer = Buffer.from(String(signature), 'utf8');
+  if (expectedBuffer.length !== providedBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(expectedBuffer, providedBuffer);
 }
 
 // Use raw body for accurate signature verification
