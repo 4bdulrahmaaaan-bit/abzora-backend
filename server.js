@@ -29,6 +29,7 @@ const {
 } = require('./middleware/authorizationMiddleware');
 const { me } = require('./controllers/authController');
 const { getFinanceCronStatus, scheduleFinanceCrons, stopFinanceCrons } = require('./services/financeCronService');
+const { getPayoutRecoveryCronStatus, schedulePayoutRecoveryCron, stopPayoutRecoveryCron } = require('./services/payoutRecoveryCron');
 const { clientIp, logSecurityError } = require('./services/auditLogger');
 
 const authRoutes = require('./routes/authRoutes');
@@ -287,6 +288,7 @@ app.get('/health/ready', async (req, res) => {
   const dispatchStatus = getDispatchSchedulerStatus();
   const opsStatus = getOpsRuntimeStatus();
   const financeStatus = getFinanceCronStatus();
+  const payoutRecoveryStatus = getPayoutRecoveryCronStatus();
   const trackingStatus = getTrackingGatewayStatus();
   const pricingStatus = getPricingGatewayStatus();
   const loggerHealth = getLoggerHealth();
@@ -323,8 +325,9 @@ app.get('/health/ready', async (req, res) => {
       lockRuntime,
       cacheRuntime,
       dispatchStatus,
-      financeStatus,
-      trackingStatus,
+    financeStatus,
+    payoutRecoveryStatus,
+    trackingStatus,
       pricingStatus,
       telemetry: {
         tracing: {
@@ -605,6 +608,7 @@ async function startServer() {
     await connectDB();
     initializeFirebase();
     scheduleFinanceCrons();
+    schedulePayoutRecoveryCron();
     initializeCronJobs();
     startDispatchScheduler();
     startOpsRuntime();
@@ -720,6 +724,7 @@ async function gracefulShutdown(signal) {
     ]);
     stopDispatchScheduler();
     stopFinanceCrons();
+    stopPayoutRecoveryCron();
     stopOpsRuntime();
     stopInvoiceQueueWorker();
     stopInvoiceQueueSelfHealing();

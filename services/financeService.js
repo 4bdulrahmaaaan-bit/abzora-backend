@@ -51,6 +51,32 @@ function normalizePayoutMode(methodType) {
   return methodType === 'vpa' ? 'UPI' : 'IMPS';
 }
 
+const WITHDRAWAL_STATE_TRANSITIONS = {
+  pending: new Set(['approved', 'manual_review', 'cancelled', 'failed']),
+  manual_review: new Set(['approved', 'cancelled', 'failed']),
+  approved: new Set(['processing', 'cancelled', 'failed']),
+  processing: new Set(['paid', 'failed', 'reversed', 'cancelled']),
+  paid: new Set([]),
+  failed: new Set(['approved', 'manual_review', 'cancelled']),
+  reversed: new Set([]),
+  cancelled: new Set([]),
+  completed: new Set(['paid']),
+  rejected: new Set(['cancelled']),
+};
+
+function canTransitionWithdrawalStatus(current, next) {
+  const from = String(current || '').trim().toLowerCase();
+  const to = String(next || '').trim().toLowerCase();
+  return Boolean(WITHDRAWAL_STATE_TRANSITIONS[from]?.has(to));
+}
+
+function assertWithdrawalTransition(current, next, context = '') {
+  if (!canTransitionWithdrawalStatus(current, next)) {
+    const suffix = context ? ` (${context})` : '';
+    throw new Error(`Illegal withdrawal transition${suffix}: ${String(current || 'unknown')} -> ${String(next || 'unknown')}.`);
+  }
+}
+
 function normalizeText(value) {
   return String(value || '').trim().replace(/\s+/g, ' ');
 }
@@ -1166,6 +1192,7 @@ async function approveWithdrawalRequest({ requestId, processedBy, actorRole = 'a
     if (!['pending', 'manual_review', 'failed'].includes(request.status)) {
       throw new Error('This withdrawal request cannot be approved again.');
     }
+    assertWithdrawalTransition(request.status, 'approved', 'approval_claim');
 
     const wasFailed = request.status === 'failed';
     const approvalLockId = buildId(`withdrawal-lock-${request.requestId}`);
@@ -1238,6 +1265,7 @@ async function approveWithdrawalRequest({ requestId, processedBy, actorRole = 'a
     });
 
     claimedRequest.status = 'processing';
+    assertWithdrawalTransition('approved', 'processing', 'payout_initiation');
     claimedRequest.processingStartedAt = nowIso();
     claimedRequest.processedAt = claimedRequest.processingStartedAt;
     claimedRequest.processedBy = processedBy;
@@ -1347,6 +1375,7 @@ async function rejectWithdrawalRequest({
     if (!['pending', 'manual_review', 'failed', 'approved'].includes(request.status)) {
       throw new Error('This withdrawal request can no longer be rejected.');
     }
+    assertWithdrawalTransition(request.status, 'cancelled', 'rejection');
 
     const wallet = request.walletType === 'vendor'
       ? await VendorWallet.findOne({ storeId: request.storeId }).session(session)
@@ -1424,6 +1453,7 @@ async function markWithdrawalCompleted({ payoutId, requestId, processedBy = 'raz
     if (['paid', 'completed'].includes(request.status)) {
       return request;
     }
+    assertWithdrawalTransition(request.status, 'paid', 'webhook_completion');
 
     const wallet = request.walletType === 'vendor'
       ? await VendorWallet.findOne({ storeId: request.storeId }).session(session)
@@ -1522,6 +1552,9 @@ async function markWithdrawalFailed({
     if (['paid', 'completed'].includes(request.status)) {
       return request;
     }
+    if (!canTransitionWithdrawalStatus(request.status, 'failed') && !canTransitionWithdrawalStatus(request.status, 'reversed') && !canTransitionWithdrawalStatus(request.status, 'cancelled')) {
+      throw new Error(`Illegal withdrawal transition for failure resolution: ${request.status} -> failed.`);
+    }
 
     const wallet = request.walletType === 'vendor'
       ? await VendorWallet.findOne({ storeId: request.storeId }).session(session)
@@ -1541,7 +1574,9 @@ async function markWithdrawalFailed({
       }
     }
 
-    request.status = ['reversed', 'cancelled', 'failed'].includes(finalStatus) ? finalStatus : 'failed';
+    const nextStatus = ['reversed', 'cancelled', 'failed'].includes(finalStatus) ? finalStatus : 'failed';
+    assertWithdrawalTransition(request.status, nextStatus, 'failure_resolution');
+    request.status = nextStatus;
     request.processedAt = nowIso();
     request.processedBy = processedBy;
     request.payoutId = payoutId || request.payoutId || '';

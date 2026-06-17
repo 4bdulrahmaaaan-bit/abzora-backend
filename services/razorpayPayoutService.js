@@ -154,6 +154,15 @@ async function createPayout({
   });
 }
 
+async function getPayoutStatus(payoutId) {
+  if (!payoutId) {
+    throw new Error('payoutId is required.');
+  }
+  return razorpayRequest(`/payouts/${encodeURIComponent(payoutId)}`, {
+    method: 'GET',
+  });
+}
+
 function verifyWebhookSignature(rawBody, signature) {
   const secret = getPayoutConfig().webhookSecret;
   if (!secret || !signature || !rawBody) {
@@ -172,6 +181,7 @@ module.exports = {
   createOrUpdateContact,
   createOrUpdateFundAccount,
   createPayout,
+  getPayoutStatus,
   getPayoutConfig,
   verifyWebhookSignature,
 };

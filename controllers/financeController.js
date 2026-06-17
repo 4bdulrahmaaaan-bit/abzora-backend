@@ -2,6 +2,7 @@ const Order = require('../models/Order');
 const Transaction = require('../models/Transaction');
 const WithdrawalRequest = require('../models/WithdrawalRequest');
 const AdminPayout = require('../models/AdminPayout');
+const PayoutRecoveryJob = require('../models/PayoutRecoveryJob');
 const FraudAlert = require('../models/FraudAlert');
 const User = require('../models/User');
 const {
@@ -27,6 +28,7 @@ const VendorWallet = require('../models/VendorWallet');
 const RiderWallet = require('../models/RiderWallet');
 const { verifyWebhookSignature } = require('../services/razorpayPayoutService');
 const { claimWebhookDelivery } = require('../services/webhookLockService');
+const { runPayoutRecoverySweep } = require('../services/payoutRecoveryService');
 const { isAllowedAdminEmail } = require('./authController');
 const { hasRole } = require('../middleware/authorizationMiddleware');
 
@@ -365,6 +367,58 @@ function summarizeWithdrawalRequests(items = []) {
     total: items.length,
     totalAmount: roundMoney(totalAmount),
   };
+}
+
+function buildRecoveryFilter(query = {}) {
+  const filter = {};
+  const status = String(query.status || '').trim().toLowerCase();
+  const userRole = String(query.userRole || '').trim().toLowerCase();
+  const withdrawalRequestId = String(query.withdrawalRequestId || '').trim();
+  const payoutId = String(query.payoutId || '').trim();
+  const from = toValidDate(query.from);
+  const to = toValidDate(query.to);
+
+  if (status && status !== 'all') {
+    filter.status = status;
+  }
+  if (['vendor', 'rider', 'admin'].includes(userRole)) {
+    filter.userRole = userRole;
+  }
+  if (withdrawalRequestId) {
+    filter.withdrawalRequestId = withdrawalRequestId;
+  }
+  if (payoutId) {
+    filter.razorpayPayoutId = payoutId;
+  }
+  if (from || to) {
+    filter.updatedAt = {};
+    if (from) {
+      filter.updatedAt.$gte = from;
+    }
+    if (to) {
+      to.setHours(23, 59, 59, 999);
+      filter.updatedAt.$lte = to;
+    }
+  }
+  return filter;
+}
+
+function summarizeRecoveryJobs(items = []) {
+  const summary = {
+    pending: 0,
+    investigating: 0,
+    recovered: 0,
+    manual_review: 0,
+    failed: 0,
+    total: items.length,
+  };
+  for (const item of items) {
+    const status = String(item?.status || '').trim().toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(summary, status)) {
+      summary[status] += 1;
+    }
+  }
+  return summary;
 }
 
 function buildDailySeries({ items, amountFor, dateFor, days = 7, labelFormatter }) {
@@ -730,7 +784,7 @@ async function getAdminFinance(req, res, next) {
     if (!ensureAdmin(req, res)) {
       return;
     }
-    const [adminWallet, vendorWallets, riderWallets, transactions, withdrawalRequests, fraudAlerts, flaggedUsers] = await Promise.all([
+    const [adminWallet, vendorWallets, riderWallets, transactions, withdrawalRequests, fraudAlerts, flaggedUsers, recoveryJobSummary] = await Promise.all([
       getOrCreateAdminWallet(),
       VendorWallet.find({}).sort({ updatedAt: -1 }).limit(50),
       RiderWallet.find({}).sort({ updatedAt: -1 }).limit(50),
@@ -738,6 +792,14 @@ async function getAdminFinance(req, res, next) {
       listWithdrawalRequests({ status: { $in: ['pending', 'manual_review', 'approved', 'processing', 'paid', 'failed', 'reversed', 'cancelled', 'completed', 'rejected'] } }),
       FraudAlert.find({ status: { $in: ['open', 'reviewing'] } }).sort({ createdAt: -1, _id: -1 }).limit(30),
       User.countDocuments({ isFlagged: true }),
+      PayoutRecoveryJob.aggregate([
+        {
+          $group: {
+            _id: { $toLower: '$status' },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
     ]);
 
     const vendorPending = vendorWallets.reduce((sum, item) => sum + Number(item.pendingAmount || 0), 0);
@@ -746,6 +808,21 @@ async function getAdminFinance(req, res, next) {
       .filter((item) => ['pending', 'manual_review', 'approved', 'processing'].includes(String(item.status || '').toLowerCase()))
       .reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const withdrawalSummary = summarizeWithdrawalRequests(withdrawalRequests);
+    const payoutRecoverySummary = {
+      pending: 0,
+      investigating: 0,
+      recovered: 0,
+      manual_review: 0,
+      failed: 0,
+      total: 0,
+    };
+    for (const row of recoveryJobSummary) {
+      const key = String(row?._id || '').trim().toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(payoutRecoverySummary, key)) {
+        payoutRecoverySummary[key] = Number(row.count || 0);
+      }
+      payoutRecoverySummary.total += Number(row.count || 0);
+    }
 
     return res.status(200).json({
       success: true,
@@ -762,6 +839,7 @@ async function getAdminFinance(req, res, next) {
         riderPending,
         pendingWithdrawalAmount,
         withdrawalSummary,
+        payoutRecoverySummary,
         vendorWallets: vendorWallets.map((wallet) =>
           serializeWallet(wallet, { storeId: wallet.storeId, ownerId: wallet.ownerId }),
         ),
@@ -948,6 +1026,227 @@ async function exportAdminWithdrawalsXlsx(req, res, next) {
     });
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="abzora-withdrawals.xlsx"');
+    await workbook.xlsx.write(res);
+    return res.end();
+  } catch (error) {
+    return next(error);
+  }
+}
+
+function serializeRecoveryJob(item) {
+  if (!item) {
+    return null;
+  }
+  const source = typeof item.toObject === 'function' ? item.toObject() : item;
+  return {
+    id: source._id?.toString() || '',
+    withdrawalRequestId: source.withdrawalRequestId || '',
+    userId: source.userId || '',
+    userRole: source.userRole || '',
+    razorpayPayoutId: source.razorpayPayoutId || '',
+    status: source.status || 'pending',
+    attemptCount: Number(source.attemptCount || 0),
+    lastCheckedAt: source.lastCheckedAt || '',
+    resolvedAt: source.resolvedAt || '',
+    failureReason: source.failureReason || '',
+    metadata: source.metadata || {},
+    createdAt: source.createdAt || null,
+    updatedAt: source.updatedAt || null,
+  };
+}
+
+async function getPayoutRecoveryJobs(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const page = Math.max(1, parseInt(req.query?.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query?.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+    const filter = buildRecoveryFilter(req.query);
+    const [items, totalCount, statusTotals] = await Promise.all([
+      PayoutRecoveryJob.find(filter).sort({ updatedAt: -1, _id: -1 }).skip(skip).limit(limit),
+      PayoutRecoveryJob.countDocuments(filter),
+      PayoutRecoveryJob.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: { $toLower: '$status' },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
+    const summary = {
+      pending: 0,
+      investigating: 0,
+      recovered: 0,
+      manual_review: 0,
+      failed: 0,
+      total: totalCount,
+    };
+    for (const row of statusTotals) {
+      const key = String(row?._id || '').trim().toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(summary, key)) {
+        summary[key] = Number(row.count || 0);
+      }
+    }
+    return res.status(200).json({
+      success: true,
+      data: items.map(serializeRecoveryJob),
+      summary,
+      meta: {
+        page,
+        limit,
+        totalCount,
+        totalPages: Math.max(1, Math.ceil(totalCount / limit)),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function runPayoutRecoveryNow(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const staleMinutes = Math.max(1, parseInt(req.body?.staleMinutes, 10) || 5);
+    const limit = Math.min(500, Math.max(1, parseInt(req.body?.limit, 10) || 100));
+    const result = await runPayoutRecoverySweep({
+      staleMinutes,
+      limit,
+      triggeredBy: req.user?.uid || 'admin-recovery',
+    });
+    return res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function retryPayoutRecoveryJob(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const jobId = String(req.params?.jobId || '').trim();
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'jobId is required.' });
+    }
+    const job = await PayoutRecoveryJob.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Recovery job not found.' });
+    }
+    const request = await WithdrawalRequest.findOne({ requestId: job.withdrawalRequestId });
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Withdrawal request not found.' });
+    }
+    const { recoverSingleWithdrawal } = require('../services/payoutRecoveryService');
+    const outcome = await recoverSingleWithdrawal(request, {
+      staleMinutes: 0,
+      triggeredBy: req.user?.uid || 'admin-recovery',
+    });
+    return res.status(200).json({
+      success: true,
+      data: {
+        job: serializeRecoveryJob(outcome.job || job),
+        resolved: Boolean(outcome.resolved),
+        reason: outcome.reason || '',
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function exportPayoutRecoveryJobsCsv(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const filter = buildRecoveryFilter(req.query);
+    const items = await PayoutRecoveryJob.find(filter).sort({ updatedAt: -1, _id: -1 }).limit(10000);
+    const rows = [
+      [
+        'withdrawalRequestId',
+        'userId',
+        'userRole',
+        'razorpayPayoutId',
+        'status',
+        'attemptCount',
+        'lastCheckedAt',
+        'resolvedAt',
+        'failureReason',
+      ].join(','),
+      ...items.map((item) =>
+        [
+          item.withdrawalRequestId,
+          item.userId,
+          item.userRole,
+          item.razorpayPayoutId,
+          item.status,
+          Number(item.attemptCount || 0),
+          item.lastCheckedAt || '',
+          item.resolvedAt || '',
+          String(item.failureReason || '').replaceAll(',', ' '),
+        ].join(','),
+      ),
+    ];
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="abzora-payout-recovery.csv"');
+    return res.status(200).send(rows.join('\n'));
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function exportPayoutRecoveryJobsXlsx(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    let ExcelJS;
+    try {
+      // Lazy load so base API stays healthy if the export dependency changes.
+      // eslint-disable-next-line global-require
+      ExcelJS = require('exceljs');
+    } catch (_) {
+      return res.status(500).json({
+        success: false,
+        message: 'XLSX export dependency missing. Install exceljs in backend.',
+      });
+    }
+    const filter = buildRecoveryFilter(req.query);
+    const items = await PayoutRecoveryJob.find(filter).sort({ updatedAt: -1, _id: -1 }).limit(10000);
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Payout Recovery');
+    sheet.columns = [
+      { header: 'Withdrawal Request ID', key: 'withdrawalRequestId', width: 24 },
+      { header: 'User ID', key: 'userId', width: 18 },
+      { header: 'User Role', key: 'userRole', width: 12 },
+      { header: 'Razorpay Payout ID', key: 'razorpayPayoutId', width: 24 },
+      { header: 'Status', key: 'status', width: 16 },
+      { header: 'Attempt Count', key: 'attemptCount', width: 14 },
+      { header: 'Last Checked At', key: 'lastCheckedAt', width: 24 },
+      { header: 'Resolved At', key: 'resolvedAt', width: 24 },
+      { header: 'Failure Reason', key: 'failureReason', width: 34 },
+    ];
+    items.forEach((item) => {
+      sheet.addRow({
+        withdrawalRequestId: item.withdrawalRequestId,
+        userId: item.userId,
+        userRole: item.userRole,
+        razorpayPayoutId: item.razorpayPayoutId || '',
+        status: item.status,
+        attemptCount: Number(item.attemptCount || 0),
+        lastCheckedAt: item.lastCheckedAt || '',
+        resolvedAt: item.resolvedAt || '',
+        failureReason: item.failureReason || '',
+      });
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="abzora-payout-recovery.xlsx"');
     await workbook.xlsx.write(res);
     return res.end();
   } catch (error) {
@@ -1240,8 +1539,11 @@ module.exports = {
   approvePendingWithdrawal,
   exportAdminWithdrawalsCsv,
   exportAdminWithdrawalsXlsx,
+  exportPayoutRecoveryJobsCsv,
+  exportPayoutRecoveryJobsXlsx,
   getUserWalletSummary,
   getAdminFinance,
+  getPayoutRecoveryJobs,
   getRiderDashboard,
   getRiderWallet,
   getRiderPayoutProfile,
@@ -1253,6 +1555,8 @@ module.exports = {
   rejectPendingWithdrawal,
   requestRiderWithdraw,
   requestVendorWithdraw,
+  retryPayoutRecoveryJob,
+  runPayoutRecoveryNow,
   runScheduledSettlements,
   saveRiderPayoutProfile,
   saveVendorPayoutProfile,
