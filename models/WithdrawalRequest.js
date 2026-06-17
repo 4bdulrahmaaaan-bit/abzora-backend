@@ -17,7 +17,18 @@ const withdrawalRequestSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['pending', 'manual_review', 'processing', 'completed', 'failed', 'rejected'],
+      enum: [
+        'pending',
+        'manual_review',
+        'approved',
+        'processing',
+        'paid',
+        'failed',
+        'reversed',
+        'cancelled',
+        'completed',
+        'rejected',
+      ],
       default: 'pending',
       index: true,
     },
@@ -65,6 +76,37 @@ const withdrawalRequestSchema = new mongoose.Schema(
       default: '',
     },
     approvedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    approvedBy: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    approvalLockId: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true,
+    },
+    processingStartedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    paidAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    reversedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    cancelledAt: {
       type: String,
       trim: true,
       default: '',

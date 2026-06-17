@@ -49,6 +49,26 @@ const payoutProfileSchema = new mongoose.Schema(
       trim: true,
       default: '',
     },
+    verificationStatus: {
+      type: String,
+      enum: ['unverified', 'pending', 'verified', 'failed'],
+      default: 'unverified',
+    },
+    verifiedAt: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    verificationReference: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    verificationMessage: {
+      type: String,
+      trim: true,
+      default: '',
+    },
   },
   { _id: false },
 );

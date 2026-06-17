@@ -30,6 +30,10 @@ const { claimWebhookDelivery } = require('../services/webhookLockService');
 const { isAllowedAdminEmail } = require('./authController');
 const { hasRole } = require('../middleware/authorizationMiddleware');
 
+function roundMoney(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
 function isVendorUser(user) {
   return hasRole(user, ['vendor']);
 }
@@ -77,13 +81,26 @@ function serializeWallet(wallet, extra = {}) {
     return null;
   }
   const source = typeof wallet.toObject === 'function' ? wallet.toObject() : wallet;
+  const balance = Number(source.balance || 0);
+  const pendingAmount = Number(source.pendingAmount || 0);
+  const reservedAmount = Number(source.reservedAmount || 0);
+  const totalEarnings = Number(source.totalEarnings || 0);
+  const totalWithdrawn = Number(source.totalWithdrawn || 0);
+  const expectedBalance = roundMoney(totalEarnings - totalWithdrawn - pendingAmount - reservedAmount);
   return {
-    balance: Number(source.balance || 0),
-    pendingAmount: Number(source.pendingAmount || 0),
-    reservedAmount: Number(source.reservedAmount || 0),
-    totalEarnings: Number(source.totalEarnings || 0),
-    totalWithdrawn: Number(source.totalWithdrawn || 0),
+    balance,
+    pendingAmount,
+    reservedAmount,
+    withdrawableBalance: roundMoney(Math.max(0, balance - reservedAmount)),
+    totalEarnings,
+    totalWithdrawn,
     lastSettlementDate: source.lastSettlementDate || '',
+    reconciliation: {
+      expectedBalance,
+      actualBalance: balance,
+      delta: roundMoney(balance - expectedBalance),
+      ledgerTotal: roundMoney(balance + reservedAmount + pendingAmount + totalWithdrawn),
+    },
     ...extra,
   };
 }
@@ -100,7 +117,12 @@ function serializePayoutProfile(profile) {
     razorpayContactId: source.razorpayContactId || '',
     razorpayFundAccountId: source.razorpayFundAccountId || '',
     lastSyncedAt: source.lastSyncedAt || '',
+    verificationStatus: source.verificationStatus || 'unverified',
+    verifiedAt: source.verifiedAt || '',
+    verificationReference: source.verificationReference || '',
+    verificationMessage: source.verificationMessage || '',
     isConfigured: Boolean(source.methodType),
+    isVerified: String(source.verificationStatus || '').toLowerCase() === 'verified' && Boolean(source.verificationReference),
   };
 }
 
@@ -122,7 +144,13 @@ function serializeWithdrawalRequest(item) {
     processedAt: source.processedAt || '',
     processedBy: source.processedBy || '',
     approvedAt: source.approvedAt || '',
+    approvedBy: source.approvedBy || '',
+    approvalLockId: source.approvalLockId || '',
+    processingStartedAt: source.processingStartedAt || '',
     completedAt: source.completedAt || '',
+    paidAt: source.paidAt || '',
+    reversedAt: source.reversedAt || '',
+    cancelledAt: source.cancelledAt || '',
     rejectionReason: source.rejectionReason || '',
     payoutMode: source.payoutMode || '',
     payoutId: source.payoutId || '',
@@ -254,6 +282,91 @@ function sameDay(left, right) {
   );
 }
 
+function parseNumberOrNull(value) {
+  if (value == null || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildWithdrawalFilter(query = {}) {
+  const filter = {};
+  const status = String(query.status || '').trim().toLowerCase();
+  const walletType = String(query.walletType || '').trim().toLowerCase();
+  const userId = String(query.userId || '').trim();
+  const storeId = String(query.storeId || '').trim();
+  const riderId = String(query.riderId || '').trim();
+  const from = toValidDate(query.from);
+  const to = toValidDate(query.to);
+  const minAmount = parseNumberOrNull(query.minAmount);
+  const maxAmount = parseNumberOrNull(query.maxAmount);
+
+  if (status && status !== 'all') {
+    filter.status = status;
+  }
+  if (['vendor', 'rider'].includes(walletType)) {
+    filter.walletType = walletType;
+  }
+  if (userId) {
+    filter.userId = userId;
+  }
+  if (storeId) {
+    filter.storeId = storeId;
+  }
+  if (riderId) {
+    filter.riderId = riderId;
+  }
+  if (from || to) {
+    filter.createdAt = {};
+    if (from) {
+      filter.createdAt.$gte = from;
+    }
+    if (to) {
+      to.setHours(23, 59, 59, 999);
+      filter.createdAt.$lte = to;
+    }
+  }
+  if (minAmount != null || maxAmount != null) {
+    filter.amount = {};
+    if (minAmount != null) {
+      filter.amount.$gte = minAmount;
+    }
+    if (maxAmount != null) {
+      filter.amount.$lte = maxAmount;
+    }
+  }
+  return filter;
+}
+
+function summarizeWithdrawalRequests(items = []) {
+  const summary = {
+    pending: 0,
+    approved: 0,
+    processing: 0,
+    paid: 0,
+    failed: 0,
+    reversed: 0,
+    cancelled: 0,
+    manual_review: 0,
+    completed: 0,
+    rejected: 0,
+  };
+  let totalAmount = 0;
+  for (const item of items) {
+    const status = String(item?.status || '').trim().toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(summary, status)) {
+      summary[status] += 1;
+    }
+    totalAmount += Number(item?.amount || 0);
+  }
+  return {
+    ...summary,
+    total: items.length,
+    totalAmount: roundMoney(totalAmount),
+  };
+}
+
 function buildDailySeries({ items, amountFor, dateFor, days = 7, labelFormatter }) {
   return Array.from({ length: days }, (_, index) => {
     const day = new Date();
@@ -365,7 +478,9 @@ async function getVendorDashboard(req, res, next) {
     });
 
     const lastPayoutTransaction = transactions.find(
-      (item) => item.type === 'payout' && ['completed', 'processed'].includes(String(item.status || '').toLowerCase()),
+      (item) =>
+        item.type === 'payout' &&
+        ['paid', 'completed', 'processed'].includes(String(item.status || '').toLowerCase()),
     );
     const todayRevenue = todayCompleted.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
     const todayEarnings = todayCompleted.reduce((sum, order) => sum + Number(order.vendorEarnings || 0), 0);
@@ -620,17 +735,17 @@ async function getAdminFinance(req, res, next) {
       VendorWallet.find({}).sort({ updatedAt: -1 }).limit(50),
       RiderWallet.find({}).sort({ updatedAt: -1 }).limit(50),
       Transaction.find({}).sort({ createdAt: -1, _id: -1 }).limit(50),
-      listWithdrawalRequests({ status: { $in: ['pending', 'manual_review', 'failed', 'processing'] } }),
+      listWithdrawalRequests({ status: { $in: ['pending', 'manual_review', 'approved', 'processing', 'paid', 'failed', 'reversed', 'cancelled', 'completed', 'rejected'] } }),
       FraudAlert.find({ status: { $in: ['open', 'reviewing'] } }).sort({ createdAt: -1, _id: -1 }).limit(30),
       User.countDocuments({ isFlagged: true }),
     ]);
 
     const vendorPending = vendorWallets.reduce((sum, item) => sum + Number(item.pendingAmount || 0), 0);
     const riderPending = riderWallets.reduce((sum, item) => sum + Number(item.pendingAmount || 0), 0);
-    const pendingWithdrawalAmount = withdrawalRequests.reduce(
-      (sum, item) => sum + Number(item.amount || 0),
-      0,
-    );
+    const pendingWithdrawalAmount = withdrawalRequests
+      .filter((item) => ['pending', 'manual_review', 'approved', 'processing'].includes(String(item.status || '').toLowerCase()))
+      .reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const withdrawalSummary = summarizeWithdrawalRequests(withdrawalRequests);
 
     return res.status(200).json({
       success: true,
@@ -646,14 +761,195 @@ async function getAdminFinance(req, res, next) {
         vendorPending,
         riderPending,
         pendingWithdrawalAmount,
-        vendorWallets: vendorWallets.map((wallet) => serializeWallet(wallet, { storeId: wallet.storeId, ownerId: wallet.ownerId })),
-        riderWallets: riderWallets.map((wallet) => serializeWallet(wallet, { riderId: wallet.riderId })),
+        withdrawalSummary,
+        vendorWallets: vendorWallets.map((wallet) =>
+          serializeWallet(wallet, { storeId: wallet.storeId, ownerId: wallet.ownerId }),
+        ),
+        riderWallets: riderWallets.map((wallet) =>
+          serializeWallet(wallet, { riderId: wallet.riderId }),
+        ),
         transactions: transactions.map(serializeTransaction),
         withdrawalRequests: withdrawalRequests.map(serializeWithdrawalRequest),
         fraudAlerts: fraudAlerts.map(serializeFraudAlert),
         flaggedUsers,
       },
     });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listAdminWithdrawals(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const page = Math.max(1, parseInt(req.query?.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query?.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+    const filter = buildWithdrawalFilter(req.query);
+    const [items, totalCount, statusTotals] = await Promise.all([
+      WithdrawalRequest.find(filter).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit),
+      WithdrawalRequest.countDocuments(filter),
+      WithdrawalRequest.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: { $toLower: '$status' },
+            count: { $sum: 1 },
+            totalAmount: { $sum: '$amount' },
+          },
+        },
+      ]),
+    ]);
+    const summary = {
+      pending: 0,
+      approved: 0,
+      processing: 0,
+      paid: 0,
+      failed: 0,
+      reversed: 0,
+      cancelled: 0,
+      manual_review: 0,
+      completed: 0,
+      rejected: 0,
+      total: totalCount,
+      totalAmount: 0,
+    };
+    for (const row of statusTotals) {
+      const key = String(row?._id || '').trim().toLowerCase();
+      if (Object.prototype.hasOwnProperty.call(summary, key)) {
+        summary[key] = Number(row.count || 0);
+      }
+      summary.totalAmount = roundMoney(summary.totalAmount + Number(row.totalAmount || 0));
+    }
+    return res.status(200).json({
+      success: true,
+      data: items.map(serializeWithdrawalRequest),
+      summary,
+      meta: {
+        page,
+        limit,
+        totalCount,
+        totalPages: Math.max(1, Math.ceil(totalCount / limit)),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function exportAdminWithdrawalsCsv(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const filter = buildWithdrawalFilter(req.query);
+    const items = await WithdrawalRequest.find(filter).sort({ createdAt: -1, _id: -1 }).limit(10000);
+    const rows = [
+      [
+        'requestId',
+        'walletType',
+        'status',
+        'userId',
+        'storeId',
+        'riderId',
+        'amount',
+        'requestedAt',
+        'approvedAt',
+        'processingStartedAt',
+        'completedAt',
+        'paidAt',
+        'failureReason',
+        'rejectionReason',
+        'payoutId',
+      ].join(','),
+      ...items.map((item) =>
+        [
+          item.requestId,
+          item.walletType,
+          item.status,
+          item.userId,
+          item.storeId || '',
+          item.riderId || '',
+          Number(item.amount || 0),
+          item.requestedAt || '',
+          item.approvedAt || '',
+          item.processingStartedAt || '',
+          item.completedAt || '',
+          item.paidAt || '',
+          String(item.failureReason || '').replaceAll(',', ' '),
+          String(item.rejectionReason || '').replaceAll(',', ' '),
+          item.payoutId || '',
+        ].join(','),
+      ),
+    ];
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="abzora-withdrawals.csv"');
+    return res.status(200).send(rows.join('\n'));
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function exportAdminWithdrawalsXlsx(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    let ExcelJS;
+    try {
+      // Lazy load so the API still boots if the Excel dependency changes.
+      // eslint-disable-next-line global-require
+      ExcelJS = require('exceljs');
+    } catch (_) {
+      return res.status(500).json({
+        success: false,
+        message: 'XLSX export dependency missing. Install exceljs in backend.',
+      });
+    }
+    const filter = buildWithdrawalFilter(req.query);
+    const items = await WithdrawalRequest.find(filter).sort({ createdAt: -1, _id: -1 }).limit(10000);
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Withdrawals');
+    sheet.columns = [
+      { header: 'Request ID', key: 'requestId', width: 22 },
+      { header: 'Wallet Type', key: 'walletType', width: 12 },
+      { header: 'Status', key: 'status', width: 14 },
+      { header: 'User ID', key: 'userId', width: 18 },
+      { header: 'Store ID', key: 'storeId', width: 18 },
+      { header: 'Rider ID', key: 'riderId', width: 18 },
+      { header: 'Amount', key: 'amount', width: 14 },
+      { header: 'Requested At', key: 'requestedAt', width: 24 },
+      { header: 'Approved At', key: 'approvedAt', width: 24 },
+      { header: 'Processing Started At', key: 'processingStartedAt', width: 24 },
+      { header: 'Completed At', key: 'completedAt', width: 24 },
+      { header: 'Paid At', key: 'paidAt', width: 24 },
+      { header: 'Payout ID', key: 'payoutId', width: 22 },
+      { header: 'Failure Reason', key: 'failureReason', width: 34 },
+    ];
+    items.forEach((item) => {
+      sheet.addRow({
+        requestId: item.requestId,
+        walletType: item.walletType,
+        status: item.status,
+        userId: item.userId,
+        storeId: item.storeId || '',
+        riderId: item.riderId || '',
+        amount: Number(item.amount || 0),
+        requestedAt: item.requestedAt || '',
+        approvedAt: item.approvedAt || '',
+        processingStartedAt: item.processingStartedAt || '',
+        completedAt: item.completedAt || '',
+        paidAt: item.paidAt || '',
+        payoutId: item.payoutId || '',
+        failureReason: item.failureReason || '',
+      });
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="abzora-withdrawals.xlsx"');
+    await workbook.xlsx.write(res);
+    return res.end();
   } catch (error) {
     return next(error);
   }
@@ -885,13 +1181,7 @@ async function handleRazorpayPayoutWebhook(req, res, next) {
       payoutEntity?.status_details?.reason ||
       payoutEntity?.failure_reason ||
       'Payout failed.';
-    const failedEvents = new Set([
-      'payout.failed',
-      'payout.rejected',
-      'payout.cancelled',
-      'payout.reversed',
-      'payout.returned',
-    ]);
+    const failedEvents = new Set(['payout.failed', 'payout.rejected', 'payout.cancelled', 'payout.reversed', 'payout.returned']);
 
     if (event === 'payout.processed') {
       const request = await markWithdrawalCompleted({ payoutId, requestId });
@@ -909,18 +1199,25 @@ async function handleRazorpayPayoutWebhook(req, res, next) {
     }
 
     if (failedEvents.has(event)) {
+      const finalStatus =
+        event === 'payout.cancelled'
+          ? 'cancelled'
+          : event === 'payout.reversed' || event === 'payout.returned'
+            ? 'reversed'
+            : 'failed';
       const request = await markWithdrawalFailed({
         payoutId,
         requestId,
         reason: failureReason,
+        finalStatus,
       });
       await recordPayoutWebhookAudit({
         action: 'payout_webhook_failed',
-        status: 'failed',
+        status: finalStatus === 'failed' ? 'failed' : 'success',
         request,
         amount: request?.amount || 0,
         message: failureReason,
-        metadata: { event, payoutId, requestId },
+        metadata: { event, payoutId, requestId, finalStatus },
       });
       return res.status(200).json({
         success: true,
@@ -941,6 +1238,8 @@ async function handleRazorpayPayoutWebhook(req, res, next) {
 
 module.exports = {
   approvePendingWithdrawal,
+  exportAdminWithdrawalsCsv,
+  exportAdminWithdrawalsXlsx,
   getUserWalletSummary,
   getAdminFinance,
   getRiderDashboard,
@@ -950,6 +1249,7 @@ module.exports = {
   getVendorWallet,
   getVendorPayoutProfile,
   handleRazorpayPayoutWebhook,
+  listAdminWithdrawals,
   rejectPendingWithdrawal,
   requestRiderWithdraw,
   requestVendorWithdraw,

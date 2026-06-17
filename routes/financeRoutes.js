@@ -8,6 +8,9 @@ const {
 } = require('../validation/schemas/adminFinanceOpsSchemas');
 const {
   getAdminFinance,
+  listAdminWithdrawals,
+  exportAdminWithdrawalsCsv,
+  exportAdminWithdrawalsXlsx,
   getVendorDashboard,
   getRiderDashboard,
   runScheduledSettlements,
@@ -17,6 +20,9 @@ const {
 const router = express.Router();
 
 router.get('/overview', requireAdmin, getAdminFinance);
+router.get('/withdrawals', requireAdmin, listAdminWithdrawals);
+router.get('/withdrawals/export/csv', requireAdmin, exportAdminWithdrawalsCsv);
+router.get('/withdrawals/export/xlsx', requireAdmin, exportAdminWithdrawalsXlsx);
 router.get('/vendor/dashboard', requireVendor, getVendorDashboard);
 router.get('/rider/dashboard', requireRider, getRiderDashboard);
 router.post('/settlements/run', requireAdmin, validateBody(runSettlementsSchema), runScheduledSettlements);
