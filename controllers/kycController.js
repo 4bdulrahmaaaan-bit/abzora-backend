@@ -321,7 +321,7 @@ async function submitRiderKycRequest(req, res, next) {
         city: normalizeText(payload.city, 80),
         kyc: normalizeKycDocuments(payload.kyc),
         metadata: normalizeMetadata(payload.metadata),
-        status: 'applied',
+        status: 'submitted',
         rejectionReason: '',
         reviewedBy: '',
         reviewedByName: '',
@@ -335,7 +335,7 @@ async function submitRiderKycRequest(req, res, next) {
       { $or: [{ uid: userId }, { firebaseUid: userId }] },
       {
         $set: {
-          'riderOnboarding.status': 'applied',
+          'riderOnboarding.status': 'submitted',
           'riderOnboarding.isCompleted': false,
           'riderOnboarding.resubmissionRequired': false,
           'riderOnboarding.requestId': requestId,

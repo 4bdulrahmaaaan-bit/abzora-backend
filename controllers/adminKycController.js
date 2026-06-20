@@ -29,7 +29,7 @@ exports.getDashboard = async (req, res) => {
       VendorKyc.countDocuments({ status: { $in: ['submitted', 'applied', 'ocr_review', 'business_review', 'finance_review'] } }),
       VendorKyc.countDocuments({ status: 'approved' }),
       VendorKyc.countDocuments({ status: 'rejected' }),
-      RiderKyc.countDocuments({ status: { $in: ['applied', 'kyc_review', 'verification_review', 'training_pending', 'fleet_approval'] } }),
+      RiderKyc.countDocuments({ status: { $in: ['submitted', 'applied', 'kyc_review', 'verification_review', 'training_pending', 'fleet_approval'] } }),
       RiderKyc.countDocuments({ status: 'approved' }),
       RiderKyc.countDocuments({ status: 'rejected' }),
     ]);
@@ -114,7 +114,7 @@ exports.reviewKycApplication = async (req, res) => {
     const { type, status, notes } = req.body; // type: 'Vendor' or 'Rider'
 
     const validVendorStatuses = ['submitted', 'applied', 'ocr_review', 'business_review', 'finance_review', 'approved', 'active', 'rejected', 'suspended'];
-    const validRiderStatuses = ['applied', 'kyc_review', 'verification_review', 'training_pending', 'fleet_approval', 'active', 'rejected', 'suspended'];
+    const validRiderStatuses = ['submitted', 'applied', 'kyc_review', 'verification_review', 'training_pending', 'fleet_approval', 'active', 'rejected', 'suspended'];
 
     if (type === 'Vendor' && !validVendorStatuses.includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid vendor status' });

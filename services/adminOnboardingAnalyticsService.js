@@ -83,7 +83,7 @@ class AdminOnboardingAnalyticsService {
     };
 
     const vendorApprovalTimes = await computeForModel(VendorKycRequest, 'submitted', 'approved');
-    const riderApprovalTimes = await computeForModel(RiderKycRequest, 'applied', 'fleet_approval'); // using fleet_approval or active
+    const riderApprovalTimes = await computeForModel(RiderKycRequest, 'submitted', 'fleet_approval'); // using fleet_approval or active
 
     return {
       vendor: vendorApprovalTimes,

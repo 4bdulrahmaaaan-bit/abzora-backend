@@ -471,7 +471,7 @@ async function getDashboardSummary(req, res, next) {
       Order.find({}).sort({ createdAt: -1 }).limit(500),
       SupportChat.countDocuments({ status: { $ne: 'closed' } }),
       VendorKycRequest.countDocuments({ status: 'pending' }),
-      RiderKycRequest.countDocuments({ status: 'pending' }),
+      RiderKycRequest.countDocuments({ status: { $in: ['submitted', 'applied', 'pending'] } }),
       TrialHomeSession.countDocuments({ status: { $in: ['booked', 'out_for_delivery', 'active'] } }),
       Store.countDocuments({ isActive: true }),
     ]);

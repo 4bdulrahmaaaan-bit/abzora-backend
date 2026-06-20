@@ -47,8 +47,8 @@ const riderKycRequestSchema = new mongoose.Schema(
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
     status: {
       type: String,
-      enum: ['applied', 'kyc_review', 'verification_review', 'training_pending', 'fleet_approval', 'active', 'rejected', 'suspended'],
-      default: 'applied',
+      enum: ['submitted', 'applied', 'kyc_review', 'verification_review', 'training_pending', 'fleet_approval', 'active', 'rejected', 'suspended'],
+      default: 'submitted',
       index: true,
     },
     training: {
