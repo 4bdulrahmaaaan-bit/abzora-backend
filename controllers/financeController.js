@@ -1160,6 +1160,226 @@ async function retryPayoutRecoveryJob(req, res, next) {
   }
 }
 
+async function _applyManualRecoveryDecision({
+  job,
+  request,
+  decision,
+  reason = '',
+  processedBy = 'admin-recovery',
+  finalStatus = 'failed',
+}) {
+  if (!job || !request) {
+    throw new Error('Recovery job and withdrawal request are required.');
+  }
+
+  if (decision === 'paid') {
+    const updatedRequest = await markWithdrawalCompleted({
+      requestId: request.requestId,
+      payoutId: request.payoutId,
+      processedBy,
+    });
+    job.status = 'recovered';
+    job.failureReason = '';
+    job.resolvedAt = new Date().toISOString();
+    job.lastCheckedAt = job.resolvedAt;
+    job.metadata = new Map(
+      Object.entries({
+        ...(job.metadata ? Object.fromEntries(job.metadata) : {}),
+        resolutionMethod: 'manual_mark_paid',
+        resolutionNote: reason,
+        statusBefore: request.status || '',
+        statusAfter: updatedRequest?.status || 'paid',
+      }).map(([key, value]) => [key, String(value ?? '')]),
+    );
+    await job.save();
+    return updatedRequest;
+  }
+
+  const safeFinalStatus = ['reversed', 'cancelled', 'failed'].includes(finalStatus)
+    ? finalStatus
+    : 'failed';
+  const updatedRequest = await markWithdrawalFailed({
+    requestId: request.requestId,
+    payoutId: request.payoutId,
+    reason: reason || 'Marked failed by admin recovery review.',
+    processedBy,
+    finalStatus: safeFinalStatus,
+  });
+  job.status = safeFinalStatus === 'failed' ? 'failed' : 'manual_review';
+  job.failureReason = reason || 'Marked failed by admin recovery review.';
+  job.resolvedAt = new Date().toISOString();
+  job.lastCheckedAt = job.resolvedAt;
+  job.metadata = new Map(
+    Object.entries({
+      ...(job.metadata ? Object.fromEntries(job.metadata) : {}),
+      resolutionMethod: 'manual_mark_failed',
+      resolutionNote: reason,
+      statusBefore: request.status || '',
+      statusAfter: updatedRequest?.status || safeFinalStatus,
+    }).map(([key, value]) => [key, String(value ?? '')]),
+  );
+  await job.save();
+  return updatedRequest;
+}
+
+async function markPayoutRecoveryJobPaid(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const jobId = String(req.params?.jobId || '').trim();
+    const reason = String(req.body?.reason || '').trim();
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'jobId is required.' });
+    }
+    const job = await PayoutRecoveryJob.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Recovery job not found.' });
+    }
+    const request = await WithdrawalRequest.findOne({ requestId: job.withdrawalRequestId });
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Withdrawal request not found.' });
+    }
+    const updatedRequest = await _applyManualRecoveryDecision({
+      job,
+      request,
+      decision: 'paid',
+      reason,
+      processedBy: req.user?.uid || 'admin-recovery',
+    });
+    return res.status(200).json({
+      success: true,
+      data: {
+        job: serializeRecoveryJob(job),
+        request: serializeWithdrawalRequest(updatedRequest),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function markPayoutRecoveryJobFailed(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const jobId = String(req.params?.jobId || '').trim();
+    const reason = String(req.body?.reason || '').trim();
+    const finalStatus = String(req.body?.finalStatus || 'failed').trim().toLowerCase();
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'jobId is required.' });
+    }
+    const job = await PayoutRecoveryJob.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Recovery job not found.' });
+    }
+    const request = await WithdrawalRequest.findOne({ requestId: job.withdrawalRequestId });
+    if (!request) {
+      return res.status(404).json({ success: false, message: 'Withdrawal request not found.' });
+    }
+    const updatedRequest = await _applyManualRecoveryDecision({
+      job,
+      request,
+      decision: 'failed',
+      reason,
+      processedBy: req.user?.uid || 'admin-recovery',
+      finalStatus,
+    });
+    return res.status(200).json({
+      success: true,
+      data: {
+        job: serializeRecoveryJob(job),
+        request: serializeWithdrawalRequest(updatedRequest),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function escalatePayoutRecoveryJob(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const jobId = String(req.params?.jobId || '').trim();
+    const reason = String(req.body?.reason || '').trim();
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'jobId is required.' });
+    }
+    const job = await PayoutRecoveryJob.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Recovery job not found.' });
+    }
+    job.status = 'manual_review';
+    job.failureReason = reason || 'Escalated to finance review.';
+    job.lastCheckedAt = new Date().toISOString();
+    job.metadata = new Map(
+      Object.entries({
+        ...(job.metadata ? Object.fromEntries(job.metadata) : {}),
+        resolutionMethod: 'escalated',
+        resolutionNote: reason,
+      }).map(([key, value]) => [key, String(value ?? '')]),
+    );
+    await job.save();
+    return res.status(200).json({
+      success: true,
+      data: serializeRecoveryJob(job),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function addPayoutRecoveryJobNote(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) {
+      return;
+    }
+    const jobId = String(req.params?.jobId || '').trim();
+    const note = String(req.body?.note || '').trim();
+    if (!jobId) {
+      return res.status(400).json({ success: false, message: 'jobId is required.' });
+    }
+    if (!note) {
+      return res.status(400).json({ success: false, message: 'note is required.' });
+    }
+    const job = await PayoutRecoveryJob.findById(jobId);
+    if (!job) {
+      return res.status(404).json({ success: false, message: 'Recovery job not found.' });
+    }
+    const metadata = job.metadata ? Object.fromEntries(job.metadata) : {};
+    job.metadata = new Map(
+      Object.entries({
+        ...metadata,
+        internalNote: note,
+        noteUpdatedAt: new Date().toISOString(),
+        noteUpdatedBy: req.user?.uid || 'admin-recovery',
+      }).map(([key, value]) => [key, String(value ?? '')]),
+    );
+    job.lastCheckedAt = new Date().toISOString();
+    await job.save();
+    await recordFinanceAudit({
+      action: 'payout_recovery_note',
+      actorId: req.user?.uid || 'admin-recovery',
+      actorRole: 'admin',
+      status: 'success',
+      walletType: 'admin',
+      withdrawalRequestId: job.withdrawalRequestId,
+      payoutId: job.razorpayPayoutId || '',
+      amount: 0,
+      message: note,
+    });
+    return res.status(200).json({
+      success: true,
+      data: serializeRecoveryJob(job),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function exportPayoutRecoveryJobsCsv(req, res, next) {
   try {
     if (!ensureAdmin(req, res)) {
@@ -1541,6 +1761,8 @@ module.exports = {
   exportAdminWithdrawalsXlsx,
   exportPayoutRecoveryJobsCsv,
   exportPayoutRecoveryJobsXlsx,
+  addPayoutRecoveryJobNote,
+  escalatePayoutRecoveryJob,
   getUserWalletSummary,
   getAdminFinance,
   getPayoutRecoveryJobs,
@@ -1556,6 +1778,8 @@ module.exports = {
   requestRiderWithdraw,
   requestVendorWithdraw,
   retryPayoutRecoveryJob,
+  markPayoutRecoveryJobFailed,
+  markPayoutRecoveryJobPaid,
   runPayoutRecoveryNow,
   runScheduledSettlements,
   saveRiderPayoutProfile,

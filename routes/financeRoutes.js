@@ -14,7 +14,11 @@ const {
   exportAdminWithdrawalsXlsx,
   getVendorDashboard,
   getRiderDashboard,
+  addPayoutRecoveryJobNote,
+  escalatePayoutRecoveryJob,
   retryPayoutRecoveryJob,
+  markPayoutRecoveryJobFailed,
+  markPayoutRecoveryJobPaid,
   runScheduledSettlements,
   runPayoutRecoveryNow,
   updateFraudAlertStatus,
@@ -33,6 +37,10 @@ router.get('/recovery/jobs/export/csv', requireAdmin, exportPayoutRecoveryJobsCs
 router.get('/recovery/jobs/export/xlsx', requireAdmin, exportPayoutRecoveryJobsXlsx);
 router.post('/recovery/run', requireAdmin, runPayoutRecoveryNow);
 router.post('/recovery/jobs/:jobId/retry', requireAdmin, retryPayoutRecoveryJob);
+router.post('/recovery/jobs/:jobId/mark-paid', requireAdmin, markPayoutRecoveryJobPaid);
+router.post('/recovery/jobs/:jobId/mark-failed', requireAdmin, markPayoutRecoveryJobFailed);
+router.post('/recovery/jobs/:jobId/escalate', requireAdmin, escalatePayoutRecoveryJob);
+router.post('/recovery/jobs/:jobId/note', requireAdmin, addPayoutRecoveryJobNote);
 router.get('/vendor/dashboard', requireVendor, getVendorDashboard);
 router.get('/rider/dashboard', requireRider, getRiderDashboard);
 router.post('/settlements/run', requireAdmin, validateBody(runSettlementsSchema), runScheduledSettlements);
