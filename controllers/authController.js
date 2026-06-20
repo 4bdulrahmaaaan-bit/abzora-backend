@@ -421,7 +421,7 @@ async function findApprovedVendorKyc(user) {
   }
 
   return VendorKycRequest.findOne({
-    status: 'approved',
+    status: { $in: ['approved', 'active'] },
     $or: [
       ...(user.firebaseUid ? [{ userId: user.firebaseUid }] : []),
       ...(user.uid ? [{ userId: user.uid }] : []),

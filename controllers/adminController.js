@@ -413,6 +413,14 @@ async function ensureVendorStoreForUser(user, options = {}) {
     return existingStore;
   }
 
+  console.log('[STORE_CREATION]', JSON.stringify({
+    ownerId: user.firebaseUid || user.uid || user._id?.toString?.() || '',
+    vendorId: user._id?.toString?.() || '',
+    storeName: String(options.storeName || user.name || 'My Store').trim() || 'My Store',
+    source: options.source || 'vendor_kyc_approval',
+    createdAt: new Date().toISOString(),
+  }));
+
   const store = await Store.create({
     vendorId: user._id,
     ownerId: user.firebaseUid || user.uid || user._id.toString(),
@@ -724,6 +732,12 @@ async function listVendorKycRequests(req, res, next) {
     const status = String(req.query.status || '').trim();
     const filter = status ? { status } : {};
     const items = await VendorKycRequest.find(filter).sort({ updatedAt: -1, _id: -1 });
+    console.log('[ONBOARDING_ADMIN_QUEUE]', JSON.stringify({
+      role: req.user?.role || '',
+      statusFilter: status || 'all',
+      resultCount: items.length,
+      timestamp: toIsoNow(),
+    }));
     return res.status(200).json({
       success: true,
       data: items.map(serializeVendorKyc),
@@ -1073,6 +1087,7 @@ async function reviewVendorKycRequest(req, res, next) {
       return res.status(404).json({ success: false, message: 'Vendor KYC request not found.' });
     }
 
+    const previousStatus = item.status;
     item.status = status;
     item.rejectionReason = status === 'rejected' ? reason : '';
     item.reviewedBy = req.user.uid;
@@ -1089,6 +1104,15 @@ async function reviewVendorKycRequest(req, res, next) {
       },
     ];
     await item.save();
+    console.log('[ONBOARDING_STATUS_CHANGE]', JSON.stringify({
+      requestId,
+      userId: item.userId,
+      previousStatus,
+      nextStatus: status,
+      actorId: req.user.uid,
+      actorRole: req.user.role,
+      timestamp: item.reviewedAt,
+    }));
 
     let store = null;
     if (status === 'approved') {
@@ -1110,11 +1134,12 @@ async function reviewVendorKycRequest(req, res, next) {
 
       store = await ensureVendorStoreForUser(user, {
         storeName: item.storeName || item.ownerName || user.name,
+        source: 'admin_vendor_review',
       });
     }
 
     await User.findOneAndUpdate(
-      { uid: item.userId },
+      { $or: [{ uid: item.userId }, { firebaseUid: item.userId }] },
       {
         $set: {
           'vendorOnboarding.status': status,

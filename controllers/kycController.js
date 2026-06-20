@@ -169,6 +169,9 @@ function buildIfscLookup(code) {
 async function getMyVendorKycRequest(req, res, next) {
   try {
     const userId = req.user?.uid || req.user?.firebaseUid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
     const item = await VendorKycRequest.findOne({ userId }).sort({ updatedAt: -1, _id: -1 });
     if (!item) {
       return res.status(200).json({ success: true, data: null });
@@ -182,6 +185,9 @@ async function getMyVendorKycRequest(req, res, next) {
 async function submitVendorKycRequest(req, res, next) {
   try {
     const userId = req.user?.uid || req.user?.firebaseUid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
     const requestId = `vendor-${userId}`;
     const payload = req.body || {};
     const existing = await VendorKycRequest.findOne({ requestId });
@@ -205,6 +211,17 @@ async function submitVendorKycRequest(req, res, next) {
       timestamp: nowIso,
     });
 
+    const nextStatus = 'submitted';
+    console.log('[ONBOARDING_SUBMIT]', JSON.stringify({
+      requestId,
+      userId,
+      status: nextStatus,
+      hasStoreName: Boolean(normalizeText(payload.storeName, 120)),
+      hasOwnerName: Boolean(normalizeText(payload.ownerName || req.user?.name || req.dbUser?.name || '', 120)),
+      hasKycDocs: Boolean(payload?.kyc),
+      updatedAt: nowIso,
+    }));
+
     const item = await VendorKycRequest.findOneAndUpdate(
       { requestId },
       {
@@ -219,7 +236,7 @@ async function submitVendorKycRequest(req, res, next) {
         longitude: normalizeCoordinate(payload.longitude, -180, 180),
         kyc: normalizeKycDocuments(payload.kyc),
         metadata: normalizeMetadata(payload.metadata),
-        status: 'applied',
+        status: nextStatus,
         rejectionReason: '',
         reviewedBy: '',
         reviewedByName: '',
@@ -231,10 +248,10 @@ async function submitVendorKycRequest(req, res, next) {
     );
 
     await User.findOneAndUpdate(
-      { uid: userId },
+      { $or: [{ uid: userId }, { firebaseUid: userId }] },
       {
         $set: {
-          'vendorOnboarding.status': 'applied',
+          'vendorOnboarding.status': nextStatus,
           'vendorOnboarding.isCompleted': false,
           'vendorOnboarding.resubmissionRequired': false,
           'vendorOnboarding.requestId': requestId,
@@ -251,6 +268,9 @@ async function submitVendorKycRequest(req, res, next) {
 async function getMyRiderKycRequest(req, res, next) {
   try {
     const userId = req.user?.uid || req.user?.firebaseUid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
     const item = await RiderKycRequest.findOne({ userId }).sort({ updatedAt: -1, _id: -1 });
     if (!item) {
       return res.status(200).json({ success: true, data: null });
@@ -264,6 +284,9 @@ async function getMyRiderKycRequest(req, res, next) {
 async function submitRiderKycRequest(req, res, next) {
   try {
     const userId = req.user?.uid || req.user?.firebaseUid;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required.' });
+    }
     const requestId = `rider-${userId}`;
     const payload = req.body || {};
     const existing = await RiderKycRequest.findOne({ requestId });
@@ -309,7 +332,7 @@ async function submitRiderKycRequest(req, res, next) {
     );
 
     await User.findOneAndUpdate(
-      { uid: userId },
+      { $or: [{ uid: userId }, { firebaseUid: userId }] },
       {
         $set: {
           'riderOnboarding.status': 'applied',

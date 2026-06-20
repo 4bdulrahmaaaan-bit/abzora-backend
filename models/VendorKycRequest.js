@@ -70,8 +70,8 @@ const vendorKycRequestSchema = new mongoose.Schema(
     metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
     status: {
       type: String,
-      enum: ['applied', 'ocr_review', 'business_review', 'finance_review', 'approved', 'active', 'rejected', 'suspended'],
-      default: 'applied',
+      enum: ['submitted', 'applied', 'ocr_review', 'business_review', 'finance_review', 'approved', 'active', 'rejected', 'suspended'],
+      default: 'submitted',
       index: true,
     },
     monthlyCapacity: { type: Number, default: 0 },

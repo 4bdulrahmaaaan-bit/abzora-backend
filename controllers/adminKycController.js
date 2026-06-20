@@ -26,7 +26,7 @@ exports.getDashboard = async (req, res) => {
       approvedRiderKyc,
       rejectedRiderKyc,
     ] = await Promise.all([
-      VendorKyc.countDocuments({ status: { $in: ['applied', 'ocr_review', 'business_review', 'finance_review'] } }),
+      VendorKyc.countDocuments({ status: { $in: ['submitted', 'applied', 'ocr_review', 'business_review', 'finance_review'] } }),
       VendorKyc.countDocuments({ status: 'approved' }),
       VendorKyc.countDocuments({ status: 'rejected' }),
       RiderKyc.countDocuments({ status: { $in: ['applied', 'kyc_review', 'verification_review', 'training_pending', 'fleet_approval'] } }),
@@ -113,7 +113,7 @@ exports.reviewKycApplication = async (req, res) => {
     const { id } = req.params;
     const { type, status, notes } = req.body; // type: 'Vendor' or 'Rider'
 
-    const validVendorStatuses = ['applied', 'ocr_review', 'business_review', 'finance_review', 'approved', 'active', 'rejected', 'suspended'];
+    const validVendorStatuses = ['submitted', 'applied', 'ocr_review', 'business_review', 'finance_review', 'approved', 'active', 'rejected', 'suspended'];
     const validRiderStatuses = ['applied', 'kyc_review', 'verification_review', 'training_pending', 'fleet_approval', 'active', 'rejected', 'suspended'];
 
     if (type === 'Vendor' && !validVendorStatuses.includes(status)) {
@@ -156,7 +156,7 @@ exports.reviewKycApplication = async (req, res) => {
       ).select('status rejectionReason userId').lean();
 
       await User.findOneAndUpdate(
-        { uid: newState.userId },
+        { $or: [{ uid: newState.userId }, { firebaseUid: newState.userId }] },
         {
           $set: {
             'vendorOnboarding.status': status,
@@ -185,7 +185,7 @@ exports.reviewKycApplication = async (req, res) => {
       ).select('status rejectionReason userId').lean();
 
       await User.findOneAndUpdate(
-        { uid: newState.userId },
+        { $or: [{ uid: newState.userId }, { firebaseUid: newState.userId }] },
         {
           $set: {
             'riderOnboarding.status': status,

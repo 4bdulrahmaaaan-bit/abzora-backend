@@ -82,7 +82,7 @@ class AdminOnboardingAnalyticsService {
       return result[0] || { averageMs: 0, minMs: 0, maxMs: 0, count: 0 };
     };
 
-    const vendorApprovalTimes = await computeForModel(VendorKycRequest, 'applied', 'approved');
+    const vendorApprovalTimes = await computeForModel(VendorKycRequest, 'submitted', 'approved');
     const riderApprovalTimes = await computeForModel(RiderKycRequest, 'applied', 'fleet_approval'); // using fleet_approval or active
 
     return {
