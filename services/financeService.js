@@ -47,8 +47,19 @@ function buildId(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizePayoutMethodType(methodType) {
+  const normalized = String(methodType || '').trim().toLowerCase();
+  if (normalized === 'upi' || normalized === 'vpa') {
+    return 'vpa';
+  }
+  if (normalized === 'bank' || normalized === 'bank_account') {
+    return 'bank_account';
+  }
+  return '';
+}
+
 function normalizePayoutMode(methodType) {
-  return methodType === 'vpa' ? 'UPI' : 'IMPS';
+  return normalizePayoutMethodType(methodType) === 'vpa' ? 'UPI' : 'IMPS';
 }
 
 const WITHDRAWAL_STATE_TRANSITIONS = {
@@ -108,7 +119,7 @@ function validateAccountHolderName(accountHolderName) {
 
 function normalizePayoutProfile(profile = {}) {
   return {
-    methodType: String(profile.methodType || '').trim(),
+    methodType: normalizePayoutMethodType(profile.methodType),
     accountHolderName: normalizeText(profile.accountHolderName),
     upiId: normalizeText(profile.upiId),
     bankAccountNumber: normalizeText(profile.bankAccountNumber),
@@ -124,9 +135,16 @@ function normalizePayoutProfile(profile = {}) {
   };
 }
 
-function validatePayoutProfile(profile = {}) {
+function validatePayoutProfile(profile = {}, options = {}) {
+  const { allowUnsetMethodType = false } = options;
   const normalized = normalizePayoutProfile(profile);
   const methodType = normalized.methodType.toLowerCase();
+  if (!methodType) {
+    if (allowUnsetMethodType) {
+      return normalized;
+    }
+    throw new Error('methodType must be vpa or bank_account.');
+  }
   if (!['vpa', 'bank_account'].includes(methodType)) {
     throw new Error('methodType must be vpa or bank_account.');
   }
@@ -401,8 +419,11 @@ async function saveUserPayoutProfile({
       throw new Error('User not found.');
     }
 
+    const resolvedMethodType = normalizePayoutMethodType(
+      methodType || (upiId ? 'vpa' : bankAccountNumber || bankIfsc ? 'bank_account' : ''),
+    );
     const profile = validatePayoutProfile({
-      methodType,
+      methodType: resolvedMethodType,
       accountHolderName: accountHolderName || user.name || '',
       upiId,
       bankAccountNumber,
@@ -429,7 +450,7 @@ async function saveUserPayoutProfile({
 
 async function ensureUserPayoutRecipient({ userId, walletType, session = null }) {
   const { user, profile } = await getUserPayoutProfile(userId, session);
-  const normalizedProfile = validatePayoutProfile(profile);
+  const normalizedProfile = validatePayoutProfile(profile, { allowUnsetMethodType: true });
   if (!normalizedProfile.methodType) {
     throw new Error('Beneficiary payout details are not configured.');
   }

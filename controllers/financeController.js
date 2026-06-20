@@ -633,13 +633,6 @@ async function getVendorPayoutProfile(req, res, next) {
 
 async function saveVendorPayoutProfile(req, res, next) {
   try {
-    if (!ensureVendor(req, res)) {
-      return;
-    }
-    const store = await Store.findOne({ ownerId: req.user.uid });
-    if (!store) {
-      return res.status(404).json({ success: false, message: 'Store not found.' });
-    }
     const profile = await saveUserPayoutProfile({
       userId: req.user.uid,
       methodType: req.body?.methodType,
@@ -761,9 +754,6 @@ async function getRiderPayoutProfile(req, res, next) {
 
 async function saveRiderPayoutProfile(req, res, next) {
   try {
-    if (!ensureRider(req, res)) {
-      return;
-    }
     const profile = await saveUserPayoutProfile({
       userId: req.user.uid,
       methodType: req.body?.methodType,

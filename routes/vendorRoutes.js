@@ -77,7 +77,7 @@ router.get('/custom/orders/:orderId/messages', requireVendor, listCustomOrderMes
 router.get('/wallet', requireVendor, getVendorWallet);
 router.post('/withdraw', requireVendor, validateBody(withdrawalRequestSchema), requestVendorWithdraw);
 router.get('/payout-account', requireVendor, getVendorPayoutProfile);
-router.post('/payout-account', requireVendor, validateBody(payoutProfileSchema), saveVendorPayoutProfile);
+router.post('/payout-account', validateBody(payoutProfileSchema), saveVendorPayoutProfile);
 router.get('/trial-home/dashboard', requireVendor, getVendorTrialHomeDashboard);
 router.get('/trial-home/sessions', requireVendor, listVendorTrialHomeSessions);
 router.patch('/trial-home/:id/status', requireVendor, updateVendorTrialHomeSession);
