@@ -12,7 +12,7 @@ const { calculateOrderPricing, toPricingEngineConfig } = require('../services/pr
 function ensurePricingAdmin(req, res) {
   const hasPrivilegedRole = hasRole(req.user, ['admin', 'super_admin']);
   const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
-  if (!hasPrivilegedRole || !emailAllowed) {
+  if (!hasPrivilegedRole && !emailAllowed) {
     res.status(403).json({ success: false, message: 'Admin access required.' });
     return false;
   }

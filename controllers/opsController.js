@@ -23,7 +23,7 @@ const { hasRole } = require('../middleware/authorizationMiddleware');
 function ensureOpsAdmin(req, res) {
   const privileged = hasRole(req.user, ['admin', 'super_admin']);
   const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
-  if (!privileged || !emailAllowed) {
+  if (!privileged && !emailAllowed) {
     res.status(403).json({ success: false, message: 'Ops admin access required.' });
     return false;
   }

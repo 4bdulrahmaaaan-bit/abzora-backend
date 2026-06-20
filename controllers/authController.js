@@ -430,6 +430,11 @@ async function findApprovedVendorKyc(user) {
   }).sort({ updatedAt: -1, _id: -1 });
 }
 
+function hasApprovedVendorOnboarding(user) {
+  const onboardingStatus = toSafeTrimmedString(user?.vendorOnboarding?.status).toLowerCase();
+  return onboardingStatus === 'approved' || onboardingStatus === 'active';
+}
+
 async function ensureLinkedStoreId(user) {
   if (!user) {
     return user;
@@ -437,7 +442,7 @@ async function ensureLinkedStoreId(user) {
 
   const approvedVendorKyc = await findApprovedVendorKyc(user);
   const shouldPromoteVendor =
-    user.role === 'vendor' ||
+    hasApprovedVendorOnboarding(user) ||
     Boolean(approvedVendorKyc);
 
   if (!shouldPromoteVendor) {

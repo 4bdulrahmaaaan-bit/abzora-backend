@@ -51,6 +51,47 @@ function normalizeKycDocuments(payload = {}) {
   };
 }
 
+function buildUserIdentityFromRequest(req, userId) {
+  return {
+    firebaseUid: userId,
+    uid: userId,
+    email: String(req.user?.email || '').trim(),
+    phone: normalizePhone(req.user?.phone || req.dbUser?.phone || ''),
+    name: normalizeText(req.user?.name || req.dbUser?.name || 'Abianzo Member', 120),
+  };
+}
+
+async function ensureMongoUserRecord(req, userId, onboardingType, onboardingStatus) {
+  const identity = buildUserIdentityFromRequest(req, userId);
+  const onboardingField = onboardingType === 'vendor' ? 'vendorOnboarding' : 'riderOnboarding';
+  const update = {
+    $setOnInsert: {
+      firebaseUid: identity.firebaseUid,
+      uid: identity.uid,
+      role: 'customer',
+      activeRole: 'customer',
+      accountType: 'customer',
+      isActive: true,
+      roles: { customer: true },
+    },
+    $set: {
+      email: identity.email,
+      phone: identity.phone,
+      name: identity.name,
+      [`${onboardingField}.status`]: onboardingStatus,
+      [`${onboardingField}.isCompleted`]: false,
+      [`${onboardingField}.resubmissionRequired`]: false,
+      [`${onboardingField}.requestId`]: `${onboardingType}-${userId}`,
+    },
+  };
+
+  return User.findOneAndUpdate(
+    { $or: [{ uid: userId }, { firebaseUid: userId }] },
+    update,
+    { upsert: true, new: true, setDefaultsOnInsert: true },
+  );
+}
+
 function normalizeMetadata(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     return {};
@@ -247,17 +288,7 @@ async function submitVendorKycRequest(req, res, next) {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    await User.findOneAndUpdate(
-      { $or: [{ uid: userId }, { firebaseUid: userId }] },
-      {
-        $set: {
-          'vendorOnboarding.status': nextStatus,
-          'vendorOnboarding.isCompleted': false,
-          'vendorOnboarding.resubmissionRequired': false,
-          'vendorOnboarding.requestId': requestId,
-        }
-      }
-    );
+    await ensureMongoUserRecord(req, userId, 'vendor', nextStatus);
 
     return res.status(200).json({ success: true, data: serializeVendorKyc(item) });
   } catch (error) {
@@ -331,17 +362,7 @@ async function submitRiderKycRequest(req, res, next) {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    await User.findOneAndUpdate(
-      { $or: [{ uid: userId }, { firebaseUid: userId }] },
-      {
-        $set: {
-          'riderOnboarding.status': 'submitted',
-          'riderOnboarding.isCompleted': false,
-          'riderOnboarding.resubmissionRequired': false,
-          'riderOnboarding.requestId': requestId,
-        }
-      }
-    );
+    await ensureMongoUserRecord(req, userId, 'rider', 'submitted');
 
     return res.status(200).json({ success: true, data: serializeRiderKyc(item) });
   } catch (error) {

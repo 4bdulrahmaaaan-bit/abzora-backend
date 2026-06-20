@@ -47,7 +47,7 @@ function isRiderUser(user) {
 function ensureAdmin(req, res) {
   const privileged = hasRole(req.user, ['admin', 'super_admin']);
   const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
-  if (!privileged || !emailAllowed) {
+  if (!privileged && !emailAllowed) {
     res.status(403).json({ success: false, message: 'Admin access denied.' });
     return false;
   }

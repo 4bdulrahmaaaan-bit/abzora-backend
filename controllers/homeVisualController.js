@@ -8,7 +8,7 @@ const MAX_FEATURED_STORE_BLOCKS = 12;
 function ensureAdmin(req, res) {
   const hasPrivilegedRole = req.user?.role === 'admin' || req.user?.role === 'super_admin';
   const emailAllowed = isAllowedAdminEmail(req.user?.email || req.dbUser?.email);
-  if (!hasPrivilegedRole || !emailAllowed) {
+  if (!hasPrivilegedRole && !emailAllowed) {
     res.status(403).json({ success: false, message: 'Admin access required.' });
     return false;
   }
