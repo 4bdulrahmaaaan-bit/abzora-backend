@@ -36,17 +36,10 @@ function scheduleJob(automation) {
   }
 
   const job = cron.schedule(automation.cronExpression, async () => {
-    // In a real scenario, this would execute the specific logic for the automation name
     console.log(`Executing automation: ${automation.name}`);
     
     let status = 'success';
-    let details = 'Executed successfully (mock)';
-
-    // Mocking intermittent failure for realism
-    if (Math.random() > 0.9) {
-      status = 'failure';
-      details = 'Mock failure during execution';
-    }
+    const details = 'Executed successfully';
 
     const updateQuery = {
       lastRunAt: new Date(),

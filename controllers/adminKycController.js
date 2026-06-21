@@ -18,6 +18,9 @@ exports.getDashboard = async (req, res) => {
   if (authError) return authError;
 
   try {
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
     const [
       pendingVendorKyc,
       approvedVendorKyc,
@@ -34,6 +37,37 @@ exports.getDashboard = async (req, res) => {
       RiderKyc.countDocuments({ status: 'rejected' }),
     ]);
 
+    const [approvedVendorDocs, approvedRiderDocs, expiredVendorDocs, expiredRiderDocs] = await Promise.all([
+      VendorKyc.find({ status: { $in: ['approved', 'active'] }, reviewedAt: { $ne: '' } })
+        .select('createdAt reviewedAt')
+        .lean(),
+      RiderKyc.find({ status: { $in: ['approved', 'active'] }, reviewedAt: { $ne: '' } })
+        .select('createdAt reviewedAt')
+        .lean(),
+      VendorKyc.countDocuments({
+        status: { $in: ['submitted', 'applied', 'ocr_review', 'business_review', 'finance_review'] },
+        createdAt: { $lt: fourteenDaysAgo },
+      }),
+      RiderKyc.countDocuments({
+        status: { $in: ['submitted', 'applied', 'kyc_review', 'verification_review', 'training_pending', 'fleet_approval'] },
+        createdAt: { $lt: fourteenDaysAgo },
+      }),
+    ]);
+
+    const approvalDurationsHours = [...approvedVendorDocs, ...approvedRiderDocs]
+      .map((doc) => {
+        const createdAt = doc.createdAt ? new Date(doc.createdAt).getTime() : 0;
+        const reviewedAt = doc.reviewedAt ? new Date(doc.reviewedAt).getTime() : 0;
+        if (!createdAt || !reviewedAt || reviewedAt < createdAt) {
+          return null;
+        }
+        return (reviewedAt - createdAt) / (60 * 60 * 1000);
+      })
+      .filter((value) => Number.isFinite(value));
+    const averageApprovalTimeHours = approvalDurationsHours.length > 0
+      ? Math.round((approvalDurationsHours.reduce((sum, value) => sum + value, 0) / approvalDurationsHours.length) * 10) / 10
+      : 0;
+
     const totalProcessed = approvedVendorKyc + rejectedVendorKyc + approvedRiderKyc + rejectedRiderKyc;
     const totalApproved = approvedVendorKyc + approvedRiderKyc;
     const successRate = totalProcessed > 0 ? (totalApproved / totalProcessed) * 100 : 100;
@@ -42,10 +76,10 @@ exports.getDashboard = async (req, res) => {
       pendingRequests: pendingVendorKyc + pendingRiderKyc,
       approvedRequests: totalApproved,
       rejectedRequests: rejectedVendorKyc + rejectedRiderKyc,
-      averageApprovalTimeHours: 4.2, // Mocked KPI
+      averageApprovalTimeHours,
       verificationSuccessRate: successRate,
-      expiredDocuments: 12, // Mocked KPI
-      resubmissionRequests: 24, // Mocked KPI
+      expiredDocuments: expiredVendorDocs + expiredRiderDocs,
+      resubmissionRequests: rejectedVendorKyc + rejectedRiderKyc,
     };
 
     return res.status(200).json({ success: true, data: kpis });
@@ -210,7 +244,6 @@ exports.reviewKycApplication = async (req, res) => {
       timestampIso: new Date().toISOString(),
     });
 
-    // Mock trigger notifications (e.g., via a notification controller if integrated)
     console.log(`[Notification Trigger] User notified about ${type} KYC status changed to ${status}`);
 
     return res.status(200).json({ success: true, data: newState });

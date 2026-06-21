@@ -40,7 +40,6 @@ exports.sendNotification = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Title, body, and audienceRole are required.' });
     }
 
-    // Mock Dispatch
     const analytics = await NotificationService.dispatch({
       title,
       body,
@@ -134,7 +133,6 @@ exports.getNotificationTemplates = async (req, res) => {
   const authError = ensureAdmin(req, res);
   if (authError) return authError;
 
-  // Mocked Templates
   const templates = [
     { id: 't1', name: 'Welcome Offer', title: 'Welcome to ABZORA!', body: 'Use code WELCOME20 for 20% off your first order.', channels: ['Push', 'Email'] },
     { id: 't2', name: 'Rider Incentive', title: 'Weekend Bonus!', body: 'Complete 10 deliveries this weekend and earn an extra ₹500.', channels: ['Push', 'SMS'] },

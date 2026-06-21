@@ -11,6 +11,27 @@ if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
+function getDirectorySizeMb(targetPath) {
+  let totalBytes = 0;
+  const stack = [targetPath];
+
+  while (stack.length) {
+    const currentPath = stack.pop();
+    if (!fs.existsSync(currentPath)) continue;
+    const stats = fs.statSync(currentPath);
+    if (stats.isDirectory()) {
+      const entries = fs.readdirSync(currentPath);
+      for (const entry of entries) {
+        stack.push(path.join(currentPath, entry));
+      }
+      continue;
+    }
+    totalBytes += stats.size;
+  }
+
+  return Math.max(0, Math.round((totalBytes / (1024 * 1024)) * 10) / 10);
+}
+
 async function triggerBackup(type = 'manual', triggeredBy = 'system') {
   const backupId = `BKP-${Date.now()}-${uuidv4().substring(0, 5)}`;
   const backup = await AdminBackup.create({
@@ -41,12 +62,10 @@ async function triggerBackup(type = 'manual', triggeredBy = 'system') {
         return;
       }
       
-      // Calculate mock size if successful, in a real env you'd sum file sizes
-      // For this implementation we will just mock a success size since we aren't uploading to S3
       backup.status = 'completed';
       backup.completedAt = new Date();
-      backup.fileSizeMb = Math.floor(Math.random() * 50) + 10; // Mock size 10-60 MB
-      backup.s3Url = `s3://abzora-backups/${backupId}.tar.gz`; // Mock URL
+      backup.fileSizeMb = getDirectorySizeMb(outputPath);
+      backup.s3Url = outputPath;
       await backup.save();
 
       // Clean up local files after "upload"

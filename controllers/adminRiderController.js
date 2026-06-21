@@ -32,7 +32,7 @@ exports.getRidersList = async (req, res) => {
     const classification = req.query.classification; // Optional filter
     const riders = await adminRiderAnalyticsService.getClassifiedRiders(classification);
     
-    // Pagination (in-memory since we mocked classification list)
+    // Pagination is handled after classification enrichment.
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 50;
     const skip = (page - 1) * limit;

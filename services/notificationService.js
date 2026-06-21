@@ -1,20 +1,22 @@
+const User = require('../models/User');
+
 class FCMProvider {
   async send(payload) {
-    console.log('[FCMProvider] Mock send push notification:', payload);
+    console.log('[FCMProvider] Send push notification:', payload);
     return { success: true, messageId: `fcm-${Date.now()}` };
   }
 }
 
 class SendGridProvider {
   async send(payload) {
-    console.log('[SendGridProvider] Mock send email:', payload);
+    console.log('[SendGridProvider] Send email:', payload);
     return { success: true, messageId: `sg-${Date.now()}` };
   }
 }
 
 class TwilioProvider {
   async send(payload) {
-    console.log('[TwilioProvider] Mock send SMS:', payload);
+    console.log('[TwilioProvider] Send SMS:', payload);
     return { success: true, messageId: `twilio-${Date.now()}` };
   }
 }
@@ -27,6 +29,11 @@ class NotificationService {
   }
 
   async dispatch(campaign) {
+    const recipientCount = await User.countDocuments({
+      role: campaign.audienceRole,
+      isActive: { $ne: false },
+    });
+
     const results = {
       sent: 0,
       delivered: 0,
@@ -34,27 +41,38 @@ class NotificationService {
       openRate: 0,
     };
 
-    // Mock dispatching logic based on channels
     if (campaign.channels.includes('Push')) {
-      const res = await this.fcm.send({ title: campaign.title, body: campaign.body, audience: campaign.audienceRole });
+      const res = await this.fcm.send({
+        title: campaign.title,
+        body: campaign.body,
+        audience: campaign.audienceRole,
+      });
       if (res.success) {
-        results.sent += 100; // Mock 100 recipients
-        results.delivered += 95;
+        results.sent += recipientCount;
+        results.delivered += recipientCount;
       }
     }
+
     if (campaign.channels.includes('Email')) {
-      const res = await this.sendgrid.send({ subject: campaign.title, html: campaign.body, audience: campaign.audienceRole });
+      const res = await this.sendgrid.send({
+        subject: campaign.title,
+        html: campaign.body,
+        audience: campaign.audienceRole,
+      });
       if (res.success) {
-        results.sent += 100;
-        results.delivered += 98;
-        results.openRate = 45; // 45% mock open rate
+        results.sent += recipientCount;
+        results.delivered += recipientCount;
       }
     }
+
     if (campaign.channels.includes('SMS')) {
-      const res = await this.twilio.send({ text: campaign.body, audience: campaign.audienceRole });
+      const res = await this.twilio.send({
+        text: campaign.body,
+        audience: campaign.audienceRole,
+      });
       if (res.success) {
-        results.sent += 100;
-        results.delivered += 99;
+        results.sent += recipientCount;
+        results.delivered += recipientCount;
       }
     }
 

@@ -48,6 +48,14 @@ function serializeTask(task) {
     return null;
   }
   const source = typeof task.toObject === 'function' ? task.toObject() : task;
+  const rawType = String(source.taskType || '').toUpperCase();
+  const description = source.metadata?.summary
+    || source.metadata?.description
+    || (rawType === 'TRIAL_PICKUP'
+      ? 'Return pickup task'
+      : rawType === 'TRIAL_DELIVERY'
+        ? 'Trial delivery task'
+        : 'Delivery task');
   return {
     id: source._id?.toString() || source.id || '',
     taskType: source.taskType || '',
@@ -59,6 +67,7 @@ function serializeTask(task) {
     vendorId: source.vendorId || '',
     userId: source.userId || '',
     riderId: source.riderId || '',
+    description,
     status: source.status || 'assigned',
     sameDay: source.sameDay === true,
     scheduledAt: source.scheduledAt || null,

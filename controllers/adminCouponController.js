@@ -1,5 +1,6 @@
 const Coupon = require('../models/Coupon');
 const CouponRedemption = require('../models/CouponRedemption');
+const Order = require('../models/Order');
 const AdminActivityLog = require('../models/AdminActivityLog');
 const { isAllowedAdminEmail } = require('./authController');
 
@@ -36,21 +37,32 @@ exports.getCouponsDashboard = async (req, res) => {
   if (authError) return authError;
 
   try {
-    const [activeCoupons, totalRedemptions, totalDiscountProvided] = await Promise.all([
+    const [activeCoupons, totalRedemptions, discountAgg, redemptions] = await Promise.all([
       Coupon.countDocuments({ status: 'active', vendorId: 'ADMIN' }),
       CouponRedemption.countDocuments(),
       CouponRedemption.aggregate([
-        { $group: { _id: null, total: { $sum: '$discountApplied' } } }
-      ])
+        { $group: { _id: null, total: { $sum: '$discountAmount' } } }
+      ]),
+      CouponRedemption.find().select('orderId discountAmount').lean(),
     ]);
+
+    const orderIds = redemptions.map((item) => item.orderId).filter(Boolean);
+    const orders = orderIds.length
+      ? await Order.find({ _id: { $in: orderIds } }).select('finalAmount').lean()
+      : [];
+    const totalOrderValue = orders.reduce((sum, order) => sum + Number(order.finalAmount || 0), 0);
+    const totalDiscountProvided = redemptions.reduce((sum, redemption) => sum + Number(redemption.discountAmount || 0), 0);
+    const roi = totalOrderValue > 0
+      ? `${Math.round((totalDiscountProvided / totalOrderValue) * 1000) / 10}%`
+      : '0%';
 
     return res.status(200).json({
       success: true,
       data: {
         activeCoupons,
         totalRedemptions,
-        totalDiscountProvided: totalDiscountProvided[0]?.total || 0,
-        roi: '12%', // Mock ROI
+        totalDiscountProvided: discountAgg[0]?.total || totalDiscountProvided,
+        roi,
       },
     });
   } catch (error) {

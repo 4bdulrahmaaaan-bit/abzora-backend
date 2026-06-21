@@ -47,13 +47,26 @@ exports.getDisputesDashboard = async (req, res) => {
       }).select('_id'),
     ]);
 
+    const resolvedDisputes = await AdminDispute.find({
+      status: 'Resolved',
+    }).select('createdAt updatedAt').lean();
+    const totalResolutionHours = resolvedDisputes.reduce((sum, dispute) => {
+      const createdAt = dispute.createdAt ? new Date(dispute.createdAt).getTime() : 0;
+      const updatedAt = dispute.updatedAt ? new Date(dispute.updatedAt).getTime() : 0;
+      if (!createdAt || !updatedAt || updatedAt < createdAt) return sum;
+      return sum + ((updatedAt - createdAt) / (60 * 60 * 1000));
+    }, 0);
+    const avgResolutionTimeHours = resolvedDisputes.length > 0
+      ? Math.round((totalResolutionHours / resolvedDisputes.length) * 10) / 10
+      : 0;
+
     return res.status(200).json({
       success: true,
       data: {
         openDisputes,
         escalatedCases,
         resolvedToday: resolvedTodayList.length,
-        avgResolutionTime: '24h', // Mocked for now, need complex aggregation for actual
+        avgResolutionTime: `${avgResolutionTimeHours}h`,
       },
     });
   } catch (error) {
