@@ -633,6 +633,9 @@ async function getVendorPayoutProfile(req, res, next) {
 
 async function saveVendorPayoutProfile(req, res, next) {
   try {
+    if (!ensureVendor(req, res)) {
+      return;
+    }
     const profile = await saveUserPayoutProfile({
       userId: req.user.uid,
       methodType: req.body?.methodType,

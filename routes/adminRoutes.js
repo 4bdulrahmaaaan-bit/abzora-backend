@@ -15,6 +15,7 @@ const {
   outboxDeadLetterReplaySchema,
   paginationQuerySchema,
   processPayoutSchema,
+  processRefundSchema,
   runSettlementsSchema,
   simpleAdminIdBodySchema,
   statusQuerySchema,
@@ -35,6 +36,7 @@ const {
   savePlatformSettings,
   listPayouts,
   processPayout,
+  processRefund,
   listActivityLogs,
   createActivityLog,
   listVendorKycRequests,
@@ -269,6 +271,7 @@ router.get('/config/history', validateQuery(paginationQuerySchema), getConfigHis
 router.get('/finance/dashboard', getFinanceDashboard);
 router.get('/finance/settlements', validateQuery(paginationQuerySchema), getSettlements);
 router.get('/finance/refunds', validateQuery(paginationQuerySchema), getRefunds);
+router.post('/finance/refunds/process', validateBody(processRefundSchema), processRefund);
 router.get('/finance/reports', getReports);
 
 router.get('/inventory/dashboard', getInventoryDashboard);

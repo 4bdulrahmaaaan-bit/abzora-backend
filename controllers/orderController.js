@@ -1822,15 +1822,17 @@ async function cancelOrder(req, res, next) {
         userId: order.userId,
         status: { $in: ['pending', 'approved'] },
       }).sort({ createdAt: -1, _id: -1 });
-      if (!refundRequest) {
-        refundRequest = new RefundRequest({
-          orderId: order._id,
-          userId: order.userId,
-          reason: 'Order cancelled by customer before delivery.',
-          requestedAmount: Number(order.totalAmount || 0),
-          refundedAmount: 0,
-          status: 'pending',
-        });
+    if (!refundRequest) {
+      refundRequest = new RefundRequest({
+        orderId: order._id,
+        userId: order.userId,
+        customerId: order.userId,
+        amount: Number(order.totalAmount || 0),
+        reason: 'Order cancelled by customer before delivery.',
+        requestedAmount: Number(order.totalAmount || 0),
+        refundedAmount: 0,
+        status: 'pending',
+      });
         await refundRequest.save();
       }
       cancellationRefund = refundRequest;
@@ -1964,6 +1966,8 @@ async function createRefundRequest(req, res, next) {
     const refund = await RefundRequest.create({
       orderId: order._id,
       userId: order.userId,
+      customerId: order.userId,
+      amount: requestedAmount,
       reason,
       status: 'pending',
       requestedAmount,
@@ -2380,8 +2384,12 @@ async function completeReturnRequest(req, res, next) {
       refund = await RefundRequest.create({
         orderId: order._id,
         userId: order.userId,
+        customerId: order.userId,
+        amount: Number(order.totalAmount || 0),
         reason: `Return completed: ${request.reason}`,
         status: 'pending',
+        requestedAmount: Number(order.totalAmount || 0),
+        refundedAmount: 0,
       });
     }
 

@@ -1,8 +1,10 @@
+const Order = require('../models/Order');
 const adminFinanceAnalyticsService = require('../services/adminFinanceAnalyticsService');
 const Settlement = require('../models/Settlement');
 const RefundRequest = require('../models/RefundRequest');
 const AdminActivityLog = require('../models/AdminActivityLog');
 const { isAllowedAdminEmail } = require('./authController');
+const { processRazorpayRefund } = require('./orderController');
 
 function ensureAdmin(req, res) {
   const hasPrivilegedRole = req.user?.role === 'admin' || req.user?.role === 'super_admin';
@@ -168,6 +170,84 @@ exports.approveRefund = async (req, res) => {
     });
 
     return res.status(200).json({ success: true, data: refund });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.processRefund = async (req, res) => {
+  const authError = ensureAdmin(req, res);
+  if (authError) return authError;
+
+  try {
+    const paymentId = String(req.body?.paymentId || '').trim();
+    const refundRequestId = String(req.body?.refundRequestId || '').trim();
+    const reason = String(req.body?.reason || '').trim();
+    if (!paymentId || !refundRequestId) {
+      return res.status(400).json({ success: false, message: 'paymentId and refundRequestId are required.' });
+    }
+
+    const refundRequest = await RefundRequest.findById(refundRequestId);
+    if (!refundRequest) {
+      return res.status(404).json({ success: false, message: 'Refund request not found' });
+    }
+
+    const order = await Order.findById(refundRequest.orderId);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const recordedPaymentId = String(order.razorpay?.paymentId || '').trim();
+    if (recordedPaymentId && recordedPaymentId !== paymentId) {
+      return res.status(400).json({ success: false, message: 'Payment id does not match the refund request order.' });
+    }
+
+    if (['refunded', 'approved', 'processing'].includes(String(refundRequest.status || '').toLowerCase()) &&
+        String(refundRequest.gatewayRefundId || '').trim()) {
+      return res.status(200).json({ success: true, data: { refundRequestId, refundId: refundRequest.gatewayRefundId, orderId: order._id.toString(), status: refundRequest.status } });
+    }
+
+    const refundAmount = Number(
+      refundRequest.requestedAmount || refundRequest.amount || order.totalAmount || 0,
+    );
+    const gatewayRefund = await processRazorpayRefund(order, refundRequest, refundAmount);
+    const fullRefund = refundAmount >= Number(order.totalAmount || 0);
+    const nowIso = new Date().toISOString();
+
+    refundRequest.status = fullRefund ? 'refunded' : 'approved';
+    refundRequest.processedAt = nowIso;
+    refundRequest.processedBy = req.user?.uid || req.dbUser?._id?.toString() || 'system';
+    refundRequest.gatewayRefundId = gatewayRefund?.id || refundRequest.gatewayRefundId || '';
+    await refundRequest.save();
+
+    order.paymentStatus = fullRefund ? 'refunded' : 'paid';
+    order.refundStatus = fullRefund ? 'refunded' : 'approved';
+    order.refundRequestId = refundRequest._id.toString();
+    if (fullRefund) {
+      order.escrowStatus = 'refunded';
+      order.escrowUpdatedAt = nowIso;
+    }
+    await order.save();
+
+    await AdminActivityLog.create({
+      adminId: req.user?.uid || req.dbUser?._id?.toString() || 'system',
+      adminEmail: req.user?.email || req.dbUser?.email || '',
+      action: 'process_refund',
+      target: `refund:${refundRequest._id}`,
+      details: { amount: refundAmount, reason: reason || refundRequest.reason || '' },
+      timestamp: new Date(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        refundRequestId: refundRequest._id.toString(),
+        refundId: gatewayRefund?.id || '',
+        orderId: order._id.toString(),
+        status: refundRequest.status,
+        amount: refundAmount,
+      },
+    });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

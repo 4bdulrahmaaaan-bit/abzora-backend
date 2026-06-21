@@ -8,21 +8,37 @@ const refundRequestSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    userId: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true,
+    },
     vendorId: {
       type: String,
-      required: true,
+      default: '',
       index: true,
       trim: true,
     },
     customerId: {
       type: String,
-      required: true,
+      default: '',
       index: true,
       trim: true,
     },
     amount: {
       type: Number,
-      required: true,
+      default: 0,
+      min: 0,
+    },
+    requestedAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    refundedAmount: {
+      type: Number,
+      default: 0,
       min: 0,
     },
     reason: {

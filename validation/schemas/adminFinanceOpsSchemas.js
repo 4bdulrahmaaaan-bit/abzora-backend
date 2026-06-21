@@ -203,6 +203,17 @@ const processPayoutSchema = {
   required: ['storeId'],
 };
 
+const processRefundSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    paymentId: { type: 'string', minLength: 1, maxLength: 120 },
+    refundRequestId: { type: 'string', minLength: 1, maxLength: 120 },
+    reason: { type: 'string', maxLength: 500 },
+  },
+  required: ['paymentId', 'refundRequestId'],
+};
+
 const disputeUpdateSchema = {
   type: 'object',
   additionalProperties: false,
@@ -353,6 +364,7 @@ module.exports = {
   paginationQuerySchema,
   payoutProfileSchema,
   processPayoutSchema,
+  processRefundSchema,
   runSettlementsSchema,
   simpleAdminIdBodySchema,
   statusQuerySchema,
