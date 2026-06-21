@@ -36,7 +36,6 @@ const {
   savePlatformSettings,
   listPayouts,
   processPayout,
-  processRefund,
   listActivityLogs,
   createActivityLog,
   listVendorKycRequests,
@@ -102,6 +101,7 @@ const {
   getSettlements,
   getRefunds,
   getReports,
+  processRefund,
 } = require('../controllers/adminFinanceController');
 const {
   getDashboard: getInventoryDashboard,
