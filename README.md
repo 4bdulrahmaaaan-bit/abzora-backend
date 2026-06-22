@@ -180,3 +180,5 @@ Backend verifies the token and creates the user in MongoDB on first authenticate
 - Do not deploy `serviceAccountKey.json`; production only loads Firebase credentials from environment variables.
 - Do not expose OpenAI, Razorpay secret keys, database credentials, or admin service credentials to Flutter/web builds.
 - Authentication, authorization failures, API errors, rate-limit events, and suspicious traffic are logged as structured security events.
+
+- coderabbit test branch
