@@ -108,7 +108,7 @@ exports.getKycApplications = async (req, res) => {
 
     if (type === 'Vendor') {
       items = await VendorKyc.find(filter)
-        .select('storeName ownerName phone status kyc createdAt rejectionReason')
+        .select('storeName ownerName phone status kyc metadata verification createdAt rejectionReason reviewedBy reviewedByName reviewedAt actionHistory')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
@@ -116,7 +116,7 @@ exports.getKycApplications = async (req, res) => {
       totalCount = await VendorKyc.countDocuments(filter);
     } else {
       items = await RiderKyc.find(filter)
-        .select('name phone status kyc createdAt rejectionReason')
+        .select('name phone status kyc metadata verification createdAt rejectionReason reviewedBy reviewedByName reviewedAt actionHistory')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)

@@ -388,7 +388,7 @@ async function lookupIfsc(req, res, next) {
 async function extractKycFields(req, res, next) {
   try {
     const payload = req.body || {};
-    const source = `${payload.text || ''} ${payload.documentUrl || ''}`;
+    const source = `${payload.recognizedText || ''} ${payload.text || ''} ${payload.documentUrl || ''}`;
     const documentType = String(payload.documentType || '').trim().toLowerCase();
     const aadhaar = extractAadhaar(source);
     const pan = extractPan(source);
