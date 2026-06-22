@@ -614,7 +614,13 @@ async function startServer() {
     startOpsRuntime();
     startInvoiceQueueWorker();
     const { initAutomations } = require('./services/adminAutomationService');
-    await initAutomations();
+    try {
+      // Automations are useful, but a transient Mongo pool timeout should not
+      // stop the API process from starting.
+      await initAutomations();
+    } catch (error) {
+      logSecurityError('admin_automation_init_failed', { error: error.message });
+    }
     try {
       await startInvoiceBullMqWorkers();
       startInvoiceQueueSelfHealing();
