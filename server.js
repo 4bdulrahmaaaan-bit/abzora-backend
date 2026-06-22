@@ -604,48 +604,46 @@ app.use((error, req, res, next) => {
 
 async function startServer() {
   try {
+    const safeStartup = async (label, action) => {
+      try {
+        await action();
+      } catch (error) {
+        logSecurityError(`${label}_startup_failed`, { error: error.message });
+      }
+    };
+
     await startOpenTelemetry();
     await connectDB();
     initializeFirebase();
     scheduleFinanceCrons();
     schedulePayoutRecoveryCron();
     initializeCronJobs();
-    startDispatchScheduler();
-    startOpsRuntime();
-    startInvoiceQueueWorker();
+    safeStartup('dispatch_scheduler', () => startDispatchScheduler());
+    safeStartup('ops_runtime', () => startOpsRuntime());
+    safeStartup('invoice_queue_worker', () => startInvoiceQueueWorker());
     const { initAutomations } = require('./services/adminAutomationService');
-    try {
-      // Automations are useful, but a transient Mongo pool timeout should not
-      // stop the API process from starting.
-      await initAutomations();
-    } catch (error) {
-      logSecurityError('admin_automation_init_failed', { error: error.message });
-    }
-    try {
+    // Automations are useful, but a transient Mongo pool timeout should not
+    // stop the API process from starting.
+    await safeStartup('admin_automation_init', () => initAutomations());
+    await safeStartup('invoice_bullmq', async () => {
       await startInvoiceBullMqWorkers();
       startInvoiceQueueSelfHealing();
-    } catch (error) {
-      logSecurityError('invoice_bullmq_startup_failed', { error: error.message });
-    }
-    try {
-      startWebhookWorker();
-    } catch (error) {
-      logSecurityError('webhook_bullmq_startup_failed', { error: error.message });
-    }
+    });
+    safeStartup('webhook_bullmq', () => startWebhookWorker());
     // Security hardening: durable outbox replay worker recovers missed side effects
     // after crashes/restarts and supports horizontal multi-worker processing.
     if (String(process.env.PAYMENT_OUTBOX_WORKER_ENABLED || 'true').trim().toLowerCase() === 'true') {
-      startPaymentOutboxWorker({
+      safeStartup('payment_outbox_worker', () => startPaymentOutboxWorker({
         pollIntervalMs: Number(process.env.PAYMENT_OUTBOX_POLL_INTERVAL_MS || 1000),
         batchSize: Number(process.env.PAYMENT_OUTBOX_BATCH_SIZE || 5),
         leaseMs: Number(process.env.PAYMENT_OUTBOX_LEASE_MS || 15000),
         maxAttemptsDefault: Number(process.env.PAYMENT_OUTBOX_MAX_ATTEMPTS || 8),
         cleanupEveryMs: Number(process.env.PAYMENT_OUTBOX_CLEANUP_EVERY_MS || 600000),
         completedRetentionMs: Number(process.env.PAYMENT_OUTBOX_COMPLETED_RETENTION_MS || 259200000),
-      });
+      }));
     }
     if (String(process.env.PAYMENT_WEBHOOK_INGEST_WORKER_ENABLED || 'true').trim().toLowerCase() === 'true') {
-      startPaymentWebhookIngestWorker({
+      safeStartup('payment_webhook_ingest_worker', () => startPaymentWebhookIngestWorker({
         processor: processPaymentWebhookIngestEvent,
         pollIntervalMs: Number(process.env.PAYMENT_WEBHOOK_INGEST_POLL_INTERVAL_MS || 500),
         batchSize: Number(process.env.PAYMENT_WEBHOOK_INGEST_BATCH_SIZE || 20),
@@ -654,13 +652,13 @@ async function startServer() {
         maxAttemptsDefault: Number(process.env.PAYMENT_WEBHOOK_INGEST_MAX_ATTEMPTS || 8),
         cleanupEveryMs: Number(process.env.PAYMENT_WEBHOOK_INGEST_CLEANUP_EVERY_MS || 600000),
         retentionMs: Number(process.env.PAYMENT_WEBHOOK_INGEST_RETENTION_MS || 172800000),
-      });
+      }));
     }
     if (String(process.env.AR_MODEL_WORKER_ENABLED || 'true').trim().toLowerCase() === 'true') {
-      startArModelTrainingWorker();
+      safeStartup('ar_model_worker', () => startArModelTrainingWorker());
     }
     if (String(process.env.AR_GARMENT_CERT_WORKER_ENABLED || 'true').trim().toLowerCase() === 'true') {
-      startArGarmentCertificationWorker();
+      safeStartup('ar_garment_cert_worker', () => startArGarmentCertificationWorker());
     }
     httpServer = http.createServer(app);
     attachTrackingGateway(httpServer);
