@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+﻿const crypto = require('crypto');
 
 const User = require('../models/User');
 const Store = require('../models/Store');
@@ -139,6 +139,7 @@ function serializeUser(user) {
     role: user.role || 'customer',
     roles: user.roles || {},
     isActive: user.isActive !== false,
+    isDeleted: user.isDeleted === true,
     storeId: user.storeId || '',
     walletBalance: Number(user.walletBalance || 0),
     riderApprovalStatus: user.riderApprovalStatus || 'pending',
@@ -1553,6 +1554,92 @@ async function createAuditEntry(req, { action, targetType, targetId, message }) 
   });
 }
 
+async function deleteVendorCascade(storeId) {
+  const store = await Store.findById(storeId).populate('vendorId');
+  if (!store) {
+    return null;
+  }
+
+  await Product.deleteMany({ storeId: store._id });
+
+  const candidates = [
+    store.vendorId?._id?.toString?.(),
+    store.vendorId?.toString?.(),
+    store.ownerId,
+  ]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+
+  let vendor = null;
+  for (const candidate of candidates) {
+    vendor = await User.findOne({
+      $or: [
+        { _id: candidate },
+        { firebaseUid: candidate },
+        { uid: candidate },
+        { phone: candidate },
+      ],
+    });
+    if (vendor) {
+      break;
+    }
+  }
+
+  if (vendor) {
+    const vendorRoles = vendor.roles instanceof Map
+      ? Object.fromEntries(vendor.roles.entries())
+      : { ...(vendor.roles || {}) };
+    vendor.isDeleted = true;
+    vendor.isActive = false;
+    vendor.deletedAt = new Date();
+    vendor.storeId = '';
+    vendor.role = 'customer';
+    vendor.roles = {
+      ...vendorRoles,
+      customer: true,
+      vendor: false,
+      rider: false,
+      admin: false,
+    };
+    await vendor.save();
+  }
+
+  await store.deleteOne();
+  return { store, vendor };
+}
+
+async function deleteVendor(req, res, next) {
+  try {
+    if (!ensureAdmin(req, res)) return;
+    const storeId = String(req.params?.id || req.body?.id || '').trim();
+    if (!storeId) {
+      return res.status(400).json({ success: false, message: 'Store id is required.' });
+    }
+
+    const result = await deleteVendorCascade(storeId);
+    if (!result) {
+      return res.status(404).json({ success: false, message: 'Store not found.' });
+    }
+
+    await createAuditEntry(req, {
+      action: 'VENDOR_DELETE',
+      targetType: 'store',
+      targetId: result.store._id.toString(),
+      message: `Deleted vendor store ${result.store.name || storeId} and its products.`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        storeId: result.store._id.toString(),
+        vendorId: result.vendor?._id?.toString?.() || '',
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function applyUserAction(req, res, next) {
   try {
     if (!ensureAdmin(req, res)) return;
@@ -1777,6 +1864,7 @@ module.exports = {
   listTrialHomeSessions,
   getTrialHomeSession,
   updateTrialHomeSession,
+  deleteVendor,
   applyUserAction,
   updateUserRole,
   applyProductAction,

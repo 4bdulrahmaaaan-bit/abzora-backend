@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
 const { requireAdmin } = require('../middleware/authorizationMiddleware');
@@ -47,6 +47,7 @@ const {
   listTrialHomeSessions,
   getTrialHomeSession,
   updateTrialHomeSession,
+  deleteVendor,
   applyUserAction,
   updateUserRole,
   applyProductAction,
@@ -216,7 +217,7 @@ router.post('/backups/restore', restoreBackup);
 router.get('/security/dashboard', getSecurityDashboard);
 router.post('/security/revoke-access', revokeAccess);
 
-// ─── Trial Command Center ───────────────────────────────────────
+// â”€â”€â”€ Trial Command Center â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get('/trials/dashboard', getTrialDashboardMetrics);
 router.get('/trials/queue', getTrialQueueHandler);
 router.get('/trials/analytics', getTrialAnalyticsHandler);
@@ -234,21 +235,22 @@ router.get('/products', validateQuery(paginationQuerySchema), listProducts);
 router.post('/products/:id/action', validateBody(productActionSchema), applyProductAction);
 router.get('/orders', validateQuery(paginationQuerySchema), listOrders);
 
-// ─── Order Management V2 ───────────────────────────────────────
+// â”€â”€â”€ Order Management V2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get('/orders/dashboard', getOrderDashboard);
 router.get('/orders/queue', getOrderQueue);
 router.get('/orders/:id', getOrderDetails);
 router.get('/orders/:id/timeline', getOrderTimeline);
 router.get('/orders/:id/history', getOrderHistory);
 
-// ─── Vendor Intelligence V2 ────────────────────────────────────
+// â”€â”€â”€ Vendor Intelligence V2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get('/vendors/dashboard', getVendorDashboard);
 router.get('/vendors/:id', getVendorDetails);
 router.get('/vendors/:id/analytics', getVendorAnalytics);
 router.get('/vendors/:id/payouts', getVendorPayouts);
 router.get('/vendors/:id/complaints', getVendorComplaints);
+router.delete('/vendors/:id', deleteVendor);
 
-// ─── Fraud & Risk Engine ───────────────────────────────────────
+// â”€â”€â”€ Fraud & Risk Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get('/fraud/dashboard', getFraudDashboard);
 router.post('/fraud/:type/:id/action', actionFraudEntity);
 
@@ -282,7 +284,7 @@ router.get('/kyc/dashboard', getKycDashboard);
 router.get('/kyc/applications', validateQuery(paginationQuerySchema), getKycApplications);
 router.patch('/kyc/:id/review', reviewKycApplication);
 
-// ─── Onboarding Analytics ──────────────────────────────────────────────────
+// â”€â”€â”€ Onboarding Analytics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get('/onboarding-analytics/dashboard', adminOnboardingAnalyticsController.getDashboard.bind(adminOnboardingAnalyticsController));
 router.get('/onboarding-analytics/vendor-funnel', adminOnboardingAnalyticsController.getVendorFunnel.bind(adminOnboardingAnalyticsController));
 router.get('/onboarding-analytics/rider-funnel', adminOnboardingAnalyticsController.getRiderFunnel.bind(adminOnboardingAnalyticsController));
