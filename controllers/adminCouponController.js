@@ -32,6 +32,38 @@ async function logCouponAction(req, action, couponId, previousState, newState, m
   }
 }
 
+function normalizeCouponPayload(body = {}) {
+  const eligibleUserIds = Array.isArray(body.eligibleUserIds)
+    ? body.eligibleUserIds.map((item) => String(item).trim()).filter(Boolean)
+    : String(body.eligibleUserIds || '')
+        .split(/[\n,]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+  const payload = {
+    couponCode: String(body.couponCode || '').trim().toUpperCase(),
+    discountType: body.discountType,
+    discountValue: Number(body.discountValue || 0),
+    minimumOrderValue: Number(body.minimumOrderValue || 0),
+    status: body.status,
+    startDate: body.startDate,
+    endDate: body.endDate,
+    vendorId: 'ADMIN',
+    eligibleUserIds,
+    firstOrderOnly: Boolean(body.firstOrderOnly),
+  };
+
+  payload.maximumDiscount =
+    body.maximumDiscount !== undefined && body.maximumDiscount !== null && body.maximumDiscount !== ''
+      ? Number(body.maximumDiscount)
+      : null;
+  payload.usageLimit =
+    body.usageLimit !== undefined && body.usageLimit !== null && body.usageLimit !== ''
+      ? Number(body.usageLimit)
+      : null;
+  return payload;
+}
+
 exports.getCouponsDashboard = async (req, res) => {
   const authError = ensureAdmin(req, res);
   if (authError) return authError;
@@ -120,7 +152,7 @@ exports.createCoupon = async (req, res) => {
   if (authError) return authError;
 
   try {
-    const payload = { ...req.body, vendorId: 'ADMIN' };
+    const payload = normalizeCouponPayload(req.body);
     const coupon = await Coupon.create(payload);
     
     await logCouponAction(req, 'CREATE_COUPON', coupon._id, null, coupon, `Created platform coupon ${coupon.couponCode}`);
@@ -139,7 +171,7 @@ exports.updateCoupon = async (req, res) => {
     const couponId = req.params.id;
     const previousState = await Coupon.findById(couponId).lean();
     
-    const updates = { ...req.body };
+    const updates = normalizeCouponPayload(req.body);
     delete updates._id;
 
     const coupon = await Coupon.findByIdAndUpdate(
@@ -153,6 +185,33 @@ exports.updateCoupon = async (req, res) => {
     }
 
     return res.status(200).json({ success: true, data: coupon });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.deleteCoupon = async (req, res) => {
+  const authError = ensureAdmin(req, res);
+  if (authError) return authError;
+
+  try {
+    const couponId = req.params.id;
+    const previousState = await Coupon.findById(couponId).lean();
+    if (!previousState) {
+      return res.status(404).json({ success: false, message: 'Coupon not found.' });
+    }
+
+    await Coupon.deleteOne({ _id: couponId, vendorId: 'ADMIN' });
+    await logCouponAction(
+      req,
+      'DELETE_COUPON',
+      couponId,
+      previousState,
+      null,
+      `Deleted platform coupon ${previousState.couponCode}`
+    );
+
+    return res.status(200).json({ success: true, data: true });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }

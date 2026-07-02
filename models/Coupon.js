@@ -13,6 +13,15 @@ const couponSchema = new mongoose.Schema(
     status: { type: String, enum: ['draft', 'active', 'expired', 'disabled'], default: 'draft' },
     startDate: { type: Date, required: true },
     endDate: { type: Date, required: true },
+    eligibleUserIds: {
+      type: [String],
+      default: [],
+      set: (value) =>
+        Array.isArray(value)
+          ? value.map((item) => String(item).trim()).filter(Boolean)
+          : [],
+    },
+    firstOrderOnly: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

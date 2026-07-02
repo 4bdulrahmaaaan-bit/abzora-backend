@@ -88,6 +88,7 @@ const {
   listCoupons,
   createCoupon,
   updateCoupon,
+  deleteCoupon,
 } = require('../controllers/adminCouponController');
 const {
   getBusinessAnalyticsV2,
@@ -264,6 +265,7 @@ router.get('/coupons/dashboard', getCouponsDashboard);
 router.get('/coupons', validateQuery(paginationQuerySchema), listCoupons);
 router.post('/coupons', createCoupon);
 router.patch('/coupons/:id', updateCoupon);
+router.delete('/coupons/:id', deleteCoupon);
 router.get('/business-analytics/v2', getBusinessAnalyticsV2);
 
 router.get('/config', getConfig);

@@ -147,9 +147,20 @@ const growthOfferClaimSchema = {
   required: ['code'],
 };
 
+const couponValidateSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    code: { type: 'string', minLength: 1, maxLength: 64 },
+    cartValue: { type: 'number', minimum: 0, maximum: 10000000 },
+  },
+  required: ['code'],
+};
+
 module.exports = {
   chatSendMessageSchema,
   emptyBodySchema,
+  couponValidateSchema,
   growthOfferClaimSchema,
   growthOfferValidateSchema,
   referralApplySchema,

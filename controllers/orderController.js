@@ -1,4 +1,4 @@
-const crypto = require('crypto');
+﻿const crypto = require('crypto');
 
 const Razorpay = require('razorpay');
 const mongoose = require('mongoose');
@@ -18,6 +18,7 @@ const { trackOutfitInteraction } = require('../services/outfitEngine');
 const { generatePremiumInvoicePdf } = require('../services/invoicePdfService');
 const { enqueueInvoiceJob } = require('../services/invoiceService');
 const { recordTrackingEvent } = require('../services/trackingEventService');
+const { deliveryCheck } = require('../services/hyperlocalDeliveryService');
 const { calculateOrderPricing, toPricingEngineConfig } = require('../services/pricingService');
 const { getPricingConfig } = require('../services/pricingConfigService');
 const {
@@ -107,6 +108,14 @@ function serializeOrder(order) {
     returnRequestId: source.returnRequestId || '',
     orderStatus: source.orderStatus || '',
     deliveryStatus: source.deliveryStatus || 'Pending',
+    deliveryType: source.deliveryType || 'COURIER_DELIVERY',
+    deliveryProvider: source.deliveryProvider || source.assignedDeliveryPartner || 'Unassigned',
+    trackingNumber: source.trackingNumber || source.trackingId || '',
+    shipmentId: source.shipmentId || '',
+    awbNumber: source.awbNumber || '',
+    shippingCharge: Number(source.shippingCharge || 0),
+    estimatedDeliveryDate: source.estimatedDeliveryDate || '',
+    estimatedInstantDeliveryTime: source.estimatedInstantDeliveryTime || '',
     assignedDeliveryPartner: source.assignedDeliveryPartner || 'Unassigned',
     trackingId: source.trackingId || '',
     trackingTimestamps: source.trackingTimestamps || {},
@@ -976,6 +985,14 @@ async function createOrder(req, res, next) {
       deliveryDistanceKm,
       tryAtHomeRequested,
       couponCode,
+      deliveryType = 'COURIER_DELIVERY',
+      deliveryProvider = '',
+      trackingNumber = '',
+      shipmentId = '',
+      awbNumber = '',
+      shippingCharge = 0,
+      estimatedDeliveryDate = '',
+      estimatedInstantDeliveryTime = '',
     } = req.body || {};
     if (!req.user?.uid) {
       return res.status(401).json({ success: false, message: 'Unauthorized' });
@@ -1025,6 +1042,80 @@ async function createOrder(req, res, next) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
     const sameDayOrder = isSameDayOrderEligible(store);
+    const normalizedDeliveryType = String(deliveryType || '').trim().toUpperCase();
+    const allowedDeliveryTypes = new Set(['TRY_AT_HOME', 'LOCAL_DELIVERY', 'COURIER_DELIVERY']);
+    if (!allowedDeliveryTypes.has(normalizedDeliveryType)) {
+      return res.status(400).json({ success: false, message: 'Invalid delivery type.' });
+    }
+
+    const deliveryServiceabilities = await Promise.all(
+      products.map(async (product) => ({
+        product,
+        serviceability: await deliveryCheck({
+          productId: product._id.toString(),
+          pincode: normalizedShippingAddress.pincode,
+        }),
+      })),
+    );
+    const resolvedServiceability = deliveryServiceabilities[0]?.serviceability || null;
+    const supportedModes = new Set();
+    for (const { product, serviceability } of deliveryServiceabilities) {
+      if (!serviceability || !serviceability.isDeliverable) {
+        return res.status(400).json({
+          success: false,
+          message: serviceability?.reason || `Unable to determine delivery availability for ${product.name}.`,
+        });
+      }
+      const mode = String(serviceability.deliveryMode || '').trim().toUpperCase();
+      if (!allowedDeliveryTypes.has(mode)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Missing serviceability metadata for checkout.',
+        });
+      }
+      supportedModes.add(mode);
+      if (mode !== normalizedDeliveryType) {
+        return res.status(400).json({
+          success: false,
+          message: 'This item uses a different delivery method. Please complete your existing cart first or empty your cart.',
+        });
+      }
+    }
+    if (supportedModes.size > 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'This item uses a different delivery method. Please complete your existing cart first or empty your cart.',
+      });
+    }
+
+    const resolvedDeliveryProvider = String(
+      resolvedServiceability?.deliveryProvider ||
+        resolvedServiceability?.deliveryPartner ||
+        '',
+    ).trim();
+    const resolvedEstimatedDeliveryDate = String(
+      resolvedServiceability?.estimatedDeliveryDate ||
+        estimatedDeliveryDate ||
+        '',
+    ).trim();
+    const resolvedEstimatedInstantDeliveryTime = String(
+      resolvedServiceability?.estimatedInstantDeliveryTime ||
+        estimatedInstantDeliveryTime ||
+        '',
+    ).trim();
+    if (!resolvedDeliveryProvider) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing delivery metadata for checkout.',
+      });
+    }
+    if (normalizedDeliveryType === 'COURIER_DELIVERY' && !resolvedEstimatedDeliveryDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing delivery metadata for checkout.',
+      });
+    }
+
     const financials = await buildPricingSnapshot({
       user,
       store,
@@ -1037,11 +1128,22 @@ async function createOrder(req, res, next) {
       fulfillmentType: store.vendorType === 'custom_vendor' ? 'custom_tailoring' : 'marketplace',
     });
 
+    const providedShippingCharge = Number(shippingCharge || 0);
+    const computedShippingCharge = Number(financials.deliveryFee || 0);
+    if (Math.abs(providedShippingCharge - computedShippingCharge) > 0.01) {
+      return res.status(400).json({ success: false, message: 'Inconsistent shipping charge.' });
+    }
+
     let validCoupon = null;
     let couponDiscount = 0;
     if (couponCode) {
       try {
-        const validation = await couponRedemptionService.validateCoupon(couponCode, store.ownerId, subtotalAmount);
+        const validation = await couponRedemptionService.validateCoupon(
+          couponCode,
+          store.ownerId,
+          subtotalAmount,
+          { customerId: req.user.uid }
+        );
         validCoupon = validation.coupon;
         couponDiscount = validation.discountAmount;
 
@@ -1105,6 +1207,14 @@ async function createOrder(req, res, next) {
       escrowUpdatedAt: new Date().toISOString(),
       orderStatus: normalizedPaymentMethod === 'COD' ? 'confirmed' : 'pending',
       deliveryStatus: normalizedPaymentMethod === 'COD' ? 'Ready for pickup' : 'Pending',
+      deliveryType: normalizedDeliveryType,
+      deliveryProvider: resolvedDeliveryProvider,
+      trackingNumber: trackingNumber || '',
+      shipmentId: shipmentId || '',
+      awbNumber: awbNumber || '',
+      shippingCharge: computedShippingCharge,
+      estimatedDeliveryDate: resolvedEstimatedDeliveryDate,
+      estimatedInstantDeliveryTime: resolvedEstimatedInstantDeliveryTime,
       sameDayOrder,
       payoutStatus: 'none',
       riderPayoutStatus: 'none',
@@ -1168,7 +1278,7 @@ async function createOrder(req, res, next) {
       try {
         await couponRedemptionService.redeemCoupon(
           couponCode,
-          store.ownerId,
+          validCoupon.vendorId || store.ownerId,
           req.user.uid,
           order._id,
           subtotalAmount,
@@ -1210,6 +1320,14 @@ async function quickCheckoutOrder(req, res, next) {
       quantity = 1,
       paymentMethod = 'COD',
       shippingAddress = {},
+      deliveryType = '',
+      deliveryProvider = '',
+      trackingNumber = '',
+      shipmentId = '',
+      awbNumber = '',
+      shippingCharge = 0,
+      estimatedDeliveryDate = '',
+      estimatedInstantDeliveryTime = '',
     } = req.body || {};
 
     if (!productId || !mongoose.Types.ObjectId.isValid(String(productId))) {
@@ -1222,6 +1340,14 @@ async function quickCheckoutOrder(req, res, next) {
     req.body = {
       paymentMethod,
       shippingAddress,
+      deliveryType,
+      deliveryProvider,
+      trackingNumber,
+      shipmentId,
+      awbNumber,
+      shippingCharge,
+      estimatedDeliveryDate,
+      estimatedInstantDeliveryTime,
       items: [
         {
           productId: String(productId),
@@ -2653,9 +2779,16 @@ async function verifyPayment(req, res, next) {
             missing.statusCode = 404;
             throw missing;
           }
-          txOrder.paymentStatus = 'paid';
+                    txOrder.paymentStatus = 'paid';
           txOrder.orderStatus = 'confirmed';
-          txOrder.deliveryStatus = 'Ready for pickup';
+          txOrder.deliveryStatus = txOrder.deliveryType === 'COURIER_DELIVERY' ? 'Ready to ship' : 'Ready for pickup';
+          if (txOrder.deliveryType === 'COURIER_DELIVERY') {
+            txOrder.deliveryProvider = txOrder.deliveryProvider || 'Courier Provider';
+            txOrder.trackingNumber = txOrder.trackingNumber || txOrder.trackingId || '';
+            txOrder.shipmentId = txOrder.shipmentId || '';
+            txOrder.awbNumber = txOrder.awbNumber || '';
+            txOrder.shippingCharge = Number(txOrder.shippingCharge || 0);
+          }
           txOrder.razorpay = {
             ...txOrder.razorpay,
             paymentId: razorpayPaymentId,
@@ -2697,9 +2830,16 @@ async function verifyPayment(req, res, next) {
         await session.endSession();
       }
     } else {
-      order.paymentStatus = 'failed';
+            order.paymentStatus = 'failed';
       order.orderStatus = 'pending';
       order.deliveryStatus = 'Pending';
+      if (order.deliveryType === 'COURIER_DELIVERY') {
+        order.deliveryProvider = order.deliveryProvider || 'Courier Provider';
+        order.trackingNumber = order.trackingNumber || order.trackingId || '';
+        order.shipmentId = order.shipmentId || '';
+        order.awbNumber = order.awbNumber || '';
+        order.shippingCharge = Number(order.shippingCharge || 0);
+      }
       order.razorpay = {
         ...order.razorpay,
         paymentId: razorpayPaymentId,
@@ -2800,5 +2940,8 @@ module.exports = {
   processRazorpayRefund,
   verifyPayment,
 };
+
+
+
 
 

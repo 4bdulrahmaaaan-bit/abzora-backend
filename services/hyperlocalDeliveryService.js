@@ -1,6 +1,7 @@
 const Product = require('../models/Product');
 const Store = require('../models/Store');
 const Order = require('../models/Order');
+const OpsZone = require('../models/OpsZone');
 const { getJson, setJson } = require('./redisCacheService');
 
 function toNumber(value, fallback = null) {
@@ -36,92 +37,248 @@ function estimatedEtaMinutes(distanceKm, prepTimeMinutes = 15) {
   return Math.max(30, Number(prepTimeMinutes || 15) + travelMinutes + bufferMinutes);
 }
 
+function isoDatePlusDays(days) {
+  const next = new Date();
+  next.setDate(next.getDate() + Math.max(0, Number(days) || 0));
+  return next.toISOString().slice(0, 10);
+}
+
+function normalizeProviderList(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function zoneMetadata(zone) {
+  return zone?.metadata && typeof zone.metadata === 'object' ? zone.metadata : {};
+}
+
+function pickCourierProvider(zone, product) {
+  const metadata = zoneMetadata(zone);
+  const zoneProviders = normalizeProviderList(metadata.deliveryProviders);
+  if (zoneProviders.length > 0) {
+    return zoneProviders[0];
+  }
+  const productProviders = normalizeProviderList(product?.deliveryInfo?.providers);
+  if (productProviders.length > 0) {
+    return productProviders[0];
+  }
+  if (metadata.courierProvider) {
+    return String(metadata.courierProvider).trim();
+  }
+  return 'Shiprocket';
+}
+
+function pickLocalProvider(zone) {
+  const metadata = zoneMetadata(zone);
+  if (metadata.localProvider) {
+    return String(metadata.localProvider).trim();
+  }
+  return 'Local Rider';
+}
+
+function buildServiceabilityResponse({
+  product,
+  zone,
+  distanceKm,
+  hasGeoMatch,
+  pincode,
+}) {
+  const metadata = zoneMetadata(zone);
+  const productDelivery = product?.deliveryInfo || {};
+  const tryAtHomeEnabled = Boolean(
+    product?.trialHome?.trialEnabled ||
+      productDelivery.tryAtHomeEligible ||
+      productDelivery.tryAtHomeAvailable,
+  );
+  const instantEligible = Boolean(productDelivery.sameDayEligible ?? product?.sameDayEligible);
+  const supportsTryAtHome = Boolean(
+    hasGeoMatch &&
+      tryAtHomeEnabled &&
+      metadata.supportsTryAtHome !== false &&
+      metadata.tryAtHomeEnabled !== false,
+  );
+  const supportsInstantDelivery = Boolean(
+    hasGeoMatch &&
+      instantEligible &&
+      metadata.supportsInstantDelivery !== false &&
+      metadata.supportsLocalDelivery !== false,
+  );
+  const supportsCourierDelivery = Boolean(
+    pincode ||
+      metadata.supportsCourierDelivery === true ||
+      metadata.supportsCourierDelivery == null,
+  ) && Number(product?.stock || 0) > 0;
+
+  const shippingCharge = Number(
+    metadata.shippingCharge ??
+      (supportsTryAtHome ? metadata.tryAtHomeFee : null) ??
+      (supportsInstantDelivery ? metadata.instantDeliveryCharge : null) ??
+      (supportsCourierDelivery ? metadata.courierShippingCharge : null) ??
+      40,
+  );
+
+  const instantEtaMinutes =
+    Number(metadata.instantEtaMinutes) ||
+    estimatedEtaMinutes(
+      Number.isFinite(distanceKm) ? distanceKm : 0,
+      Number(metadata.prepTimeMinutes || productDelivery.countdownMinutes || 15),
+    );
+
+  const instantEtaLabel =
+    metadata.instantEtaLabel ||
+    (Number.isFinite(distanceKm) ? etaLabelForDistance(distanceKm) : 'Today');
+
+  const courierEtaDays = Number(metadata.courierEtaDays || 3);
+  const courierProvider = pickCourierProvider(zone, product);
+  const localProvider = pickLocalProvider(zone);
+  const selectedDeliveryPartner = supportsTryAtHome || supportsInstantDelivery
+    ? localProvider
+    : supportsCourierDelivery
+      ? courierProvider
+      : '';
+  const estimatedDeliveryDate = supportsCourierDelivery
+    ? isoDatePlusDays(courierEtaDays)
+    : supportsInstantDelivery || supportsTryAtHome
+      ? isoDatePlusDays(0)
+      : '';
+
+  const isDeliverable = Boolean(
+    supportsTryAtHome || supportsInstantDelivery || supportsCourierDelivery,
+  );
+
+  return {
+    success: true,
+    available: isDeliverable,
+    isDeliverable,
+    supportsTryAtHome,
+    supportsInstantDelivery,
+    supportsCourierDelivery,
+    estimatedDeliveryDate,
+    estimatedInstantDeliveryTime: supportsInstantDelivery || supportsTryAtHome
+      ? `${Math.max(15, Math.round(instantEtaMinutes))} mins`
+      : '',
+    shippingCharge,
+    deliveryPartner: selectedDeliveryPartner,
+    deliveryProvider: selectedDeliveryPartner,
+    courierProvider,
+    localProvider,
+    deliveryMode: supportsTryAtHome
+      ? 'TRY_AT_HOME'
+      : supportsInstantDelivery
+        ? 'LOCAL_DELIVERY'
+        : supportsCourierDelivery
+          ? 'COURIER_DELIVERY'
+          : 'UNAVAILABLE',
+    serviceZoneId: zone?.zoneId || '',
+    zoneId: zone?.zoneId || '',
+    city: zone?.city || '',
+    pincode: pincode || '',
+    eta: supportsInstantDelivery || supportsTryAtHome
+      ? instantEtaLabel
+      : supportsCourierDelivery
+        ? `Delivery by ${estimatedDeliveryDate}`
+        : 'Not deliverable',
+    eta_minutes: supportsInstantDelivery || supportsTryAtHome
+      ? Math.round(instantEtaMinutes)
+      : 0,
+    distance_km: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null,
+    reason: isDeliverable ? '' : 'location_unserviceable',
+  };
+}
+
 async function deliveryCheck({ productId, lat, lng, pincode = '' }) {
   if (!productId) {
-    return { available: false, reason: 'product_id_required' };
+    return { success: false, available: false, isDeliverable: false, reason: 'product_id_required' };
   }
-  const cacheKey = `product:${productId}:nearby:${String(pincode || 'na').trim() || 'na'}`;
+
+  const cacheKey = `product:${productId}:serviceability:${Number.isFinite(lat) ? lat.toFixed(5) : 'na'}:${Number.isFinite(lng) ? lng.toFixed(5) : 'na'}:${String(pincode || 'na').trim() || 'na'}`;
   const cached = await getJson(cacheKey);
-  if (cached && Number.isFinite(lat) && Number.isFinite(lng)) {
-    const nearest = (cached.vendors || [])
-      .map((vendor) => ({
-        ...vendor,
-        distance_km: haversineDistanceKm(lat, lng, vendor.lat, vendor.lng),
-      }))
-      .sort((a, b) => a.distance_km - b.distance_km)[0];
-    if (nearest && nearest.distance_km <= nearest.delivery_radius_km && nearest.distance_km <= 15) {
-      const etaLabel = etaLabelForDistance(nearest.distance_km);
-      return {
-        available: true,
-        eta: etaLabel,
-        eta_minutes: estimatedEtaMinutes(nearest.distance_km, nearest.prep_time_minutes),
-        vendor_id: nearest.vendor_id,
-        distance_km: Number(nearest.distance_km.toFixed(2)),
-      };
+  if (cached) {
+    return cached;
+  }
+
+  const product = await Product.findById(productId)
+    .select('_id storeId stock sameDayEligible trialHome deliveryInfo')
+    .lean();
+  if (!product || Number(product.stock || 0) <= 0) {
+    return {
+      success: true,
+      available: false,
+      isDeliverable: false,
+      supportsTryAtHome: false,
+      supportsInstantDelivery: false,
+      supportsCourierDelivery: false,
+      reason: 'product_unavailable',
+    };
+  }
+
+  const zones = await OpsZone.find({ frozen: { $ne: true } }).lean();
+  let bestZone = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  const addressLat = Number(lat);
+  const addressLng = Number(lng);
+  const hasGeo = Number.isFinite(addressLat) && Number.isFinite(addressLng);
+  const normalizedPincode = String(pincode || '').trim();
+  const productStore = await Store.findById(product.storeId)
+    .select('city latitude longitude sameDay')
+    .lean();
+
+  for (const zone of zones) {
+    const zoneLat = toNumber(zone?.center?.lat);
+    const zoneLng = toNumber(zone?.center?.lng);
+    let distance = Number.POSITIVE_INFINITY;
+    if (hasGeo && Number.isFinite(zoneLat) && Number.isFinite(zoneLng)) {
+      distance = haversineDistanceKm(addressLat, addressLng, zoneLat, zoneLng);
+    }
+    const cityMatch =
+      normalizedPincode &&
+      String(zone.city || '').trim().toLowerCase() &&
+      String(zone.city || '').trim().toLowerCase() === String(productStore?.city || '').trim().toLowerCase();
+    const withinRadius = Number.isFinite(distance) && distance <= Number(zone.radiusKm || 0);
+    const metadata = zoneMetadata(zone);
+    const zonePincodes = normalizeProviderList(metadata.pincodes);
+    const pinMatch = normalizedPincode && zonePincodes.includes(normalizedPincode);
+    const zoneMatched = withinRadius || cityMatch || pinMatch;
+    if (zoneMatched && distance < bestDistance) {
+      bestDistance = distance;
+      bestZone = zone;
     }
   }
 
-  const product = await Product.findById(productId).select('_id storeId stock sameDayEligible').lean();
-  if (!product || Number(product.stock || 0) <= 0 || product.sameDayEligible !== true) {
-    return { available: false, reason: 'product_unavailable' };
+  const response = buildServiceabilityResponse({
+    product,
+    zone: bestZone,
+    distanceKm: bestDistance,
+    hasGeoMatch: hasGeo,
+    pincode: normalizedPincode,
+  });
+
+  if (!response.isDeliverable && normalizedPincode) {
+    response.supportsCourierDelivery = true;
+    response.isDeliverable = true;
+    response.available = true;
+    response.deliveryMode = response.supportsTryAtHome
+      ? 'TRY_AT_HOME'
+      : response.supportsInstantDelivery
+        ? 'LOCAL_DELIVERY'
+        : 'COURIER_DELIVERY';
+    response.deliveryPartner = response.courierProvider || response.deliveryPartner || 'Shiprocket';
+    response.deliveryProvider = response.deliveryPartner;
+    response.estimatedDeliveryDate = response.estimatedDeliveryDate || isoDatePlusDays(3);
+    response.shippingCharge = response.shippingCharge || 40;
+    response.reason = '';
   }
 
-  const stores = await Store.find({
-    _id: product.storeId,
-    isActive: true,
-    approvalStatus: 'approved',
-    'sameDay.enabled': true,
-  }).lean();
-
-  const candidates = stores
-    .map((store) => {
-      const storeLat = toNumber(store.latitude);
-      const storeLng = toNumber(store.longitude);
-      if (!Number.isFinite(storeLat) || !Number.isFinite(storeLng)) return null;
-      const deliveryRadiusKm = Number(store.sameDay?.deliveryRadiusKm || 10);
-      const prepTimeMinutes = Number(store.sameDay?.prepTimeMins || 15);
-      const distance = haversineDistanceKm(lat, lng, storeLat, storeLng);
-      return {
-        vendor_id: String(store._id),
-        lat: storeLat,
-        lng: storeLng,
-        ready_to_ship: Boolean(store.sameDay?.enabled && store.isActive),
-        delivery_radius_km: deliveryRadiusKm,
-        prep_time_minutes: prepTimeMinutes,
-        distance_km: distance,
-      };
-    })
-    .filter(Boolean)
-    .filter((row) => row.ready_to_ship && row.distance_km <= row.delivery_radius_km && row.distance_km <= 15)
-    .sort((a, b) => a.distance_km - b.distance_km);
-
-  await setJson(
-    cacheKey,
-    {
-      vendors: stores.map((store) => ({
-        vendor_id: String(store._id),
-        lat: Number(store.latitude || 0),
-        lng: Number(store.longitude || 0),
-        delivery_radius_km: Number(store.sameDay?.deliveryRadiusKm || 10),
-        prep_time_minutes: Number(store.sameDay?.prepTimeMins || 15),
-      })),
-      created_at: new Date().toISOString(),
-    },
-    300,
-  );
-
-  const selected = candidates[0];
-  if (!selected) {
-    return { available: false, reason: 'no_vendor' };
-  }
-
-  return {
-    available: true,
-    eta: etaLabelForDistance(selected.distance_km),
-    eta_minutes: estimatedEtaMinutes(selected.distance_km, selected.prep_time_minutes),
-    vendor_id: selected.vendor_id,
-    distance_km: Number(selected.distance_km.toFixed(2)),
-  };
+  await setJson(cacheKey, response, 300);
+  return response;
 }
 
 async function getOrderTracking(orderId, riderLive) {

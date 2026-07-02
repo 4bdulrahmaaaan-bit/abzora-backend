@@ -9,9 +9,11 @@ const UserMemory = require('../models/UserMemory');
 const UserStyleProfile = require('../models/UserStyleProfile');
 const MeasurementProfile = require('../models/MeasurementProfile');
 const ReferralRecord = require('../models/ReferralRecord');
+const Coupon = require('../models/Coupon');
 const GrowthOffer = require('../models/GrowthOffer');
 const VendorKycRequest = require('../models/VendorKycRequest');
 const Order = require('../models/Order');
+const couponRedemptionService = require('../services/couponRedemptionService');
 const { recordUserNetworkContext } = require('../services/fraudDetectionService');
 const { logSecurityEvent, logSecurityWarning } = require('../services/auditLogger');
 
@@ -1246,6 +1248,75 @@ async function getReferralDashboard(req, res, next) {
   }
 }
 
+function serializeAdminCoupon(coupon, extra = {}) {
+  const base = coupon && typeof coupon.toObject === 'function' ? coupon.toObject() : (coupon || {});
+  return {
+    id: base._id?.toString?.() || base.id || '',
+    ...base,
+    couponCode: toSafeTrimmedString(base.couponCode).toUpperCase(),
+    discountType: toSafeTrimmedString(base.discountType),
+    discountValue: Number(base.discountValue || 0),
+    minimumOrderValue: Number(base.minimumOrderValue || 0),
+    maximumDiscount: base.maximumDiscount == null ? null : Number(base.maximumDiscount),
+    usageLimit: base.usageLimit == null ? null : Number(base.usageLimit),
+    usedCount: Number(base.usedCount || 0),
+    status: toSafeTrimmedString(base.status) || 'draft',
+    startDate: base.startDate || null,
+    endDate: base.endDate || null,
+    eligibleUserIds: Array.isArray(base.eligibleUserIds)
+      ? base.eligibleUserIds.map((item) => String(item).trim()).filter(Boolean)
+      : [],
+    firstOrderOnly: Boolean(base.firstOrderOnly),
+    discountAmount: extra.discountAmount == null ? null : Number(extra.discountAmount),
+    isEligible: extra.isEligible == null ? null : Boolean(extra.isEligible),
+    eligibilityMessage: extra.eligibilityMessage || '',
+  };
+}
+
+async function listCoupons(req, res, next) {
+  try {
+    const cartValue = Number(req.query?.cartValue || 0);
+    const coupons = await couponRedemptionService.listEligibleCoupons({
+      customerId: req.user.uid,
+      orderValue: cartValue,
+    });
+    return res.status(200).json({
+      success: true,
+      data: coupons.map((coupon) => serializeAdminCoupon(coupon, {
+        discountAmount: coupon.discountAmount,
+        isEligible: true,
+      })),
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function validateCoupon(req, res, next) {
+  try {
+    const code = toSafeTrimmedString(req.body?.code).toUpperCase();
+    const cartValue = Number(req.body?.cartValue || 0);
+    if (!code) {
+      return res.status(200).json({ success: true, data: null });
+    }
+    const validation = await couponRedemptionService.validateCoupon(code, null, cartValue, {
+      customerId: req.user.uid,
+    });
+    return res.status(200).json({
+      success: true,
+      data: serializeAdminCoupon(validation.coupon, {
+        discountAmount: validation.discountAmount,
+        isEligible: true,
+      }),
+    });
+  } catch (error) {
+    if (String(error.message || '').toLowerCase().includes('invalid coupon')) {
+      return res.status(200).json({ success: true, data: null });
+    }
+    return res.status(200).json({ success: true, data: null });
+  }
+}
+
 async function listGrowthOffers(req, res, next) {
   try {
     const offers = await GrowthOffer.find({ userId: req.user.uid }).sort({
@@ -1509,6 +1580,8 @@ module.exports = {
   applyReferralCode,
   listReferralHistory,
   getReferralDashboard,
+  listCoupons,
+  validateCoupon,
   listGrowthOffers,
   saveGrowthOffer,
   validateGrowthOffer,

@@ -5,6 +5,7 @@ const { otpLimiter } = require('../middleware/rateLimiter');
 const { requireRoles } = require('../middleware/authorizationMiddleware');
 const { validateBody } = require('../validation/schemaValidator');
 const {
+  couponValidateSchema,
   growthOfferClaimSchema,
   growthOfferValidateSchema,
   referralApplySchema,
@@ -32,6 +33,8 @@ const {
   applyReferralCode,
   listReferralHistory,
   getReferralDashboard,
+  listCoupons,
+  validateCoupon,
   listGrowthOffers,
   saveGrowthOffer,
   validateGrowthOffer,
@@ -64,6 +67,8 @@ router.delete('/measurements/:id', authMiddleware, removeMeasurementProfile);
 router.post('/referrals/apply', authMiddleware, validateBody(referralApplySchema), applyReferralCode);
 router.get('/referrals/history', authMiddleware, listReferralHistory);
 router.get('/referrals/dashboard', authMiddleware, getReferralDashboard);
+router.get('/coupons', authMiddleware, listCoupons);
+router.post('/coupons/validate', authMiddleware, validateBody(couponValidateSchema), validateCoupon);
 router.get('/growth-offers', authMiddleware, listGrowthOffers);
 router.post('/growth-offers', authMiddleware, saveGrowthOffer);
 router.post('/growth-offers/validate', authMiddleware, validateBody(growthOfferValidateSchema), validateGrowthOffer);

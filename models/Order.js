@@ -503,8 +503,48 @@ const orderSchema = new mongoose.Schema(
     },
     deliveryStatus: {
       type: String,
-      enum: ['Pending', 'Ready for pickup', 'Assigned', 'Picked up', 'Out for delivery', 'Delivered', 'Cancelled'],
+      enum: ['Pending', 'Ready for pickup', 'Assigned', 'Picked up', 'Out for delivery', 'Delivered', 'Cancelled', 'Ready to ship', 'Pickup scheduled', 'In transit', 'Return requested', 'Return in transit', 'Return received'],
       default: 'Pending',
+    },
+    deliveryType: {
+      type: String,
+      enum: ['TRY_AT_HOME', 'LOCAL_DELIVERY', 'COURIER_DELIVERY'],
+      default: 'COURIER_DELIVERY',
+    },
+    deliveryProvider: {
+      type: String,
+      trim: true,
+      default: 'Unassigned',
+    },
+    trackingNumber: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    shipmentId: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    awbNumber: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    shippingCharge: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    estimatedDeliveryDate: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    estimatedInstantDeliveryTime: {
+      type: String,
+      trim: true,
+      default: '',
     },
     assignedDeliveryPartner: {
       type: String,
@@ -576,3 +616,4 @@ orderSchema.index({ paymentStatus: 1 });
 orderSchema.index({ refundStatus: 1 });
 
 module.exports = mongoose.model('Order', orderSchema);
+
