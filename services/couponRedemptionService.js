@@ -145,8 +145,8 @@ class CouponRedemptionService {
     return { redemption, discountAmount };
   }
 
-  async listEligibleCoupons({ customerId, orderValue }) {
-    const coupons = await Coupon.find({ vendorId: 'ADMIN' }).sort({ createdAt: -1 });
+  async listEligibleCoupons({ customerId, orderValue, vendorId = 'ADMIN' }) {
+    const coupons = await Coupon.find({ vendorId }).sort({ createdAt: -1 });
     const eligible = [];
 
     for (const coupon of coupons) {
@@ -172,6 +172,29 @@ class CouponRedemptionService {
     });
 
     return eligible;
+  }
+
+  async listCouponCatalog({ customerId, orderValue, vendorId }) {
+    const [platformCoupons, storeCoupons] = await Promise.all([
+      this.listEligibleCoupons({ customerId, orderValue, vendorId: 'ADMIN' }),
+      vendorId
+        ? this.listEligibleCoupons({ customerId, orderValue, vendorId })
+        : Promise.resolve([]),
+    ]);
+
+    return {
+      platformCoupons,
+      storeCoupons,
+      bestCoupon: [...platformCoupons, ...storeCoupons]
+        .sort((left, right) => {
+          const rightValue = Number(right.discountAmount || 0);
+          const leftValue = Number(left.discountAmount || 0);
+          if (rightValue !== leftValue) {
+            return rightValue - leftValue;
+          }
+          return new Date(right.createdAt || 0) - new Date(left.createdAt || 0);
+        })[0] || null,
+    };
   }
 }
 

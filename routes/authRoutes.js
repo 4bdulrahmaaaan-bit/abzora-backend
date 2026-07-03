@@ -34,6 +34,7 @@ const {
   listReferralHistory,
   getReferralDashboard,
   listCoupons,
+  listCouponCatalog,
   validateCoupon,
   listGrowthOffers,
   saveGrowthOffer,
@@ -68,6 +69,7 @@ router.post('/referrals/apply', authMiddleware, validateBody(referralApplySchema
 router.get('/referrals/history', authMiddleware, listReferralHistory);
 router.get('/referrals/dashboard', authMiddleware, getReferralDashboard);
 router.get('/coupons', authMiddleware, listCoupons);
+router.get('/coupons/catalog', authMiddleware, listCouponCatalog);
 router.post('/coupons/validate', authMiddleware, validateBody(couponValidateSchema), validateCoupon);
 router.get('/growth-offers', authMiddleware, listGrowthOffers);
 router.post('/growth-offers', authMiddleware, saveGrowthOffer);

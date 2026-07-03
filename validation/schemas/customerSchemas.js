@@ -153,6 +153,7 @@ const couponValidateSchema = {
   properties: {
     code: { type: 'string', minLength: 1, maxLength: 64 },
     cartValue: { type: 'number', minimum: 0, maximum: 10000000 },
+    storeId: { type: 'string', maxLength: 64 },
   },
   required: ['code'],
 };

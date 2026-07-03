@@ -1273,6 +1273,15 @@ function serializeAdminCoupon(coupon, extra = {}) {
   };
 }
 
+async function resolveStoreOwnerId(storeId) {
+  const normalizedStoreId = toSafeTrimmedString(storeId);
+  if (!normalizedStoreId || !mongoose.Types.ObjectId.isValid(normalizedStoreId)) {
+    return '';
+  }
+  const store = await Store.findById(normalizedStoreId).select('ownerId').lean();
+  return toSafeTrimmedString(store?.ownerId);
+}
+
 async function listCoupons(req, res, next) {
   try {
     const cartValue = Number(req.query?.cartValue || 0);
@@ -1292,14 +1301,48 @@ async function listCoupons(req, res, next) {
   }
 }
 
+async function listCouponCatalog(req, res, next) {
+  try {
+    const cartValue = Number(req.query?.cartValue || 0);
+    const vendorId = await resolveStoreOwnerId(req.query?.storeId);
+    const catalog = await couponRedemptionService.listCouponCatalog({
+      customerId: req.user.uid,
+      orderValue: cartValue,
+      vendorId: vendorId || null,
+    });
+    return res.status(200).json({
+      success: true,
+      data: {
+        platformCoupons: catalog.platformCoupons.map((coupon) => serializeAdminCoupon(coupon, {
+          discountAmount: coupon.discountAmount,
+          isEligible: true,
+        })),
+        storeCoupons: catalog.storeCoupons.map((coupon) => serializeAdminCoupon(coupon, {
+          discountAmount: coupon.discountAmount,
+          isEligible: true,
+        })),
+        bestCoupon: catalog.bestCoupon
+          ? serializeAdminCoupon(catalog.bestCoupon, {
+              discountAmount: catalog.bestCoupon.discountAmount,
+              isEligible: true,
+            })
+          : null,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function validateCoupon(req, res, next) {
   try {
     const code = toSafeTrimmedString(req.body?.code).toUpperCase();
     const cartValue = Number(req.body?.cartValue || 0);
+    const vendorId = await resolveStoreOwnerId(req.body?.storeId);
     if (!code) {
       return res.status(200).json({ success: true, data: null });
     }
-    const validation = await couponRedemptionService.validateCoupon(code, null, cartValue, {
+    const validation = await couponRedemptionService.validateCoupon(code, vendorId || null, cartValue, {
       customerId: req.user.uid,
     });
     return res.status(200).json({
@@ -1581,6 +1624,7 @@ module.exports = {
   listReferralHistory,
   getReferralDashboard,
   listCoupons,
+  listCouponCatalog,
   validateCoupon,
   listGrowthOffers,
   saveGrowthOffer,
