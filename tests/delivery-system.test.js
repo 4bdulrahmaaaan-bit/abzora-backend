@@ -5,6 +5,7 @@ const { checkDeliveryAvailability, trackOrder } = require('../controllers/logist
 const { deliveryCheck } = require('../services/hyperlocalDeliveryService');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
+const OpsZone = require('../models/OpsZone');
 const Order = require('../models/Order');
 
 function createRes() {
@@ -45,6 +46,116 @@ async function testCheckDeliveryAvailabilityValidation() {
   assert.match(res.body.message, /product_id is required/i);
 }
 
+async function testCheckDeliveryAvailabilityPincodeOnlyTryAtHome() {
+  const originalProductFindById = Product.findById;
+  const originalStoreFindById = Store.findById;
+  const originalZoneFind = OpsZone.find;
+
+  Product.findById = () => ({
+    select: () => ({
+      lean: async () => ({
+        _id: 'p1',
+        stock: 6,
+        sameDayEligible: true,
+        trialHome: { trialEnabled: true },
+        storeId: 's1',
+        deliveryInfo: {},
+      }),
+    }),
+  });
+  Store.findById = () => ({
+    select: () => ({
+      lean: async () => ({
+        _id: 's1',
+        city: 'Chennai',
+        latitude: null,
+        longitude: null,
+      }),
+    }),
+  });
+  OpsZone.find = () => ({
+    lean: async () => [
+      {
+        zoneId: 'chennai:1',
+        city: 'Chennai',
+        radiusKm: 10,
+        center: { lat: 13.05, lng: 80.25 },
+        metadata: { pincodes: ['600001'] },
+      },
+    ],
+  });
+
+  try {
+    const req = {
+      query: {
+        product_id: '6817618db0b2f53f0f97f744',
+        pincode: '600001',
+      },
+    };
+    const res = createRes();
+    await checkDeliveryAvailability(req, res, () => {});
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.isDeliverable, true);
+    assert.equal(res.body.supportsTryAtHome, true);
+    assert.equal(res.body.deliveryMode, 'TRY_AT_HOME');
+  } finally {
+    Product.findById = originalProductFindById;
+    Store.findById = originalStoreFindById;
+    OpsZone.find = originalZoneFind;
+  }
+}
+
+async function testCheckDeliveryAvailabilityPincodeOnlyCourierFallback() {
+  const originalProductFindById = Product.findById;
+  const originalStoreFindById = Store.findById;
+  const originalZoneFind = OpsZone.find;
+
+  Product.findById = () => ({
+    select: () => ({
+      lean: async () => ({
+        _id: 'p2',
+        stock: 4,
+        sameDayEligible: false,
+        trialHome: { trialEnabled: false },
+        storeId: 's2',
+        deliveryInfo: {},
+      }),
+    }),
+  });
+  Store.findById = () => ({
+    select: () => ({
+      lean: async () => ({
+        _id: 's2',
+        city: 'Bengaluru',
+        latitude: null,
+        longitude: null,
+      }),
+    }),
+  });
+  OpsZone.find = () => ({
+    lean: async () => [],
+  });
+
+  try {
+    const req = {
+      query: {
+        product_id: '6817618db0b2f53f0f97f744',
+        pincode: '400001',
+      },
+    };
+    const res = createRes();
+    await checkDeliveryAvailability(req, res, () => {});
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.isDeliverable, true);
+    assert.equal(res.body.supportsCourierDelivery, true);
+    assert.equal(res.body.deliveryMode, 'COURIER_DELIVERY');
+  } finally {
+    Product.findById = originalProductFindById;
+    Store.findById = originalStoreFindById;
+    OpsZone.find = originalZoneFind;
+  }
+}
+
 async function testTrackOrderVendorAccess() {
   const originalOrderFindById = Order.findById;
   const originalStoreFindById = Store.findById;
@@ -83,6 +194,8 @@ async function testTrackOrderVendorAccess() {
 async function run() {
   await testDeliveryCheckUnavailable();
   await testCheckDeliveryAvailabilityValidation();
+  await testCheckDeliveryAvailabilityPincodeOnlyTryAtHome();
+  await testCheckDeliveryAvailabilityPincodeOnlyCourierFallback();
   await testTrackOrderVendorAccess();
   // eslint-disable-next-line no-console
   console.log('delivery-system tests passed');

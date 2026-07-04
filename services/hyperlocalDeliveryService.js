@@ -247,8 +247,13 @@ async function deliveryCheck({ productId, lat, lng, pincode = '' }) {
     const zonePincodes = normalizeProviderList(metadata.pincodes);
     const pinMatch = normalizedPincode && zonePincodes.includes(normalizedPincode);
     const zoneMatched = withinRadius || cityMatch || pinMatch;
-    if (zoneMatched && distance < bestDistance) {
-      bestDistance = distance;
+    const matchScore = Number.isFinite(distance)
+      ? distance
+      : cityMatch || pinMatch
+        ? 0
+        : Number.POSITIVE_INFINITY;
+    if (zoneMatched && matchScore < bestDistance) {
+      bestDistance = matchScore;
       bestZone = zone;
     }
   }
@@ -257,7 +262,7 @@ async function deliveryCheck({ productId, lat, lng, pincode = '' }) {
     product,
     zone: bestZone,
     distanceKm: bestDistance,
-    hasGeoMatch: hasGeo,
+    hasGeoMatch: hasGeo || Boolean(bestZone),
     pincode: normalizedPincode,
   });
 

@@ -770,8 +770,13 @@ async function checkDeliveryAvailability(req, res, next) {
     if (!productId) {
       return res.status(400).json({ success: false, message: 'product_id is required.' });
     }
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return res.status(400).json({ success: false, message: 'lat and lng are required.' });
+    const hasGeo = Number.isFinite(lat) && Number.isFinite(lng);
+    const hasPincode = pincode.length > 0;
+    if (!hasGeo && !hasPincode) {
+      return res.status(400).json({
+        success: false,
+        message: 'lat and lng or pincode are required.',
+      });
     }
     const result = await deliveryCheck({ productId, lat, lng, pincode });
     return res.status(200).json(result);
