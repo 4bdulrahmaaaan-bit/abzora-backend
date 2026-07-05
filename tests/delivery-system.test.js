@@ -105,6 +105,67 @@ async function testCheckDeliveryAvailabilityPincodeOnlyTryAtHome() {
   }
 }
 
+async function testCheckDeliveryAvailabilityLocalityMatchTryAtHome() {
+  const originalProductFindById = Product.findById;
+  const originalStoreFindById = Store.findById;
+  const originalZoneFind = OpsZone.find;
+
+  Product.findById = () => ({
+    select: () => ({
+      lean: async () => ({
+        _id: 'p3',
+        stock: 4,
+        sameDayEligible: true,
+        trialHome: { trialEnabled: true },
+        storeId: 's3',
+        deliveryInfo: {},
+      }),
+    }),
+  });
+  Store.findById = () => ({
+    select: () => ({
+      lean: async () => ({
+        _id: 's3',
+        city: 'Chennai',
+        latitude: null,
+        longitude: null,
+      }),
+    }),
+  });
+  OpsZone.find = () => ({
+    lean: async () => [
+      {
+        zoneId: 'chennai:2',
+        city: 'Chennai',
+        radiusKm: 10,
+        center: { lat: 13.05, lng: 80.25 },
+        metadata: { pincodes: ['600001'] },
+      },
+    ],
+  });
+
+  try {
+    const req = {
+      query: {
+        product_id: '6817618db0b2f53f0f97f744',
+        locality: 'Chennai',
+        city: 'George Town',
+        pincode: '600001',
+      },
+    };
+    const res = createRes();
+    await checkDeliveryAvailability(req, res, () => {});
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.isDeliverable, true);
+    assert.equal(res.body.supportsTryAtHome, true);
+    assert.equal(res.body.deliveryMode, 'TRY_AT_HOME');
+  } finally {
+    Product.findById = originalProductFindById;
+    Store.findById = originalStoreFindById;
+    OpsZone.find = originalZoneFind;
+  }
+}
+
 async function testCheckDeliveryAvailabilityPincodeOnlyCourierFallback() {
   const originalProductFindById = Product.findById;
   const originalStoreFindById = Store.findById;
@@ -195,6 +256,7 @@ async function run() {
   await testDeliveryCheckUnavailable();
   await testCheckDeliveryAvailabilityValidation();
   await testCheckDeliveryAvailabilityPincodeOnlyTryAtHome();
+  await testCheckDeliveryAvailabilityLocalityMatchTryAtHome();
   await testCheckDeliveryAvailabilityPincodeOnlyCourierFallback();
   await testTrackOrderVendorAccess();
   // eslint-disable-next-line no-console

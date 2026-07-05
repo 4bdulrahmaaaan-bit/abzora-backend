@@ -801,20 +801,32 @@ async function checkDeliveryAvailability(req, res, next) {
     const lat = Number(req.query?.lat);
     const lng = Number(req.query?.lng);
     const pincode = String(req.query?.pincode || '').trim();
+    const locality = String(req.query?.locality || '').trim();
     const city = String(req.query?.city || '').trim();
+    const state = String(req.query?.state || '').trim();
     if (!productId) {
       return res.status(400).json({ success: false, message: 'product_id is required.' });
     }
     const hasGeo = Number.isFinite(lat) && Number.isFinite(lng);
     const hasPincode = pincode.length > 0;
     const hasCity = city.length > 0;
-    if (!hasGeo && !hasPincode && !hasCity) {
+    const hasLocality = locality.length > 0;
+    const hasState = state.length > 0;
+    if (!hasGeo && !hasPincode && !hasCity && !hasLocality && !hasState) {
       return res.status(400).json({
         success: false,
-        message: 'lat and lng, pincode, or city are required.',
+        message: 'lat and lng, pincode, locality, city, or state are required.',
       });
     }
-    const result = await deliveryCheck({ productId, lat, lng, pincode, city });
+    const result = await deliveryCheck({
+      productId,
+      lat,
+      lng,
+      pincode,
+      locality,
+      city,
+      state,
+    });
     return res.status(200).json(result);
   } catch (error) {
     return next(error);

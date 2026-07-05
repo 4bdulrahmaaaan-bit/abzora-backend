@@ -91,19 +91,31 @@ function buildServiceabilityResponse({
   distanceKm,
   hasGeoMatch,
   pincode,
+  locality = '',
   city = '',
+  state = '',
 }) {
   const metadata = zoneMetadata(zone);
   const productDelivery = product?.deliveryInfo || {};
   const storeDelivery = store?.sameDay || {};
   const normalizedCity = String(city || '').trim().toLowerCase();
+  const normalizedLocality = String(locality || '').trim().toLowerCase();
+  const normalizedState = String(state || '').trim().toLowerCase();
   const zoneCity = String(zone?.city || '').trim().toLowerCase();
   const storeCity = String(store?.city || '').trim().toLowerCase();
   const hasCityMatch = Boolean(
     normalizedCity &&
       (normalizedCity === zoneCity || normalizedCity === storeCity),
   );
-  const deliveryMatch = hasGeoMatch || hasCityMatch;
+  const hasLocalityMatch = Boolean(
+    normalizedLocality &&
+      (normalizedLocality === zoneCity || normalizedLocality === storeCity),
+  );
+  const hasStateMatch = Boolean(
+    normalizedState &&
+      (normalizedState === zoneCity || normalizedState === storeCity),
+  );
+  const deliveryMatch = hasGeoMatch || hasCityMatch || hasLocalityMatch || hasStateMatch;
   const storeSupportsSameDay = storeDelivery.enabled !== false;
   const storeSupportsTrialHome = storeDelivery.supportsTrialHome !== false;
   const tryAtHomeEnabled = Boolean(
@@ -127,7 +139,7 @@ function buildServiceabilityResponse({
       metadata.supportsLocalDelivery !== false,
   );
   const supportsCourierDelivery = Boolean(
-    pincode || normalizedCity ||
+    pincode || normalizedCity || normalizedLocality || normalizedState ||
       metadata.supportsCourierDelivery === true ||
       metadata.supportsCourierDelivery == null,
   ) && Number(product?.stock || 0) > 0;
@@ -194,7 +206,7 @@ function buildServiceabilityResponse({
           : 'UNAVAILABLE',
     serviceZoneId: zone?.zoneId || '',
     zoneId: zone?.zoneId || '',
-    city: zone?.city || city || '',
+    city: zone?.city || city || locality || state || '',
     pincode: pincode || '',
     eta: supportsInstantDelivery || supportsTryAtHome
       ? instantEtaLabel
@@ -209,12 +221,12 @@ function buildServiceabilityResponse({
   };
 }
 
-async function deliveryCheck({ productId, lat, lng, pincode = '', city = '' }) {
+async function deliveryCheck({ productId, lat, lng, pincode = '', locality = '', city = '', state = '' }) {
   if (!productId) {
     return { success: false, available: false, isDeliverable: false, reason: 'product_id_required' };
   }
 
-  const cacheKey = `product:${productId}:serviceability:${Number.isFinite(lat) ? lat.toFixed(5) : 'na'}:${Number.isFinite(lng) ? lng.toFixed(5) : 'na'}:${String(pincode || 'na').trim() || 'na'}:${String(city || 'na').trim().toLowerCase() || 'na'}`;
+  const cacheKey = `product:${productId}:serviceability:${Number.isFinite(lat) ? lat.toFixed(5) : 'na'}:${Number.isFinite(lng) ? lng.toFixed(5) : 'na'}:${String(pincode || 'na').trim() || 'na'}:${String(locality || 'na').trim().toLowerCase() || 'na'}:${String(city || 'na').trim().toLowerCase() || 'na'}:${String(state || 'na').trim().toLowerCase() || 'na'}`;
   const cached = await getJson(cacheKey);
   if (cached) {
     return cached;
@@ -242,7 +254,9 @@ async function deliveryCheck({ productId, lat, lng, pincode = '', city = '' }) {
   const addressLng = Number(lng);
   const hasGeo = Number.isFinite(addressLat) && Number.isFinite(addressLng);
   const normalizedPincode = String(pincode || '').trim();
+  const normalizedLocality = String(locality || '').trim().toLowerCase();
   const normalizedCity = String(city || '').trim().toLowerCase();
+  const normalizedState = String(state || '').trim().toLowerCase();
   const productStore = await Store.findById(product.storeId)
     .select('city latitude longitude sameDay')
     .lean();
@@ -282,10 +296,12 @@ async function deliveryCheck({ productId, lat, lng, pincode = '', city = '' }) {
     distanceKm: bestDistance,
     hasGeoMatch: hasGeo || Boolean(bestZone),
     pincode: normalizedPincode,
+    locality: normalizedLocality,
     city: normalizedCity || productStore?.city || '',
+    state: normalizedState,
   });
 
-  if (!response.isDeliverable && (normalizedPincode || normalizedCity)) {
+  if (!response.isDeliverable && (normalizedPincode || normalizedCity || normalizedLocality || normalizedState)) {
     response.supportsCourierDelivery = true;
     response.isDeliverable = true;
     response.available = true;

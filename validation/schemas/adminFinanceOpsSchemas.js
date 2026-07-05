@@ -114,6 +114,9 @@ const logisticsDeliveryCheckQuerySchema = {
     lat: { type: 'number', minimum: -90, maximum: 90 },
     lng: { type: 'number', minimum: -180, maximum: 180 },
     pincode: { type: 'string', maxLength: 20 },
+    locality: { type: 'string', maxLength: 120 },
+    city: { type: 'string', maxLength: 120 },
+    state: { type: 'string', maxLength: 120 },
   },
 };
 
