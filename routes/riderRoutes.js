@@ -43,6 +43,7 @@ const {
   getPayoutHistory,
   getAnalytics
 } = require('../controllers/riderPlatformController');
+const riderNotificationController = require('../controllers/riderNotificationController');
 
 const router = express.Router();
 
@@ -79,5 +80,10 @@ router.get('/payouts', requireRider, getPayouts);
 router.get('/payouts/history', requireRider, getPayoutHistory);
 
 router.get('/analytics', requireRider, getAnalytics);
+
+router.get('/notifications', requireRider, riderNotificationController.getNotifications);
+router.get('/notifications/unread-count', requireRider, riderNotificationController.getUnreadCount);
+router.patch('/notifications/read-all', requireRider, riderNotificationController.markAllAsRead);
+router.patch('/notifications/:id/read', requireRider, riderNotificationController.markAsRead);
 
 module.exports = router;

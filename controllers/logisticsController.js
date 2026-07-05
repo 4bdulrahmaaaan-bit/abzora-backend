@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 
 const DeliveryTask = require('../models/DeliveryTask');
+const AdminNotification = require('../models/AdminNotification');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
@@ -120,6 +121,31 @@ function toOrderStatusFromTask(taskStatus) {
     return { deliveryStatus: 'Cancelled', orderStatus: 'cancelled' };
   }
   return {};
+}
+
+async function createRiderOrderNotification(order, store, message) {
+  const existing = await AdminNotification.findOne({
+    audienceRole: 'rider',
+    entityType: 'order',
+    entityId: order._id.toString(),
+  }).lean();
+  if (existing) {
+    return null;
+  }
+
+  return AdminNotification.create({
+    notificationId: `rider-order-${order._id.toString()}-${Date.now()}`,
+    title: 'New delivery available',
+    body: message,
+    type: 'delivery',
+    audienceRole: 'rider',
+    userId: '',
+    storeId: store?._id?.toString() || '',
+    entityType: 'order',
+    entityId: order._id.toString(),
+    targetRoute: '/rider',
+    timestamp: new Date().toISOString(),
+  });
 }
 
 async function assignRider(req, res, next) {
@@ -465,6 +491,14 @@ async function updateVendorOrderFlow(req, res, next) {
 
     order.orderStatus = map[nextStep].orderStatus;
     order.deliveryStatus = map[nextStep].deliveryStatus;
+    if (nextStep === 'accepted') {
+      const label = [store.name, store.city].filter(Boolean).join(', ') || store.name || 'your store';
+      await createRiderOrderNotification(
+        order,
+        store,
+        `Pickup is ready from ${label}. Open rider deliveries to accept this order.`,
+      );
+    }
     if (nextStep === 'ready' && !order.riderId) {
       const assignment = await createAssignedTask({
         taskType: 'ORDER_DELIVERY',
