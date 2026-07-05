@@ -28,6 +28,28 @@ class NotificationService {
     this.twilio = new TwilioProvider();
   }
 
+  async sendMulticastNotification(tokens = [], title = '', body = '', data = {}) {
+    const uniqueTokens = [...new Set((Array.isArray(tokens) ? tokens : []).map((token) => String(token || '').trim()).filter(Boolean))];
+    if (uniqueTokens.length === 0) {
+      return { success: true, sent: 0, delivered: 0, failed: 0 };
+    }
+
+    const res = await this.fcm.send({
+      tokens: uniqueTokens,
+      title,
+      body,
+      data,
+    });
+
+    return {
+      success: Boolean(res?.success),
+      sent: uniqueTokens.length,
+      delivered: Boolean(res?.success) ? uniqueTokens.length : 0,
+      failed: Boolean(res?.success) ? 0 : uniqueTokens.length,
+      messageId: res?.messageId || '',
+    };
+  }
+
   async dispatch(campaign) {
     const recipientCount = await User.countDocuments({
       role: campaign.audienceRole,

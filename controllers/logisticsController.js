@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const DeliveryTask = require('../models/DeliveryTask');
 const AdminNotification = require('../models/AdminNotification');
+const User = require('../models/User');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Store = require('../models/Store');
@@ -9,6 +10,8 @@ const TrialHomeSession = require('../models/TrialHomeSession');
 const { createAssignedTask } = require('../services/assignmentEngineService');
 const { recordTrackingEvent } = require('../services/trackingEventService');
 const { ensureEntityMappings } = require('../services/opsConsistencyService');
+const vendorNotificationService = require('../services/vendorNotificationService');
+const { sendMulticastNotification } = require('../services/notificationService');
 const {
   requestTrialHomeSession,
   serializeTrialHomeSession,
@@ -42,6 +45,53 @@ function isVendorUser(user) {
 
 function isRiderUser(user) {
   return hasRole(user, ['rider']);
+}
+
+async function notifyTrialAssignment({ trial, store, rider }) {
+  const trialLabel = trial?.deliverySlot || 'your scheduled trial';
+  const vendorName = store?.name || 'your store';
+
+  if (trial?.userId) {
+    const customer = await User.findOne({ uid: trial.userId }).select('fcmTokens').lean();
+    if (customer?.fcmTokens?.length) {
+      await sendMulticastNotification(
+        customer.fcmTokens,
+        'Your Try At Home session is confirmed',
+        `We are preparing ${trialLabel} for delivery.`,
+        {
+          type: 'trial_assignment',
+          sessionId: trial._id.toString(),
+          status: trial.status || 'assigned',
+        },
+      );
+    }
+  }
+
+  if (trial?.vendorId) {
+    await vendorNotificationService.createNotification(trial.vendorId, {
+      title: 'Trial rider assigned',
+      message: `A rider has been assigned for ${vendorName}.`,
+      priority: 'high',
+      type: 'trial_assignment',
+      relatedId: trial._id.toString(),
+    });
+  }
+
+  if (rider?.uid) {
+    const riderUser = await User.findOne({ uid: rider.uid }).select('fcmTokens').lean();
+    if (riderUser?.fcmTokens?.length) {
+      await sendMulticastNotification(
+        riderUser.fcmTokens,
+        'New Try At Home assignment',
+        `Pickup and deliver ${vendorName} trial items for ${trialLabel}.`,
+        {
+          type: 'trial_assignment',
+          sessionId: trial._id.toString(),
+          storeId: store?._id?.toString() || '',
+        },
+      );
+    }
+  }
 }
 
 function serializeTask(task) {
@@ -270,7 +320,11 @@ async function assignRider(req, res, next) {
         },
       });
 
-      trial.status = taskType === 'TRIAL_PICKUP' ? 'trial_in_progress' : 'out_for_trial_delivery';
+      trial.riderId = assignment.rider?.uid || trial.riderId || '';
+      trial.vendorId = store?.ownerId || trial.vendorId || '';
+      trial.storeId = store?._id?.toString() || trial.storeId || '';
+      trial.status = 'assigned';
+      trial.scheduledAt = trial.scheduledAt || new Date();
       trial.events.push({
         type: taskType === 'TRIAL_PICKUP' ? 'trial_pickup_assigned' : 'trial_delivery_assigned',
         actorId: req.user.uid,
@@ -278,6 +332,12 @@ async function assignRider(req, res, next) {
         createdAt: new Date(),
       });
       await trial.save();
+
+      await notifyTrialAssignment({
+        trial,
+        store,
+        rider: assignment.rider,
+      });
     }
 
     return res.status(200).json({

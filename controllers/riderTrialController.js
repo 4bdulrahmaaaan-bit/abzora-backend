@@ -7,11 +7,65 @@ const mongoose = require('mongoose');
 const telemetry = require('../services/telemetryContext'); 
 const riderEarningsService = require('../services/riderEarningsService');
 const riderPerformanceService = require('../services/riderPerformanceService');
+const vendorNotificationService = require('../services/vendorNotificationService');
+const { sendMulticastNotification } = require('../services/notificationService');
 
 // Helper for notifications
 async function triggerNotifications(event, session) {
-  // In a real app, this sends pushes to Customer, Vendor, and Admin
-  console.log(`[NOTIFICATION] Event: ${event}, Trial: ${session._id}`);
+  const titleMap = {
+    'Trial Started': 'Your Try At Home trial has started',
+    'Trial Completed': 'Your Try At Home trial is complete',
+    'No Show': 'Try At Home session update',
+  };
+  const bodyMap = {
+    'Trial Started': 'The rider has started your Try At Home session.',
+    'Trial Completed': 'Your Try At Home session has been completed.',
+    'No Show': 'The rider could not reach the trial location.',
+  };
+  const title = titleMap[event] || 'Try At Home update';
+  const body = bodyMap[event] || `Trial event update: ${event}`;
+
+  if (session?.userId) {
+    const customer = await User.findOne({ uid: session.userId }).select('fcmTokens').lean();
+    if (customer?.fcmTokens?.length) {
+      await sendMulticastNotification(
+        customer.fcmTokens,
+        title,
+        body,
+        {
+          type: 'trial_status_update',
+          sessionId: session._id.toString(),
+          event,
+        },
+      );
+    }
+  }
+
+  if (session?.riderId) {
+    const rider = await User.findOne({ uid: session.riderId }).select('fcmTokens').lean();
+    if (rider?.fcmTokens?.length) {
+      await sendMulticastNotification(
+        rider.fcmTokens,
+        title,
+        body,
+        {
+          type: 'trial_status_update',
+          sessionId: session._id.toString(),
+          event,
+        },
+      );
+    }
+  }
+
+  if (session?.vendorId) {
+    await vendorNotificationService.createNotification(session.vendorId, {
+      title,
+      message: body,
+      priority: 'high',
+      type: 'trial_status_update',
+      relatedId: session._id.toString(),
+    });
+  }
 }
 
 // Helper for analytics exactly once
@@ -33,7 +87,7 @@ async function getAssignedTrials(req, res, next) {
     const riderId = req.user._id.toString();
     const trials = await TrialHomeSession.find({
       riderId,
-      status: 'assigned',
+      status: { $in: ['assigned', 'out_for_trial_delivery'] },
     }).sort({ scheduledAt: 1 }).lean();
     return res.status(200).json({ success: true, data: trials, serverTime: nowIso() });
   } catch (error) {
