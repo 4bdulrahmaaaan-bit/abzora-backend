@@ -90,9 +90,16 @@ function buildServiceabilityResponse({
   distanceKm,
   hasGeoMatch,
   pincode,
+  city = '',
 }) {
   const metadata = zoneMetadata(zone);
   const productDelivery = product?.deliveryInfo || {};
+  const normalizedCity = String(city || '').trim().toLowerCase();
+  const zoneCity = String(zone?.city || '').trim().toLowerCase();
+  const hasCityMatch = Boolean(
+    normalizedCity && normalizedCity === zoneCity,
+  );
+  const deliveryMatch = hasGeoMatch || hasCityMatch;
   const tryAtHomeEnabled = Boolean(
     product?.trialHome?.trialEnabled ||
       productDelivery.tryAtHomeEligible ||
@@ -100,19 +107,19 @@ function buildServiceabilityResponse({
   );
   const instantEligible = Boolean(productDelivery.sameDayEligible ?? product?.sameDayEligible);
   const supportsTryAtHome = Boolean(
-    hasGeoMatch &&
+    deliveryMatch &&
       tryAtHomeEnabled &&
       metadata.supportsTryAtHome !== false &&
       metadata.tryAtHomeEnabled !== false,
   );
   const supportsInstantDelivery = Boolean(
-    hasGeoMatch &&
+    deliveryMatch &&
       instantEligible &&
       metadata.supportsInstantDelivery !== false &&
       metadata.supportsLocalDelivery !== false,
   );
   const supportsCourierDelivery = Boolean(
-    pincode ||
+    pincode || normalizedCity ||
       metadata.supportsCourierDelivery === true ||
       metadata.supportsCourierDelivery == null,
   ) && Number(product?.stock || 0) > 0;
@@ -179,7 +186,7 @@ function buildServiceabilityResponse({
           : 'UNAVAILABLE',
     serviceZoneId: zone?.zoneId || '',
     zoneId: zone?.zoneId || '',
-    city: zone?.city || '',
+    city: zone?.city || city || '',
     pincode: pincode || '',
     eta: supportsInstantDelivery || supportsTryAtHome
       ? instantEtaLabel
@@ -194,12 +201,12 @@ function buildServiceabilityResponse({
   };
 }
 
-async function deliveryCheck({ productId, lat, lng, pincode = '' }) {
+async function deliveryCheck({ productId, lat, lng, pincode = '', city = '' }) {
   if (!productId) {
     return { success: false, available: false, isDeliverable: false, reason: 'product_id_required' };
   }
 
-  const cacheKey = `product:${productId}:serviceability:${Number.isFinite(lat) ? lat.toFixed(5) : 'na'}:${Number.isFinite(lng) ? lng.toFixed(5) : 'na'}:${String(pincode || 'na').trim() || 'na'}`;
+  const cacheKey = `product:${productId}:serviceability:${Number.isFinite(lat) ? lat.toFixed(5) : 'na'}:${Number.isFinite(lng) ? lng.toFixed(5) : 'na'}:${String(pincode || 'na').trim() || 'na'}:${String(city || 'na').trim().toLowerCase() || 'na'}`;
   const cached = await getJson(cacheKey);
   if (cached) {
     return cached;
@@ -227,9 +234,11 @@ async function deliveryCheck({ productId, lat, lng, pincode = '' }) {
   const addressLng = Number(lng);
   const hasGeo = Number.isFinite(addressLat) && Number.isFinite(addressLng);
   const normalizedPincode = String(pincode || '').trim();
+  const normalizedCity = String(city || '').trim().toLowerCase();
   const productStore = await Store.findById(product.storeId)
     .select('city latitude longitude sameDay')
     .lean();
+  const productCity = String(productStore?.city || '').trim().toLowerCase();
 
   for (const zone of zones) {
     const zoneLat = toNumber(zone?.center?.lat);
@@ -238,10 +247,10 @@ async function deliveryCheck({ productId, lat, lng, pincode = '' }) {
     if (hasGeo && Number.isFinite(zoneLat) && Number.isFinite(zoneLng)) {
       distance = haversineDistanceKm(addressLat, addressLng, zoneLat, zoneLng);
     }
+    const zoneCity = String(zone.city || '').trim().toLowerCase();
     const cityMatch =
-      normalizedPincode &&
-      String(zone.city || '').trim().toLowerCase() &&
-      String(zone.city || '').trim().toLowerCase() === String(productStore?.city || '').trim().toLowerCase();
+      normalizedCity &&
+      (normalizedCity === zoneCity || normalizedCity === productCity);
     const withinRadius = Number.isFinite(distance) && distance <= Number(zone.radiusKm || 0);
     const metadata = zoneMetadata(zone);
     const zonePincodes = normalizeProviderList(metadata.pincodes);
@@ -264,9 +273,10 @@ async function deliveryCheck({ productId, lat, lng, pincode = '' }) {
     distanceKm: bestDistance,
     hasGeoMatch: hasGeo || Boolean(bestZone),
     pincode: normalizedPincode,
+    city: normalizedCity || productStore?.city || '',
   });
 
-  if (!response.isDeliverable && normalizedPincode) {
+  if (!response.isDeliverable && (normalizedPincode || normalizedCity)) {
     response.supportsCourierDelivery = true;
     response.isDeliverable = true;
     response.available = true;
