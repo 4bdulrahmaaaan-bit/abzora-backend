@@ -22,15 +22,22 @@ function normalizeSizeQuantities(product) {
   return Object.fromEntries(sizes.map((size) => [String(size).trim(), quantity]));
 }
 
+function toPlainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+  if (value instanceof Map) {
+    return Object.fromEntries(value.entries());
+  }
+  if (typeof value.toObject === 'function') {
+    return value.toObject();
+  }
+  return Object.fromEntries(Object.entries(value));
+}
+
 function buildVendorMeta(product) {
-  const existingMeta =
-    product.vendorMeta && typeof product.vendorMeta === 'object' && !Array.isArray(product.vendorMeta)
-      ? Object.fromEntries(Object.entries(product.vendorMeta))
-      : {};
-  const attributes =
-    product.attributes && typeof product.attributes === 'object' && !Array.isArray(product.attributes)
-      ? Object.fromEntries(Object.entries(product.attributes))
-      : {};
+  const existingMeta = toPlainObject(product.vendorMeta);
+  const attributes = toPlainObject(product.attributes);
 
   const readString = (key, fallback = '') => {
     const candidates = [
@@ -94,17 +101,23 @@ async function main() {
   for await (const product of cursor) {
     scanned += 1;
     const vendorMeta = buildVendorMeta(product);
-    const currentMeta =
-      product.vendorMeta && typeof product.vendorMeta === 'object' && !Array.isArray(product.vendorMeta)
-        ? JSON.stringify(Object.fromEntries(Object.entries(product.vendorMeta)))
-        : '';
+    const currentMeta = JSON.stringify(toPlainObject(product.vendorMeta));
     const nextMeta = JSON.stringify(vendorMeta);
+    const shouldEnableTrialHome =
+      vendorMeta.tryBeforeYouBuy === true &&
+      product.trialHome?.trialEnabled !== true;
 
-    if (currentMeta === nextMeta) {
+    if (currentMeta === nextMeta && !shouldEnableTrialHome) {
       continue;
     }
 
     product.vendorMeta = vendorMeta;
+    if (shouldEnableTrialHome) {
+      product.trialHome = {
+        ...(product.trialHome?.toObject?.() ?? product.trialHome ?? {}),
+        trialEnabled: true,
+      };
+    }
     await product.save();
     updated += 1;
   }
