@@ -351,7 +351,11 @@ function deriveReturnRisk(source = {}) {
 }
 
 function deriveTryAtHomeAvailable(source = {}, store = null) {
-  const productEnabled = source.trialHome?.trialEnabled === true;
+  const productEnabled =
+    source.trialHome?.trialEnabled === true ||
+    source.vendorMeta?.tryBeforeYouBuy === true ||
+    source.deliveryInfo?.tryAtHomeEligible === true ||
+    source.deliveryInfo?.tryAtHomeAvailable === true;
   const storeSupports = store?.sameDay?.supportsTrialHome !== false;
   return productEnabled && storeSupports;
 }
@@ -831,7 +835,7 @@ function serializeProduct(product, options = {}) {
     store: populatedStore ? serializeStoreSummary(populatedStore) : null,
     isActive: Boolean(source.isActive),
     trialHome: {
-      trialEnabled: Boolean(source.trialHome?.trialEnabled),
+      trialEnabled: deriveTryAtHomeAvailable(source, populatedStore),
       allowedLocations: Array.isArray(source.trialHome?.allowedLocations)
         ? source.trialHome.allowedLocations
         : [],
@@ -865,6 +869,13 @@ function serializeProduct(product, options = {}) {
   serialized.colors = deriveColors(source);
   serialized.sameDayAvailable = deriveSameDayAvailable(source, populatedStore, options);
   serialized.tryAtHomeAvailable = deriveTryAtHomeAvailable(source, populatedStore);
+  serialized.deliveryInfo = {
+    ...serialized.deliveryInfo,
+    supportsInstantDelivery: serialized.sameDayAvailable,
+    supportsTryAtHome: serialized.tryAtHomeAvailable,
+    tryAtHomeAvailable: serialized.tryAtHomeAvailable,
+    tryAtHomeEligible: serialized.tryAtHomeAvailable,
+  };
   serialized.customizable = deriveCustomizable(serialized);
   serialized.deliveryTime = deriveDeliveryTime(source, populatedStore, options);
   serialized.fitConfidence = fitConfidence;
@@ -1084,7 +1095,10 @@ function normalizeTrialHomeConfig(raw = {}, fallback = {}) {
     : 'auto';
   const trialEnabledRaw =
     raw.trialEnabled == null ? fallback.trialEnabled : raw.trialEnabled;
-  const trialEnabled = trialEnabledRaw === true;
+  const trialEnabled =
+    trialEnabledRaw === true ||
+    raw.tryBeforeYouBuy === true ||
+    fallback.tryBeforeYouBuy === true;
 
   return {
     trialEnabled,
@@ -1368,7 +1382,13 @@ async function listProducts(req, res, next) {
     }
     const tryAtHomeOnly = parseBooleanFlag(req.query.tryAtHomeAvailable) === true;
     if (tryAtHomeOnly) {
-      query['trialHome.trialEnabled'] = true;
+      query.$or = [
+        ...(query.$or || []),
+        { 'trialHome.trialEnabled': true },
+        { 'vendorMeta.tryBeforeYouBuy': true },
+        { 'deliveryInfo.tryAtHomeAvailable': true },
+        { 'deliveryInfo.tryAtHomeEligible': true },
+      ];
     }
     const cacheKey = productListCacheKey(query, {
       filters: req.query,

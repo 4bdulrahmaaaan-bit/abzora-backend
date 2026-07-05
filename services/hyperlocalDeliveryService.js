@@ -120,6 +120,7 @@ function buildServiceabilityResponse({
   const storeSupportsTrialHome = storeDelivery.supportsTrialHome !== false;
   const tryAtHomeEnabled = Boolean(
     product?.trialHome?.trialEnabled ||
+      product?.vendorMeta?.tryBeforeYouBuy ||
       productDelivery.tryAtHomeEligible ||
       productDelivery.tryAtHomeAvailable,
   );
@@ -233,7 +234,7 @@ async function deliveryCheck({ productId, lat, lng, pincode = '', locality = '',
   }
 
   const product = await Product.findById(productId)
-    .select('_id storeId stock sameDayEligible trialHome deliveryInfo')
+    .select('_id storeId stock sameDayEligible trialHome deliveryInfo vendorMeta')
     .lean();
   if (!product || Number(product.stock || 0) <= 0) {
     return {
