@@ -677,6 +677,11 @@ const productSchema = new mongoose.Schema(
       type: garmentConfigSchema,
       default: () => ({}),
     },
+    vendorMeta: {
+      type: Map,
+      of: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
   },
   {
     timestamps: true,

@@ -826,6 +826,7 @@ function serializeProduct(product, options = {}) {
       value: item?.value ?? '',
     })),
     arAsset: source.arAsset || {},
+    vendorMeta: source.vendorMeta || {},
     storeId: populatedStore ? populatedStore._id?.toString() || populatedStore.id || '' : source.storeId?.toString() || '',
     store: populatedStore ? serializeStoreSummary(populatedStore) : null,
     isActive: Boolean(source.isActive),
@@ -1160,6 +1161,7 @@ async function createProduct(req, res, next) {
       discount_end_date,
       attributes,
       arAsset,
+      vendorMeta,
       trialHome,
       atelier,
       garmentConfig,
@@ -1281,6 +1283,7 @@ async function createProduct(req, res, next) {
       attributes: structuredPayload.attributes,
       structuredAttributes: structuredPayload.structuredAttributes,
       arAsset: arAsset && typeof arAsset === 'object' && !Array.isArray(arAsset) ? arAsset : {},
+      vendorMeta: vendorMeta && typeof vendorMeta === 'object' && !Array.isArray(vendorMeta) ? vendorMeta : {},
       trialHome: normalizeTrialHomeConfig(trialHome),
       atelier: normalizeAtelierProductConfig(atelier),
       garmentConfig: normalizeGarmentConfig(garmentConfig),
@@ -1562,6 +1565,7 @@ async function updateProduct(req, res, next) {
       discount_end_date,
       attributes,
       arAsset,
+      vendorMeta,
       isActive,
       trialHome,
       atelier,
@@ -1705,6 +1709,9 @@ async function updateProduct(req, res, next) {
     product.attributeTemplateVersion = structuredPayload.templateVersion || product.attributeTemplateVersion || 1;
     if (arAsset && typeof arAsset === 'object' && !Array.isArray(arAsset)) {
       product.arAsset = arAsset;
+    }
+    if (vendorMeta && typeof vendorMeta === 'object' && !Array.isArray(vendorMeta)) {
+      product.vendorMeta = vendorMeta;
     }
     if (Array.isArray(images)) {
       product.images = images.map((item) => item?.toString().trim()).filter(Boolean);

@@ -87,6 +87,7 @@ function pickLocalProvider(zone) {
 function buildServiceabilityResponse({
   product,
   zone,
+  store,
   distanceKm,
   hasGeoMatch,
   pincode,
@@ -94,12 +95,17 @@ function buildServiceabilityResponse({
 }) {
   const metadata = zoneMetadata(zone);
   const productDelivery = product?.deliveryInfo || {};
+  const storeDelivery = store?.sameDay || {};
   const normalizedCity = String(city || '').trim().toLowerCase();
   const zoneCity = String(zone?.city || '').trim().toLowerCase();
+  const storeCity = String(store?.city || '').trim().toLowerCase();
   const hasCityMatch = Boolean(
-    normalizedCity && normalizedCity === zoneCity,
+    normalizedCity &&
+      (normalizedCity === zoneCity || normalizedCity === storeCity),
   );
   const deliveryMatch = hasGeoMatch || hasCityMatch;
+  const storeSupportsSameDay = storeDelivery.enabled !== false;
+  const storeSupportsTrialHome = storeDelivery.supportsTrialHome !== false;
   const tryAtHomeEnabled = Boolean(
     product?.trialHome?.trialEnabled ||
       productDelivery.tryAtHomeEligible ||
@@ -109,12 +115,14 @@ function buildServiceabilityResponse({
   const supportsTryAtHome = Boolean(
     deliveryMatch &&
       tryAtHomeEnabled &&
+      storeSupportsTrialHome &&
       metadata.supportsTryAtHome !== false &&
       metadata.tryAtHomeEnabled !== false,
   );
   const supportsInstantDelivery = Boolean(
     deliveryMatch &&
       instantEligible &&
+      storeSupportsSameDay &&
       metadata.supportsInstantDelivery !== false &&
       metadata.supportsLocalDelivery !== false,
   );
@@ -270,6 +278,7 @@ async function deliveryCheck({ productId, lat, lng, pincode = '', city = '' }) {
   const response = buildServiceabilityResponse({
     product,
     zone: bestZone,
+    store: productStore,
     distanceKm: bestDistance,
     hasGeoMatch: hasGeo || Boolean(bestZone),
     pincode: normalizedPincode,

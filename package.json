@@ -24,6 +24,7 @@
         "ops:verify-backup-readiness": "node scripts/verifyBackupReadiness.js",
         "ops:validate-invoice-env": "node scripts/validateInvoiceEnv.js",
         "migrate:vendor-onboarding": "node scripts/migrateVendorOnboardingVisibility.js",
+        "migrate:vendor-meta": "node scripts/backfillVendorMeta.js",
         "pilot:seed": "node scripts/seedPilotData.js",
         "pilot:seed:clean": "node scripts/seedPilotData.js --clean",
         "pilot:benchmark": "node scripts/benchmarkApis.js",
