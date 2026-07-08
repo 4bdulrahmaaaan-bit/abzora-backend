@@ -251,6 +251,7 @@ function serializeSettings(item) {
     checkoutEnabled: item?.checkoutEnabled ?? true,
     marketplaceEnabled: item?.marketplaceEnabled ?? true,
     riderDispatchEnabled: item?.riderDispatchEnabled ?? true,
+    enableLocalRiderDelivery: item?.enableLocalRiderDelivery ?? false,
     cities,
     regionVendorAvailability: regions,
     allowedAdminDevices: item?.allowedAdminDevices || ['web-chrome', 'windows-desktop'],
@@ -794,6 +795,8 @@ async function savePlatformSettings(req, res, next) {
       checkoutEnabled: req.body?.checkoutEnabled ?? settings.checkoutEnabled,
       marketplaceEnabled: req.body?.marketplaceEnabled ?? settings.marketplaceEnabled,
       riderDispatchEnabled: req.body?.riderDispatchEnabled ?? settings.riderDispatchEnabled,
+      enableLocalRiderDelivery:
+        req.body?.enableLocalRiderDelivery ?? settings.enableLocalRiderDelivery ?? false,
       cities: normalizeBooleanMap(req.body?.cities, settings.cities),
       regionVendorAvailability: normalizeBooleanMap(
         req.body?.regionVendorAvailability,

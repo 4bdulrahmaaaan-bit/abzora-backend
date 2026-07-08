@@ -19,7 +19,7 @@ const {
 const { hasRole } = require('../middleware/authorizationMiddleware');
 const { deliveryCheck, getOrderTracking } = require('../services/hyperlocalDeliveryService');
 const { getJson } = require('../services/redisCacheService');
-
+const shiprocketService = require('../services/shiprocketService');
 function ensureAuth(req, res) {
   if (!req.user?.uid) {
     res.status(401).json({ success: false, message: 'Unauthorized' });
@@ -1018,6 +1018,109 @@ async function getOptimizedRiderRoute(req, res, next) {
   }
 }
 
+async function scheduleShiprocketPickup(req, res, next) {
+  try {
+    if (!ensureRole(req, res, ['vendor', 'admin', 'super_admin'])) {
+      return;
+    }
+    const { orderId } = req.body;
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: 'orderId is required' });
+    }
+
+    const order = await Order.findById(orderId).populate('storeId');
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+    if (order.deliveryType !== 'COURIER_DELIVERY') {
+      return res.status(400).json({ success: false, message: 'Order is not configured for courier delivery.' });
+    }
+
+    const weight = order.items.reduce((acc, item) => acc + (item.packageWeight || 0.5) * item.quantity, 0);
+
+    const shipmentData = {
+      order_id: order.trackingId || order._id.toString(),
+      order_date: order.createdAt.toISOString().slice(0, 10),
+      pickup_location: 'Primary',
+      billing_customer_name: order.shippingAddress?.name || 'Customer',
+      billing_last_name: '',
+      billing_address: order.shippingAddress?.addressLine1 || 'N/A',
+      billing_city: order.shippingAddress?.city || 'N/A',
+      billing_pincode: order.shippingAddress?.pincode || 'N/A',
+      billing_state: order.shippingAddress?.state || 'N/A',
+      billing_country: 'India',
+      billing_email: order.shippingAddress?.email || 'customer@example.com',
+      billing_phone: order.shippingAddress?.phone || '9999999999',
+      shipping_is_billing: true,
+      order_items: order.items.map(item => ({
+        name: item.name,
+        sku: item.sku || item.productId.toString(),
+        units: item.quantity,
+        selling_price: item.price,
+      })),
+      payment_method: order.paymentMethod === 'COD' ? 'COD' : 'Prepaid',
+      sub_total: order.subtotalAmount,
+      length: 10,
+      breadth: 10,
+      height: 10,
+      weight: weight,
+    };
+
+    const shiprocketOrder = await shiprocketService.createShipment(shipmentData);
+
+    if (!shiprocketOrder.success) {
+      return res.status(400).json({ success: false, message: 'Failed to create shipment in Shiprocket', error: shiprocketOrder.error });
+    }
+
+    const { order_id, shipment_id, awb_code } = shiprocketOrder.data;
+
+    order.trackingNumber = awb_code || shipment_id;
+    order.shipmentId = shipment_id;
+    order.deliveryProvider = 'Shiprocket';
+    
+    if (shipment_id) {
+       await shiprocketService.schedulePickup([shipment_id]);
+    }
+
+    await order.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Pickup scheduled successfully with Shiprocket.',
+      data: { order_id, shipment_id, awb_code }
+    });
+
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getShiprocketTracking(req, res, next) {
+  try {
+    if (!ensureAuth(req, res)) {
+      return;
+    }
+    const { orderId } = req.params;
+    const order = await Order.findById(orderId);
+    
+    if (!order) {
+       return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+    if (order.deliveryProvider !== 'Shiprocket' || !order.shipmentId) {
+       return res.status(400).json({ success: false, message: 'No valid Shiprocket shipment associated with this order.' });
+    }
+
+    const trackingInfo = await shiprocketService.getTrackingThroughShipmentId(order.shipmentId);
+
+    return res.status(200).json({
+      success: true,
+      data: trackingInfo?.data || null
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   assignRider,
   listRiderTasks,
@@ -1034,4 +1137,6 @@ module.exports = {
   assignRiderForOrder,
   trackOrder,
   getOptimizedRiderRoute,
+  scheduleShiprocketPickup,
+  getShiprocketTracking,
 };

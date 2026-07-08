@@ -3,6 +3,7 @@ const Store = require('../models/Store');
 const Order = require('../models/Order');
 const OpsZone = require('../models/OpsZone');
 const { getJson, setJson } = require('./redisCacheService');
+const { enableLocalRiderDelivery } = require('./deliveryModeService');
 
 function toNumber(value, fallback = null) {
   const numeric = Number(value);
@@ -118,6 +119,7 @@ function buildServiceabilityResponse({
   const deliveryMatch = hasGeoMatch || hasCityMatch || hasLocalityMatch || hasStateMatch;
   const storeSupportsSameDay = storeDelivery.enabled !== false;
   const storeSupportsTrialHome = storeDelivery.supportsTrialHome !== false;
+  const localRiderEnabled = enableLocalRiderDelivery();
   const tryAtHomeEnabled = Boolean(
     product?.trialHome?.trialEnabled ||
       product?.vendorMeta?.tryBeforeYouBuy ||
@@ -126,14 +128,16 @@ function buildServiceabilityResponse({
   );
   const instantEligible = Boolean(productDelivery.sameDayEligible ?? product?.sameDayEligible);
   const supportsTryAtHome = Boolean(
-    deliveryMatch &&
+    localRiderEnabled &&
+      deliveryMatch &&
       tryAtHomeEnabled &&
       storeSupportsTrialHome &&
       metadata.supportsTryAtHome !== false &&
       metadata.tryAtHomeEnabled !== false,
   );
   const supportsInstantDelivery = Boolean(
-    deliveryMatch &&
+    localRiderEnabled &&
+      deliveryMatch &&
       instantEligible &&
       storeSupportsSameDay &&
       metadata.supportsInstantDelivery !== false &&
@@ -306,11 +310,7 @@ async function deliveryCheck({ productId, lat, lng, pincode = '', locality = '',
     response.supportsCourierDelivery = true;
     response.isDeliverable = true;
     response.available = true;
-    response.deliveryMode = response.supportsTryAtHome
-      ? 'TRY_AT_HOME'
-      : response.supportsInstantDelivery
-        ? 'LOCAL_DELIVERY'
-        : 'COURIER_DELIVERY';
+    response.deliveryMode = 'COURIER_DELIVERY';
     response.deliveryPartner = response.courierProvider || response.deliveryPartner || 'Shiprocket';
     response.deliveryProvider = response.deliveryPartner;
     response.estimatedDeliveryDate = response.estimatedDeliveryDate || isoDatePlusDays(3);

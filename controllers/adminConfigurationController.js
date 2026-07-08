@@ -61,6 +61,9 @@ exports.updateConfig = async (req, res) => {
     delete updates.createdAt;
     delete updates.updatedAt;
     delete updates.__v;
+    if (!Object.prototype.hasOwnProperty.call(updates, 'enableLocalRiderDelivery')) {
+      updates.enableLocalRiderDelivery = false;
+    }
 
     const newConfig = await AdminPlatformSettings.findOneAndUpdate(
       { key: 'platform-settings' },

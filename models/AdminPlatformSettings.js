@@ -15,6 +15,7 @@ const adminPlatformSettingsSchema = new mongoose.Schema(
     checkoutEnabled: { type: Boolean, default: true },
     marketplaceEnabled: { type: Boolean, default: true },
     riderDispatchEnabled: { type: Boolean, default: true },
+    enableLocalRiderDelivery: { type: Boolean, default: false },
     cities: { type: Map, of: Boolean, default: { Mumbai: true, Delhi: true, Bangalore: true, Hyderabad: true } },
     regionVendorAvailability: {
       type: Map,

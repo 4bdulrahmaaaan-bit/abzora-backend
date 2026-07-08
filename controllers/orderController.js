@@ -1,4 +1,4 @@
-﻿const crypto = require('crypto');
+const crypto = require('crypto');
 
 const Razorpay = require('razorpay');
 const mongoose = require('mongoose');
@@ -1042,7 +1042,10 @@ async function createOrder(req, res, next) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
     const sameDayOrder = isSameDayOrderEligible(store);
-    const normalizedDeliveryType = String(deliveryType || '').trim().toUpperCase();
+    let normalizedDeliveryType = String(deliveryType || '').trim().toUpperCase();
+    if (!enableLocalRiderDelivery()) {
+      normalizedDeliveryType = 'COURIER_DELIVERY';
+    }
     const allowedDeliveryTypes = new Set(['TRY_AT_HOME', 'LOCAL_DELIVERY', 'COURIER_DELIVERY']);
     if (!allowedDeliveryTypes.has(normalizedDeliveryType)) {
       return res.status(400).json({ success: false, message: 'Invalid delivery type.' });
@@ -1088,11 +1091,14 @@ async function createOrder(req, res, next) {
       });
     }
 
-    const resolvedDeliveryProvider = String(
+    let resolvedDeliveryProvider = String(
       resolvedServiceability?.deliveryProvider ||
         resolvedServiceability?.deliveryPartner ||
         '',
     ).trim();
+    if (!enableLocalRiderDelivery()) {
+      resolvedDeliveryProvider = 'Shiprocket';
+    }
     const resolvedEstimatedDeliveryDate = String(
       resolvedServiceability?.estimatedDeliveryDate ||
         estimatedDeliveryDate ||
@@ -1127,6 +1133,26 @@ async function createOrder(req, res, next) {
       tryAtHomeRequested: Boolean(tryAtHomeRequested),
       fulfillmentType: store.vendorType === 'custom_vendor' ? 'custom_tailoring' : 'marketplace',
     });
+
+    if (!enableLocalRiderDelivery() && normalizedDeliveryType === 'COURIER_DELIVERY') {
+      const srRates = await shiprocketService.getAvailableCouriers({
+        pickupPostcode: store.pincode || '110001',
+        deliveryPostcode: normalizedShippingAddress.pincode,
+        weight: products.reduce((acc, p) => acc + (p.packageWeight || 0.5), 0),
+        cod: normalizedPaymentMethod === 'COD'
+      });
+      
+      let shiprocketRate = 40; 
+      if (srRates && srRates.data && srRates.data.available_courier_companies) {
+        const couriers = srRates.data.available_courier_companies;
+        if (couriers.length > 0) {
+          const cheapest = couriers.reduce((prev, curr) => (prev.rate < curr.rate) ? prev : curr);
+          shiprocketRate = cheapest.rate;
+        }
+      }
+      financials.deliveryFee = shiprocketRate;
+      financials.totalAmount = financials.subtotalAmount + financials.taxAmount + financials.deliveryFee - (financials.discountAmount || 0);
+    }
 
     const providedShippingCharge = Number(shippingCharge || 0);
     const computedShippingCharge = Number(financials.deliveryFee || 0);

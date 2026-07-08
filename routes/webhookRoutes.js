@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { queueWebhookEvent } = require('../services/webhookQueueService');
 const { handleRazorpayPayoutWebhook } = require('../controllers/financeController');
+const shiprocketWebhookController = require('../controllers/shiprocketWebhookController');
 const Order = require('../models/Order');
 
 const router = express.Router();
@@ -172,5 +173,8 @@ router.post('/courier', async (req, res, next) => {
     next(error);
   }
 });
+
+router.post('/shiprocket/status', shiprocketWebhookController.handleStatusUpdate);
+
 
 module.exports = router;

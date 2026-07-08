@@ -22,6 +22,8 @@ const {
   getOperationsAnalytics,
   checkDeliveryAvailability,
   trackOrder,
+  scheduleShiprocketPickup,
+  getShiprocketTracking,
 } = require('../controllers/logisticsController');
 
 const router = express.Router();
@@ -45,5 +47,8 @@ router.post('/trial/update-status', trialAliasUpdateStatus);
 
 router.get('/analytics/ops', getOperationsAnalytics);
 router.get('/order/track/:id', trackOrder);
+
+router.post('/shiprocket/pickup', scheduleShiprocketPickup);
+router.get('/shiprocket/track/:orderId', getShiprocketTracking);
 
 module.exports = router;

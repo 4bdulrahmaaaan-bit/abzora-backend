@@ -95,9 +95,10 @@ async function testCheckDeliveryAvailabilityPincodeOnlyTryAtHome() {
     const res = createRes();
     await checkDeliveryAvailability(req, res, () => {});
     assert.equal(res.statusCode, 200);
+    const isLocalRiderEnabled = process.env.ENABLE_LOCAL_RIDER_DELIVERY === 'true';
     assert.equal(res.body.isDeliverable, true);
-    assert.equal(res.body.supportsTryAtHome, true);
-    assert.equal(res.body.deliveryMode, 'TRY_AT_HOME');
+    assert.equal(res.body.supportsTryAtHome, isLocalRiderEnabled);
+    assert.equal(res.body.deliveryMode, isLocalRiderEnabled ? 'TRY_AT_HOME' : 'COURIER_DELIVERY');
   } finally {
     Product.findById = originalProductFindById;
     Store.findById = originalStoreFindById;
