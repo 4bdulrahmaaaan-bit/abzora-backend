@@ -1,7 +1,7 @@
 const AdminAutomation = require('../models/AdminAutomation');
 const AdminActivityLog = require('../models/AdminActivityLog');
 const adminAutomationService = require('../services/adminAutomationService');
-const { ensureAdmin } = require('./authController');
+const { ensureAdmin } = require('./adminController');
 
 async function listAutomations(req, res, next) {
   try {

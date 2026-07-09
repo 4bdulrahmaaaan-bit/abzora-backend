@@ -1,4 +1,4 @@
-﻿const crypto = require('crypto');
+const crypto = require('crypto');
 
 const User = require('../models/User');
 const Store = require('../models/Store');
@@ -1871,4 +1871,5 @@ module.exports = {
   applyUserAction,
   updateUserRole,
   applyProductAction,
+  ensureAdmin,
 };
