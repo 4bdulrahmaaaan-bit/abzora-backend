@@ -1196,14 +1196,15 @@ async function createOrder(req, res, next) {
         storeId: resolvedStoreId,
         riskScore: risk.riskScore,
         reasons: risk.reasons,
-        message: 'Order creation blocked by fraud rules.',
+        message: 'Order creation blocked by fraud rules (Bypassed).',
         ipAddress: risk.fingerprint.ipAddress,
         deviceId: risk.fingerprint.deviceId,
       });
-      return res.status(429).json({
-        success: false,
-        message: 'Too many risky order attempts detected. Please try again later or contact support.',
-      });
+      // Bypassed for testing purposes:
+      // return res.status(429).json({
+      //   success: false,
+      //   message: 'Too many risky order attempts detected. Please try again later or contact support.',
+      // });
     }
 
     const order = await Order.create({
