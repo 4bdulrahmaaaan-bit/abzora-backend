@@ -263,9 +263,9 @@ async function deliveryCheck({ productId, lat, lng, pincode = '', locality = '',
   const normalizedLocality = String(locality || '').trim().toLowerCase();
   const normalizedCity = String(city || '').trim().toLowerCase();
   const normalizedState = String(state || '').trim().toLowerCase();
-  const productStore = await Store.findById(product.storeId)
+  const productStore = product.storeId ? await Store.findById(product.storeId)
     .select('city latitude longitude sameDay pincode')
-    .lean();
+    .lean().catch(() => null) : null;
   const productCity = String(productStore?.city || '').trim().toLowerCase();
 
   for (const zone of zones) {
