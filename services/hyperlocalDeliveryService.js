@@ -4,6 +4,7 @@ const Order = require('../models/Order');
 const OpsZone = require('../models/OpsZone');
 const { getJson, setJson } = require('./redisCacheService');
 const { enableLocalRiderDelivery } = require('./deliveryModeService');
+const shiprocketService = require('./shiprocketService');
 
 function toNumber(value, fallback = null) {
   const numeric = Number(value);
@@ -263,7 +264,7 @@ async function deliveryCheck({ productId, lat, lng, pincode = '', locality = '',
   const normalizedCity = String(city || '').trim().toLowerCase();
   const normalizedState = String(state || '').trim().toLowerCase();
   const productStore = await Store.findById(product.storeId)
-    .select('city latitude longitude sameDay')
+    .select('city latitude longitude sameDay pincode')
     .lean();
   const productCity = String(productStore?.city || '').trim().toLowerCase();
 
@@ -318,7 +319,36 @@ async function deliveryCheck({ productId, lat, lng, pincode = '', locality = '',
     response.reason = '';
   }
 
+  
+  // SHIPROCKET ETA FETCH
+  if (response.supportsCourierDelivery && response.deliveryPartner === 'Shiprocket' && (!enableLocalRiderDelivery() || !response.supportsInstantDelivery)) {
+    try {
+      const srRates = await shiprocketService.getAvailableCouriers({
+        pickupPostcode: productStore?.pincode || '110001',
+        deliveryPostcode: normalizedPincode,
+        weight: product.packageWeight || 0.5,
+        cod: false
+      });
+      
+      if (srRates && srRates.data && srRates.data.available_courier_companies) {
+        const couriers = srRates.data.available_courier_companies;
+        if (couriers.length > 0) {
+          const cheapest = couriers.reduce((prev, curr) => (prev.rate < curr.rate) ? prev : curr);
+          response.shippingCharge = cheapest.rate || response.shippingCharge;
+          
+          if (cheapest.etd) {
+            response.estimatedDeliveryDate = cheapest.etd;
+            response.eta = `Delivery by ${cheapest.etd.split(' ')[0]}`;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Shiprocket ETA fetch error in deliveryCheck:', e);
+    }
+  }
+
   await setJson(cacheKey, response, 300);
+
   return response;
 }
 
