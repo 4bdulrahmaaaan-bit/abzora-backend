@@ -837,7 +837,7 @@ async function buildPricingSnapshot({
     products.length > 0
       ? products.reduce((sum, product) => sum + Number(product.fitRisk || 0), 0) / products.length
       : 0;
-  const trialHomeSupported =
+  const tryAtHomeSupported =
     Boolean(store?.sameDay?.supportsTrialHome) &&
     products.some((product) => product?.trialHome?.trialEnabled);
   const trialHomeFee =
