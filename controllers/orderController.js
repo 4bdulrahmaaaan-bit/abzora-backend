@@ -19,6 +19,7 @@ const { generatePremiumInvoicePdf } = require('../services/invoicePdfService');
 const { enqueueInvoiceJob } = require('../services/invoiceService');
 const { recordTrackingEvent } = require('../services/trackingEventService');
 const { deliveryCheck } = require('../services/hyperlocalDeliveryService');
+const { enableLocalRiderDelivery } = require('../services/deliveryModeService');
 const { calculateOrderPricing, toPricingEngineConfig } = require('../services/pricingService');
 const { getPricingConfig } = require('../services/pricingConfigService');
 const {
