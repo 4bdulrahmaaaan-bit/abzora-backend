@@ -62,6 +62,10 @@ const DEFAULT_PRICING_CONFIG = Object.freeze({
     lowConversionThreshold: 0.12,
     highReturnThreshold: 0.3,
   },
+  taxConfig: {
+    defaultGstRate: 5,
+    categoryOverrides: [],
+  },
 });
 
 function nowIso() {
@@ -179,6 +183,15 @@ function normalizePricingConfig(input = {}) {
       lowRiderThreshold: normalizeAmount(base.dynamicRules?.lowRiderThreshold, 3, 0, 1000),
       lowConversionThreshold: normalizePercent(base.dynamicRules?.lowConversionThreshold, 0.12, 0, 1),
       highReturnThreshold: normalizePercent(base.dynamicRules?.highReturnThreshold, 0.3, 0, 1),
+    },
+    taxConfig: {
+      defaultGstRate: normalizeAmount(base.taxConfig?.defaultGstRate, 5, 0, 100),
+      categoryOverrides: Array.isArray(base.taxConfig?.categoryOverrides)
+        ? base.taxConfig.categoryOverrides
+            .filter((o) => o && typeof o.category === 'string' && Number.isFinite(Number(o.rate)))
+            .map((o) => ({ category: String(o.category || '').trim(), rate: normalizeAmount(o.rate, 5, 0, 100) }))
+            .slice(0, 50)
+        : [],
     },
   };
 }
@@ -345,6 +358,7 @@ async function replacePricingConfig({
   config.discounts = normalized.discounts;
   config.riderPayouts = normalized.riderPayouts;
   config.dynamicRules = normalized.dynamicRules;
+  config.taxConfig = normalized.taxConfig;
   config.updatedBy = adminId;
   config.updateSource = action;
   await config.save();

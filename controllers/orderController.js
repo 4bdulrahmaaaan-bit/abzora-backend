@@ -74,6 +74,7 @@ function serializeOrder(order) {
     subtotalAmount: Number(source.subtotalAmount || 0),
     productAmount: Number(source.productAmount || source.subtotalAmount || 0),
     taxAmount: Number(source.taxAmount || 0),
+    taxRate: Number(source.taxRate || 0),
     deliveryFee: Number(source.deliveryFee || 0),
     deliveryDistanceKm: Number(source.deliveryDistanceKm || 0),
     discountAmount: Number(source.discountAmount || 0),
@@ -676,14 +677,17 @@ function resolveDeliveryDistanceKm({ requestedDistanceKm, store, user }) {
   return computedDistance == null ? 0 : sanitizeDistanceKm(computedDistance);
 }
 
-function resolveOrderTaxAmount({ subtotalAmount, items = [] }) {
+async function resolveOrderTaxAmount({ subtotalAmount, items = [] }) {
   const safeSubtotal = Math.max(0, Number(subtotalAmount || 0));
   if (safeSubtotal <= 0) {
-    return 0;
+    return { taxAmount: 0, taxRate: 0 };
   }
 
-  const configuredRate = Number(process.env.ORDER_TAX_RATE || process.env.DEFAULT_TAX_RATE || 18);
-  const taxRate = Number.isFinite(configuredRate) && configuredRate > 0 ? configuredRate : 18;
+  const config = await getPricingConfig();
+  const taxConfig = config.taxConfig || {};
+  const configuredRate = Number(taxConfig.defaultGstRate);
+  const taxRate = Number.isFinite(configuredRate) && configuredRate > 0 ? configuredRate : 5;
+
   const itemSubtotal = Array.isArray(items)
     ? items.reduce((sum, item) => {
         const price = Number(item?.price || item?.unitPrice || 0);
@@ -692,7 +696,8 @@ function resolveOrderTaxAmount({ subtotalAmount, items = [] }) {
       }, 0)
     : 0;
   const taxableBase = itemSubtotal > 0 ? itemSubtotal : safeSubtotal;
-  return Number(((taxableBase * taxRate) / 100).toFixed(2));
+  const taxAmount = Number((taxableBase - (taxableBase / (1 + taxRate / 100))).toFixed(2));
+  return { taxAmount, taxRate };
 }
 
 function normalizeOptionalUrl(value) {
@@ -1124,12 +1129,13 @@ async function createOrder(req, res, next) {
       });
     }
 
+    const taxResult = await resolveOrderTaxAmount({ subtotalAmount, items: normalizedItems });
     const financials = await buildPricingSnapshot({
       user,
       store,
       products,
       subtotalAmount,
-      taxAmount: resolveOrderTaxAmount({ subtotalAmount, items: normalizedItems }),
+      taxAmount: taxResult.taxAmount,
       paymentMethod: normalizedPaymentMethod,
       requestedDistanceKm: deliveryDistanceKm,
       tryAtHomeRequested: Boolean(tryAtHomeRequested),
@@ -1214,6 +1220,7 @@ async function createOrder(req, res, next) {
       subtotalAmount,
       productAmount: financials.productAmount,
       taxAmount: financials.taxAmount,
+      taxRate: taxResult.taxRate,
       deliveryFee: financials.deliveryFee,
       deliveryDistanceKm: financials.deliveryDistanceKm,
       discountAmount: financials.discountAmount,
@@ -1479,12 +1486,13 @@ async function createAtelierOrder(req, res, next) {
         : 0;
     const atelierSubtotalAmount = baseAmount + atelierCustomizationCharge + atelierTailoringCharge + atelierHomeVisitCharge;
 
+    const atelierTaxResult = await resolveOrderTaxAmount({ subtotalAmount: atelierSubtotalAmount, items: [{ price: baseAmount, quantity: 1 }] });
     const financials = await buildPricingSnapshot({
       user,
       store,
       products: [product],
       subtotalAmount: atelierSubtotalAmount,
-      taxAmount: resolveOrderTaxAmount({ subtotalAmount: atelierSubtotalAmount, items: [{ price: baseAmount, quantity: 1 }] }),
+      taxAmount: atelierTaxResult.taxAmount,
       paymentMethod: (paymentMethod || 'RAZORPAY').toString().trim().toUpperCase() === 'COD' ? 'COD' : 'RAZORPAY',
       requestedDistanceKm: deliveryDistanceKm,
       tryAtHomeRequested: normalizedMeasurementMethod === 'trial',
@@ -1514,6 +1522,7 @@ async function createAtelierOrder(req, res, next) {
       subtotalAmount: atelierSubtotalAmount,
       productAmount: baseAmount,
       taxAmount: financials.taxAmount,
+      taxRate: atelierTaxResult.taxRate,
       deliveryFee: financials.deliveryFee,
       deliveryDistanceKm: financials.deliveryDistanceKm,
       discountAmount: financials.discountAmount,
@@ -1628,12 +1637,13 @@ async function getOrderPricingQuote(req, res, next) {
       return res.status(404).json({ success: false, message: 'Store not found.' });
     }
 
+    const quoteTaxResult = await resolveOrderTaxAmount({ subtotalAmount, items: normalizedItems });
     const quote = await buildPricingSnapshot({
       user,
       store,
       products,
       subtotalAmount,
-      taxAmount: resolveOrderTaxAmount({ subtotalAmount, items: normalizedItems }),
+      taxAmount: quoteTaxResult.taxAmount,
       paymentMethod: (paymentMethod || 'RAZORPAY').toString().trim().toUpperCase() === 'COD' ? 'COD' : 'RAZORPAY',
       requestedDistanceKm: deliveryDistanceKm,
       tryAtHomeRequested: Boolean(tryAtHomeRequested),
@@ -1646,6 +1656,7 @@ async function getOrderPricingQuote(req, res, next) {
         storeId: resolvedStoreId,
         items: normalizedItems,
         pricing: quote,
+        taxRate: quoteTaxResult.taxRate,
         sameDayEligible: isSameDayOrderEligible(store),
       },
     });

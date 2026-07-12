@@ -75,6 +75,22 @@ const dynamicRulesSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const taxConfigSchema = new mongoose.Schema(
+  {
+    defaultGstRate: { type: Number, default: 5, min: 0, max: 100 },
+    categoryOverrides: {
+      type: [
+        {
+          category: { type: String, trim: true },
+          rate: { type: Number, min: 0, max: 100 },
+        },
+      ],
+      default: [],
+    },
+  },
+  { _id: false },
+);
+
 const pricingConfigSchema = new mongoose.Schema(
   {
     key: {
@@ -90,6 +106,7 @@ const pricingConfigSchema = new mongoose.Schema(
     discounts: { type: discountSchema, default: () => ({}) },
     riderPayouts: { type: riderPayoutSchema, default: () => ({}) },
     dynamicRules: { type: dynamicRulesSchema, default: () => ({}) },
+    taxConfig: { type: taxConfigSchema, default: () => ({}) },
     updatedBy: { type: String, default: '', trim: true },
     updateSource: { type: String, default: 'system', trim: true },
   },

@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 
 const authMiddleware = require('../middleware/authMiddleware');
 const { requireAdmin } = require('../middleware/authorizationMiddleware');
@@ -156,6 +156,7 @@ const {
   updateAdminPricingRider,
   updateAdminPricingScope,
   updateAdminPricingTrial,
+  updateAdminPricingTaxConfig,
 } = require('../controllers/pricingAdminController');
 const {
   overrideDispatch,
@@ -308,6 +309,7 @@ router.post('/pricing/delivery', updateAdminPricingDelivery);
 router.post('/pricing/trial', updateAdminPricingTrial);
 router.post('/pricing/discount', updateAdminPricingDiscount);
 router.post('/pricing/rider', updateAdminPricingRider);
+router.post('/pricing/tax', updateAdminPricingTaxConfig);
 router.post('/pricing/simulate', simulateAdminPricing);
 router.post('/finance/settlements/vendors', settleVendorPayouts);
 router.post('/finance/settlements/riders', settleRiderPayouts);

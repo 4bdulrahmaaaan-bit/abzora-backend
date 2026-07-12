@@ -27,6 +27,7 @@ function normalizeScope(scope) {
     'discounts',
     'riderPayouts',
     'dynamicRules',
+    'taxConfig',
   ]);
   return allowed.has(String(scope || '').trim()) ? String(scope).trim() : '';
 }
@@ -220,4 +221,5 @@ module.exports = {
   updateAdminPricingRider: makeScopedUpdater('riderPayouts', 'update_pricing_rider'),
   updateAdminPricingScope,
   updateAdminPricingTrial: makeScopedUpdater('trialPricing', 'update_pricing_trial'),
+  updateAdminPricingTaxConfig: makeScopedUpdater('taxConfig', 'update_pricing_tax'),
 };
