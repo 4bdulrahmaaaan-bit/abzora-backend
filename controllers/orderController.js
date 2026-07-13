@@ -1162,6 +1162,11 @@ async function createOrder(req, res, next) {
       financials.totalAmount = financials.subtotalAmount + financials.taxAmount + financials.deliveryFee - (financials.discountAmount || 0);
     }
 
+    if ((financials.subtotalAmount - (financials.discountAmount || 0)) >= 999) {
+      financials.deliveryFee = 0;
+      financials.totalAmount = financials.subtotalAmount + financials.taxAmount + financials.deliveryFee - (financials.discountAmount || 0);
+    }
+
     const providedShippingCharge = Number(shippingCharge || 0);
     const computedShippingCharge = Number(financials.deliveryFee || 0);
     if (Math.abs(providedShippingCharge - computedShippingCharge) > 0.01) {
@@ -1649,6 +1654,11 @@ async function getOrderPricingQuote(req, res, next) {
       tryAtHomeRequested: Boolean(tryAtHomeRequested),
       fulfillmentType: store.vendorType === 'custom_vendor' ? 'custom_tailoring' : 'marketplace',
     });
+
+    if ((quote.subtotalAmount - (quote.discountAmount || 0)) >= 999) {
+      quote.deliveryFee = 0;
+      quote.totalAmount = quote.subtotalAmount + quote.taxAmount + quote.deliveryFee - (quote.discountAmount || 0);
+    }
 
     return res.status(200).json({
       success: true,
