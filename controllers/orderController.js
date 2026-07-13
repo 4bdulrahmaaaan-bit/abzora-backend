@@ -114,6 +114,9 @@ function serializeOrder(order) {
     deliveryType: source.deliveryType || 'COURIER_DELIVERY',
     deliveryProvider: source.deliveryProvider || source.assignedDeliveryPartner || 'Unassigned',
     trackingNumber: source.trackingNumber || source.trackingId || '',
+    invoiceId: source.invoiceId || '',
+    invoiceNumber: source.invoiceNumber || source.id || '',
+    invoicePdfUrl: source.invoicePdfUrl || '',
     shipmentId: source.shipmentId || '',
     awbNumber: source.awbNumber || '',
     shippingCharge: Number(source.shippingCharge || 0),
@@ -1313,6 +1316,7 @@ async function createOrder(req, res, next) {
     }
     if (normalizedPaymentMethod === 'COD') {
       await processReferralRewardIfEligible(req.user.uid, order);
+      await enqueueInvoiceJob(order._id.toString(), 'cod_confirmed');
     }
 
     if (validCoupon) {

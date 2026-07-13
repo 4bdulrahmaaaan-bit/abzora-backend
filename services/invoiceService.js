@@ -199,6 +199,16 @@ async function createInvoiceForOrder(orderId, { forceRegenerate = false } = {}) 
   invoice.qrPayload = qrPayload;
 
   await invoice.save();
+
+  await Order.updateOne(
+    { _id: order._id },
+    {
+      invoiceId: invoice._id,
+      invoiceNumber: invoice.invoiceNumber,
+      invoicePdfUrl: invoice.invoicePdfUrl,
+    }
+  );
+
   const emailToken = buildSignedToken({
     invoiceId: String(invoice._id),
     userId: invoice.customerId,

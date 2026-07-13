@@ -141,6 +141,23 @@ const orderSchema = new mongoose.Schema(
       required: true,
       min: 0,
     },
+    invoiceId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Invoice',
+      default: null,
+      index: true,
+    },
+    invoiceNumber: {
+      type: String,
+      trim: true,
+      default: '',
+      index: true,
+    },
+    invoicePdfUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
     orderType: {
       type: String,
       enum: ['standard', 'trial_conversion'],
